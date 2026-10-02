@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
@@ -33,6 +33,6 @@ class AuditEvent(Base):
     request_id: Mapped[Optional[str]] = mapped_column(String(120))
     workflow_id: Mapped[Optional[str]] = mapped_column(String(120))
     reason: Mapped[Optional[str]] = mapped_column(Text)
-    metadata_json: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSON)
     previous_state_hash: Mapped[Optional[str]] = mapped_column(String(128))
     new_state_hash: Mapped[Optional[str]] = mapped_column(String(128))

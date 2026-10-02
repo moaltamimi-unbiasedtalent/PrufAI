@@ -23,6 +23,8 @@ from app.models.enums import (
     AssessmentFamily,
     KnowledgeVersionStatus,
     PackValidationStatus,
+    RuleEvaluationStatus,
+    RuleStatus,
     StandardPackBindingType,
     StandardPackStatus,
 )
@@ -35,6 +37,7 @@ class ValidationIssue:
     path: str
     message: str
     evidence_ref: Optional[str] = None
+    origin: str = "STRUCTURAL"
 
 
 @dataclass(frozen=True)
@@ -390,6 +393,56 @@ class StandardPackService:
                                 "rubric reference is recommended when a rubric is required",
                             )
                         )
+        if version.rule_bindings:
+            from app.rules.service import RulesService
+
+            for binding in version.rule_bindings:
+                if binding.rule_version.status not in {
+                    RuleStatus.APPROVED,
+                    RuleStatus.PUBLISHED,
+                    RuleStatus.ACTIVE,
+                }:
+                    issues.append(
+                        ValidationIssue(
+                            "PACK.RULE_VERSION_NOT_APPROVED",
+                            "FAIL" if binding.required else "WARN",
+                            f"rule_bindings.{binding.id}",
+                            "bound rule version is not approved or published",
+                            str(binding.rule_version_id),
+                            "RULE",
+                        )
+                    )
+            report = RulesService.evaluate_pack(session, version)
+            for result in report.results:
+                if result.status is RuleEvaluationStatus.PASS:
+                    continue
+                rule_binding = next(
+                    (
+                        item
+                        for item in version.rule_bindings
+                        if item.rule_version_id == uuid.UUID(result.rule_version_id)
+                    ),
+                    None,
+                )
+                required = rule_binding.required if rule_binding is not None else True
+                severity = (
+                    "FAIL"
+                    if required
+                    and (
+                        result.status is RuleEvaluationStatus.ERROR or result.severity == "BLOCKING"
+                    )
+                    else "WARN"
+                )
+                issues.append(
+                    ValidationIssue(
+                        result.failure_code or "PACK.RULE_EVALUATION_ERROR",
+                        severity,
+                        result.path or f"rule_bindings.{result.rule_code}",
+                        result.message,
+                        result.rule_version_id,
+                        "RULE",
+                    )
+                )
         checksum = StandardPackService.checksum(version)
         status = (
             PackValidationStatus.FAIL

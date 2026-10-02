@@ -8,6 +8,7 @@ from app.config import Settings
 from app.dependencies import settings_dependency
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
+from app.rules.api import router as rules_router
 from app.standard_packs.api import router as standard_packs_router
 
 app = FastAPI(title="PrüfAI API", version="0.1.0")
@@ -45,6 +46,7 @@ app.include_router(org_router)
 app.include_router(knowledge_router)
 app.include_router(retrieval_router)
 app.include_router(standard_packs_router)
+app.include_router(rules_router)
 
 
 @app.get("/health")

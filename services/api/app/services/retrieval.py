@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, cast
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -39,6 +40,18 @@ from app.models.enums import (
     KnowledgeIndexStatus,
     KnowledgeVersionStatus,
 )
+
+
+def _typed_score_map(rows: Iterable[tuple[object, object]]) -> dict[uuid.UUID, float]:
+    """Normalize SQLAlchemy numeric result rows at the database boundary."""
+    scores: dict[uuid.UUID, float] = {}
+    for raw_id, raw_score in rows:
+        if not isinstance(raw_id, uuid.UUID):
+            raise TypeError("retrieval result key is not a UUID")
+        if not isinstance(raw_score, (int, float)):
+            raise TypeError("retrieval score is not numeric")
+        scores[raw_id] = float(raw_score)
+    return scores
 
 
 @dataclass(frozen=True)
@@ -442,7 +455,7 @@ class RetrievalService:
                 .order_by(lexical_score.desc())
                 .limit(limit)
             )
-            scores = {chunk_id: float(score) for chunk_id, score in rows}
+            scores = _typed_score_map(cast(Iterable[tuple[object, object]], rows))
             results = [
                 item
                 for item in self._results(session, versions, profile.id)
@@ -486,7 +499,7 @@ class RetrievalService:
                 .order_by(distance.asc())
                 .limit(min(max(limit, 1), 50))
             )
-            distances = {chunk_id: float(value) for chunk_id, value in rows}
+            distances = _typed_score_map(cast(Iterable[tuple[object, object]], rows))
             ranked = [
                 item
                 for item in self._results(session, versions, profile.id)

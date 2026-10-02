@@ -16,6 +16,7 @@ from app.authorization import AuthorizationError, AuthorizationService
 from app.db import get_db_session
 from app.knowledge.embeddings import EmbeddingError
 from app.models.enums import AssessmentFamily
+from app.services.evidence import EvidenceRetrievalService
 from app.services.retrieval import KnowledgeIndexService, RetrievalScope, RetrievalService
 
 router = APIRouter(prefix="/api/v1/platform/standards/retrieval", tags=["standards-retrieval"])
@@ -26,6 +27,7 @@ class RetrievalMode(str, Enum):
     LEXICAL = "LEXICAL"
     VECTOR = "VECTOR"
     HYBRID = "HYBRID"
+    RERANKED_HYBRID = "RERANKED_HYBRID"
 
 
 class RetrievalScopeRequest(BaseModel):
@@ -100,6 +102,18 @@ def search(
             results = service.search_lexical(session, payload.query, scope, payload.limit)
         elif payload.mode is RetrievalMode.VECTOR:
             results = service.search_vector(session, payload.query, scope, payload.limit)
+        elif payload.mode is RetrievalMode.RERANKED_HYBRID:
+            evidence = EvidenceRetrievalService().search(
+                session, payload.query, scope, payload.limit
+            )
+            return {
+                "request_id": str(request_id),
+                "mode": payload.mode.value,
+                "results": [
+                    {"evidence": result.__dict__, "citation": citation.__dict__}
+                    for result, citation in evidence
+                ],
+            }
         else:
             results = service.search_hybrid(session, payload.query, scope, payload.limit)
     except (ValueError, AuthorizationError) as exc:

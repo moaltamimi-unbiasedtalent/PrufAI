@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     knowledge_embedding_api_key: str = ""
     knowledge_embedding_timeout_seconds: int = 20
     knowledge_vector_metric: Literal["cosine"] = "cosine"
+    knowledge_reranker_backend: Literal["deterministic", "openai"] = "deterministic"
+    knowledge_reranker_model: str = "rerank-v1"
+    knowledge_reranker_api_key: str = ""
+    knowledge_reranker_timeout_seconds: int = 20
     environment: Literal["development", "test", "production"] = "development"
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -87,6 +91,14 @@ class Settings(BaseSettings):
     def embedding_dimension_is_supported(cls, value: int) -> int:
         if value != 384:
             raise ValueError("the MVP pgvector dimension is fixed at 384")
+        return value
+
+    @field_validator("knowledge_reranker_backend")
+    @classmethod
+    def production_requires_real_reranking(cls, value: str, info: object) -> str:
+        data = getattr(info, "data", {})
+        if data.get("environment") == "production" and value == "deterministic":
+            raise ValueError("production reranking cannot use the deterministic test backend")
         return value
 
 

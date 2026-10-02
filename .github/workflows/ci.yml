@@ -64,6 +64,8 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_retrieval_quality.py
+        working-directory: services/api
       - run: python -m alembic upgrade head
         working-directory: services/api
         env:

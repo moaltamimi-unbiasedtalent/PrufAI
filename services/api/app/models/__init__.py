@@ -30,6 +30,7 @@ from app.models.retrieval import (
     KnowledgeChunkEmbedding,
     KnowledgeIndexJob,
     KnowledgeIndexProfile,
+    KnowledgeRerankingProfile,
 )
 
 __all__ = [
@@ -58,4 +59,5 @@ __all__ = [
     "KnowledgeChunkEmbedding",
     "KnowledgeIndexJob",
     "KnowledgeIndexProfile",
+    "KnowledgeRerankingProfile",
 ]

@@ -24,6 +24,8 @@ PLATFORM_PERMISSIONS = (
     "standards.document.read",
     "standards.document.manage",
     "standards.document.review",
+    "standards.evaluation.read",
+    "standards.evaluation.run",
 )
 TENANT_PERMISSIONS = (
     "organisation.read",
@@ -50,6 +52,8 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "standards.document.read",
             "standards.document.manage",
             "standards.document.review",
+            "standards.evaluation.read",
+            "standards.evaluation.run",
         ),
     ),
     "PRUFAI_AI_ADMIN": (RoleScope.PLATFORM, ("platform.organisation.read", "platform.audit.read")),

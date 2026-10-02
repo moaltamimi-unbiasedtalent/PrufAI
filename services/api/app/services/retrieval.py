@@ -108,6 +108,9 @@ class CitationReadyResult:
     vector_score: Optional[float] = None
     hybrid_rank: Optional[int] = None
     fusion_score: Optional[float] = None
+    rerank_rank: Optional[int] = None
+    rerank_score: Optional[float] = None
+    reranking_profile: Optional[str] = None
     matched_lexical: bool = False
     matched_vector: bool = False
 

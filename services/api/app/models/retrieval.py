@@ -110,3 +110,19 @@ class KnowledgeIndexJob(UUIDPrimaryKeyMixin, Base):
     safe_error_message: Mapped[Optional[str]] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+
+
+class KnowledgeRerankingProfile(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "knowledge_reranking_profiles"
+    __table_args__ = (UniqueConstraint("profile_id", name="uq_knowledge_reranking_profile_id"),)
+
+    profile_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    version: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    candidate_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    final_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    configuration: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

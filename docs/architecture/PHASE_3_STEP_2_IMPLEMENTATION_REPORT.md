@@ -22,6 +22,10 @@ The evaluator never executes source code. Fact roots, operators and complexity a
 - Remote CI and live PostgreSQL execution remain pending until the pushed branch is executed by GitHub Actions.
 - Dependency audit state is unchanged: production 0 Critical, 1 High, 1 Moderate, 0 Low; the existing transitive PostCSS advisory remains documented.
 
+## Remote PostgreSQL CI Correction
+
+The failed run used the same intended CI database for `DATABASE_URL` (Alembic) and `POSTGRES_INTEGRATION_URL` (Rules integration), but executed the Rules PostgreSQL test before `alembic upgrade head`. The test therefore connected successfully to `prufai` while seeing zero tables. The workflow now performs the migration first, emits sanitized database/schema/search-path/Alembic-revision diagnostics, and then runs the mandatory Rules integration test against the same URL. No migration files or schema creation fallback were added. Remote rerun status remains pending.
+
 ## Validation boundary
 
 Local API tests, lint and mypy are executable in this checkout. PostgreSQL, remote CI, production dependency scanning and provider certification remain external verification steps. No official provider rules or certification claims are included.

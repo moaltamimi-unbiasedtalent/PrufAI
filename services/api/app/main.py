@@ -6,6 +6,7 @@ from app.auth.api import org_router
 from app.auth.api import router as auth_router
 from app.config import Settings
 from app.dependencies import settings_dependency
+from app.knowledge.api import router as knowledge_router
 
 app = FastAPI(title="PrüfAI API", version="0.1.0")
 
@@ -39,6 +40,7 @@ def _configure_cors() -> None:
 _configure_cors()
 app.include_router(auth_router)
 app.include_router(org_router)
+app.include_router(knowledge_router)
 
 
 @app.get("/health")

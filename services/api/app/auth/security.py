@@ -5,9 +5,11 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional, Protocol, cast
 
 import jwt
+from redis import Redis
+from redis.exceptions import RedisError
 
 from app.config import Settings
 
@@ -97,3 +99,53 @@ class InMemoryRateLimiter:
 
     def clear(self, key: str) -> None:
         self._attempts.pop(key, None)
+
+
+class RateLimitUnavailable(RuntimeError):
+    """Raised when the configured shared limiter cannot be reached."""
+
+
+class RateLimiter(Protocol):
+    def allow(self, key: str, limit: int, window_seconds: int) -> bool: ...
+
+    def clear(self, key: str) -> None: ...
+
+
+def rate_limit_key(scope: str, source: str, account: Optional[str] = None) -> str:
+    """Build privacy-conscious keys without storing source/account plaintext."""
+    source_digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:32]
+    account_digest = (
+        hashlib.sha256(account.casefold().encode("utf-8")).hexdigest()[:32]
+        if account is not None
+        else "none"
+    )
+    return f"prufai:auth:rl:{scope}:{source_digest}:{account_digest}"
+
+
+class RedisRateLimiter:
+    """Distributed fixed-window limiter backed by an atomic Redis Lua script."""
+
+    _increment_script = """
+    local current = redis.call('INCR', KEYS[1])
+    if current == 1 then
+      redis.call('EXPIRE', KEYS[1], ARGV[1])
+    end
+    return current
+    """
+
+    def __init__(self, redis_url: str, *, client: Optional[Redis] = None) -> None:
+        self.client: Redis = client or Redis.from_url(redis_url, decode_responses=True)
+
+    def allow(self, key: str, limit: int, window_seconds: int) -> bool:
+        try:
+            value = self.client.eval(self._increment_script, 1, key, str(max(1, window_seconds)))
+            current = int(cast(str, value))
+        except RedisError as exc:
+            raise RateLimitUnavailable("authentication rate-limit backend unavailable") from exc
+        return current <= limit
+
+    def clear(self, key: str) -> None:
+        try:
+            self.client.delete(key)
+        except RedisError as exc:
+            raise RateLimitUnavailable("authentication rate-limit backend unavailable") from exc

@@ -40,6 +40,15 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,5 +72,9 @@ jobs:
         working-directory: services/api
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_redis_integration.py
+        working-directory: services/api
+        env:
+          REDIS_INTEGRATION_URL: redis://localhost:6379/0
       - run: python -m pytest tests
         working-directory: services/ai

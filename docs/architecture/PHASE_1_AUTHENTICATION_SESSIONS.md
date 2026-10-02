@@ -74,8 +74,17 @@ Reset requests return the same generic response for known and unknown emails.
 ## Rate limiting and audit
 
 Login, reset requests, and refresh use configurable temporary throttling. The
-local/test implementation is in-memory; the service boundary is intentionally
-replaceable with Redis, already present in the approved infrastructure.
+production backend is a shared Redis limiter using an atomic Lua
+`INCR`/`EXPIRE` operation, so concurrent API instances share a fixed window.
+Development and tests may explicitly select the in-memory backend. Production
+configuration rejects that backend and never silently downgrades to it.
+
+Rate-limit keys hash source and normalized account identifiers; plaintext
+emails, passwords, access tokens, refresh tokens, reset tokens, and invitation
+tokens are not used as keys. If configured Redis is unavailable, affected
+authentication operations return controlled service-unavailable responses
+rather than disabling protection. CI provisions Redis alongside PostgreSQL and
+runs the shared-state integration test.
 
 Security events include successful/failed login, session creation/refresh/
 revocation, refresh reuse, invitation creation/acceptance, and reset request/

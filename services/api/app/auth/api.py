@@ -10,7 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.flows import FakeNotificationSink, InvitationService, PasswordResetService
-from app.auth.security import InMemoryRateLimiter, TokenService, generate_opaque_token
+from app.auth.security import (
+    InMemoryRateLimiter,
+    RateLimiter,
+    RateLimitUnavailable,
+    RedisRateLimiter,
+    TokenService,
+    generate_opaque_token,
+    rate_limit_key,
+)
 from app.auth.service import AuthenticationError, AuthenticationService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
 from app.config import Settings, get_settings
@@ -21,8 +29,8 @@ from app.models.enums import AuthSessionStatus
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 org_router = APIRouter(prefix="/api/v1/organisations", tags=["organisation-authentication"])
 bearer = HTTPBearer(auto_error=False)
-_rate_limiter = InMemoryRateLimiter()
 _notifications = FakeNotificationSink()
+_rate_limiters: dict[tuple[str, str], RateLimiter] = {}
 
 
 def auth_settings_dependency() -> Settings:
@@ -65,8 +73,19 @@ class Principal:
     tenant_context: Optional[TenantContext]
 
 
+def _rate_limiter(settings: Settings) -> RateLimiter:
+    key = (settings.auth_rate_limit_backend, settings.redis_url)
+    if key not in _rate_limiters:
+        _rate_limiters[key] = (
+            RedisRateLimiter(settings.redis_url)
+            if settings.auth_rate_limit_backend == "redis"
+            else InMemoryRateLimiter()
+        )
+    return _rate_limiters[key]
+
+
 def _service(settings: Settings) -> AuthenticationService:
-    return AuthenticationService(settings, rate_limiter=_rate_limiter)
+    return AuthenticationService(settings, rate_limiter=_rate_limiter(settings))
 
 
 def _set_auth_cookies(response: Response, settings: Settings, refresh_token: str) -> None:
@@ -154,6 +173,11 @@ def login(
             source=request.client.host if request.client else "unknown",
             user_agent=request.headers.get("user-agent"),
         )
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication rate limiting is temporarily unavailable",
+        ) from exc
     except (AuthenticationError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password"
@@ -180,11 +204,18 @@ def refresh(
 ) -> dict[str, object]:
     _require_csrf(request, settings)
     source = request.client.host if request.client else "unknown"
-    if not _rate_limiter.allow(
-        f"refresh:{source}",
-        settings.auth_rate_limit_refresh_attempts,
-        settings.auth_rate_limit_window_seconds,
-    ):
+    try:
+        allowed = _rate_limiter(settings).allow(
+            rate_limit_key("refresh", source),
+            settings.auth_rate_limit_refresh_attempts,
+            settings.auth_rate_limit_window_seconds,
+        )
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication rate limiting is temporarily unavailable",
+        ) from exc
+    if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="try again later")
     raw = request.cookies.get(settings.auth_refresh_cookie_name)
     if not raw:
@@ -193,6 +224,11 @@ def refresh(
         )
     try:
         result = _service(settings).refresh(session, raw)
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication rate limiting is temporarily unavailable",
+        ) from exc
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
@@ -308,10 +344,18 @@ def password_reset_request(
     session: Session = Depends(get_db_session),
     settings: Settings = Depends(auth_settings_dependency),
 ) -> dict[str, str]:
-    key = f"reset:{payload.email.casefold()}"
-    if not _rate_limiter.allow(
-        key, settings.auth_rate_limit_reset_attempts, settings.auth_rate_limit_window_seconds
-    ):
+    try:
+        allowed = _rate_limiter(settings).allow(
+            rate_limit_key("password-reset", payload.email),
+            settings.auth_rate_limit_reset_attempts,
+            settings.auth_rate_limit_window_seconds,
+        )
+    except RateLimitUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication rate limiting is temporarily unavailable",
+        ) from exc
+    if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="try again later")
     PasswordResetService(_notifications).request(session, email=payload.email, settings=settings)
     return {"message": "If an account exists, password reset instructions have been sent."}

@@ -12,10 +12,13 @@ from app.audit import AuditService
 from app.auth.passwords import hash_password, validate_password, verify_password
 from app.auth.security import (
     InMemoryRateLimiter,
+    RateLimiter,
+    RedisRateLimiter,
     TokenService,
     generate_opaque_token,
     hash_token,
     is_expired,
+    rate_limit_key,
     utcnow,
 )
 from app.config import Settings
@@ -43,11 +46,16 @@ class AuthenticationService:
         settings: Settings,
         *,
         token_service: Optional[TokenService] = None,
-        rate_limiter: Optional[InMemoryRateLimiter] = None,
+        rate_limiter: Optional[RateLimiter] = None,
     ) -> None:
         self.settings = settings
         self.tokens = token_service or TokenService(settings)
-        self.rate_limiter = rate_limiter or InMemoryRateLimiter()
+        if rate_limiter is not None:
+            self.rate_limiter = rate_limiter
+        elif settings.auth_rate_limit_backend == "redis":
+            self.rate_limiter = RedisRateLimiter(settings.redis_url)
+        else:
+            self.rate_limiter = InMemoryRateLimiter()
 
     def set_password(self, session: Session, user: User, password: str) -> UserPasswordCredential:
         validate_password(password)
@@ -76,7 +84,7 @@ class AuthenticationService:
     ) -> AuthenticationResult:
         normalized = normalize_email(email)
         if not self.rate_limiter.allow(
-            f"login:{source}:{normalized}",
+            rate_limit_key("login", source, normalized),
             self.settings.auth_rate_limit_login_attempts,
             self.settings.auth_rate_limit_window_seconds,
         ):
@@ -101,7 +109,7 @@ class AuthenticationService:
             )
             session.commit()
             raise AuthenticationError("invalid email or password")
-        self.rate_limiter.clear(f"login:{source}:{normalized}")
+        self.rate_limiter.clear(rate_limit_key("login", source, normalized))
         result = self._create_session(session, user, user_agent=user_agent, ip_address=ip_address)
         AuditService.record_security(
             session,

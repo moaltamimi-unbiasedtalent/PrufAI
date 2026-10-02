@@ -79,9 +79,10 @@ sessions, marks the token used, and requires normal login.
 
 ## Rate Limiting
 
-Login, reset requests, and refresh have configurable temporary limits. Tests and
-local development use an in-memory limiter; Redis is an approved replacement
-seam for shared production deployment.
+Login, reset requests, and refresh have configurable temporary limits. Production
+uses the atomic Redis-backed limiter; development/tests explicitly use the
+in-memory backend. Redis outages produce controlled `503` responses rather
+than a silent downgrade. Keys hash source and account dimensions.
 
 ## Audit Events
 
@@ -93,7 +94,7 @@ Recorded events include `auth.login.succeeded`, `auth.login.failed`,
 
 ## Tests
 
-The API suite contains 15 passing tests, including credential hashing and
+The API suite contains 18 passing tests, including credential hashing and
 policy, generic login behavior, session rotation/reuse, suspended users,
 invitation replay, password-reset replay, and token claim minimization. A
 PostgreSQL integration test is skipped locally without a service and runs in CI
@@ -112,6 +113,14 @@ unit-test jobs remain in place.
 - Production requires a strong `AUTH_JWT_SECRET`; development/test defaults are explicit.
 - Refresh and logout use double-submit CSRF protection.
 - The known inherited Next.js/PostCSS advisory remains documented; remediation requires a deferred breaking Next.js major upgrade.
+
+## Final Security Closure
+
+- Redis rate limiter implemented with atomic Lua `INCR`/`EXPIRE` windows.
+- Two-instance shared-state, threshold, expiry, privacy-key, and Redis-failure tests pass.
+- PostgreSQL and Redis services, migration execution, and integration-test commands are configured in GitHub Actions.
+- GitHub Actions execution remains an operator verification requirement; this environment cannot inspect remote checks.
+- The inherited Next.js/PostCSS advisory remains the only npm production advisory and still requires a breaking major upgrade.
 
 ## Known Limitations
 

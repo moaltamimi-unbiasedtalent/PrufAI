@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     auth_cookie_samesite: Literal["strict", "lax", "none"] = "strict"
     auth_cookie_path: str = "/api/v1/auth"
+    auth_rate_limit_backend: Literal["redis", "memory"] = "memory"
     auth_allowed_origins: list[str] = []
     auth_rate_limit_login_attempts: int = 5
     auth_rate_limit_window_seconds: int = 300
@@ -44,6 +45,14 @@ class Settings(BaseSettings):
         data = getattr(info, "data", {})
         if data.get("environment") == "production" and len(value) < 32:
             raise ValueError("production AUTH_JWT_SECRET must be at least 32 characters")
+        return value
+
+    @field_validator("auth_rate_limit_backend")
+    @classmethod
+    def production_requires_redis(cls, value: str, info: object) -> str:
+        data = getattr(info, "data", {})
+        if data.get("environment") == "production" and value != "redis":
+            raise ValueError("production authentication rate limiting must use Redis")
         return value
 
 

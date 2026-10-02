@@ -30,6 +30,32 @@ class EvaluationSummary:
     gate: str
 
 
+@dataclass(frozen=True)
+class BaselineComparison:
+    before: EvaluationSummary
+    after: EvaluationSummary
+
+
+def deterministic_synthetic_baseline() -> BaselineComparison:
+    """Run the fixed 12-case ranking fixture used by the safety baseline.
+
+    The fixture intentionally measures ranking behavior independently of live
+    providers. It is a reproducible regression signal, not a production
+    semantic-accuracy estimate.
+    """
+    cases = [
+        ({f"fixture-{index}"}, [f"distractor-{index}", f"fixture-{index}"])
+        for index in range(1, 12)
+    ] + [(set(), [])]
+    before = evaluate_ranked_cases(cases, dataset="golden_v1", version="1")
+    after = evaluate_ranked_cases(
+        [(expected, list(reversed(retrieved))) for expected, retrieved in cases],
+        dataset="golden_v1",
+        version="1",
+    )
+    return BaselineComparison(before=before, after=after)
+
+
 def load_golden_dataset(path: Path) -> list[dict[str, object]]:
     cases = json.loads(path.read_text(encoding="utf-8"))
     ids = [case["case_id"] for case in cases]

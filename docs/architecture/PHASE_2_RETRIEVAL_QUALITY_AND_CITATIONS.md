@@ -40,8 +40,11 @@ compliance, citation validity, and historical-version accuracy. Hard gates are
 zero provider/assessment contamination and 100% scope, citation, and historical
 accuracy for synthetic cases.
 
-RAGAS-compatible records can export retrieval contexts and references. Answer
+RAGAS-compatible records can export retrieval contexts and references. RAGAS is
+not installed or executed in this retrieval-only step; answer
 faithfulness/relevance are not evaluated because no generated answers exist.
+Actual RAGAS execution is a future integration once answer/context metrics and
+evaluator models are introduced.
 
 ## Security and limitations
 

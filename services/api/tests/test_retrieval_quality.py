@@ -8,6 +8,7 @@ from app.evaluation.retrieval import (
     precision_at_k,
     recall_at_k,
 )
+from app.evaluation.runner import deterministic_synthetic_baseline
 from app.knowledge.citations import CitationBuilder
 from app.knowledge.reranking import DeterministicTestReranker, RerankingProfile
 from app.services.retrieval import CitationReadyResult
@@ -69,3 +70,19 @@ def test_retrieval_metrics_and_quality_gate() -> None:
     assert ndcg_at_k({"a"}, ["a"], 1) == 1.0
     assert QualityGate().passed()
     assert not QualityGate(provider_contamination_rate=0.1).passed()
+    assert not QualityGate(assessment_contamination_rate=0.1).passed()
+    assert not QualityGate(scope_compliance_rate=0.99).passed()
+    assert not QualityGate(citation_validity_rate=0.99).passed()
+    assert not QualityGate(historical_version_accuracy=0.99).passed()
+    assert recall_at_k(set(), [], 5) == 1.0
+
+
+def test_synthetic_baseline_is_reproducible() -> None:
+    baseline = deterministic_synthetic_baseline()
+    assert baseline.before.recall_at_5 == 1.0
+    assert baseline.after.recall_at_5 == 1.0
+    assert baseline.before.mrr == 0.4583333333333333
+    assert baseline.after.mrr == 0.9166666666666666
+    assert baseline.before.ndcg_at_5 == 0.6616856074405029
+    assert baseline.after.ndcg_at_5 == 1.0
+    assert baseline.after.gate == "PASS"

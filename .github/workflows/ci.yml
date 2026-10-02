@@ -68,6 +68,10 @@ jobs:
         working-directory: services/api
       - run: python -m pytest tests/test_standard_packs.py
         working-directory: services/api
+      - run: python -m pytest tests/test_rules_engine.py tests/test_rules_postgresql_integration.py
+        working-directory: services/api
+        env:
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -m alembic upgrade head
         working-directory: services/api
         env:

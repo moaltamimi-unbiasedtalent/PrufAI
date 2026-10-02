@@ -12,12 +12,14 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.auth.security import utcnow
 from app.authorization import AuthorizationService, TenantContext
+from app.config import get_settings
 from app.knowledge.parsers import ParserRegistry
 from app.knowledge.storage import (
-    InMemoryObjectStorage,
     ObjectStorage,
+    build_object_storage,
     build_storage_key,
     detect_mime_type,
+    safe_filename,
 )
 from app.models import (
     KnowledgeAuthority,
@@ -104,7 +106,7 @@ class KnowledgeRegistryService:
         storage: Optional[ObjectStorage] = None,
         parsers: Optional[ParserRegistry] = None,
     ) -> None:
-        self.storage = storage or InMemoryObjectStorage()
+        self.storage = storage or build_object_storage(get_settings())
         self.parsers = parsers or ParserRegistry()
 
     def create_authority(
@@ -294,7 +296,7 @@ class KnowledgeRegistryService:
             raise ValueError("identical file is already registered for this source")
         storage_key = build_storage_key(version.source_id, version.id, filename)
         self.storage.put(storage_key, content, mime_type)
-        version.original_filename = filename.replace("\\", "/").split("/")[-1]
+        version.original_filename = safe_filename(filename)
         version.mime_type = mime_type
         version.storage_key = storage_key
         version.file_size = len(content)
@@ -540,7 +542,7 @@ class KnowledgeRegistryService:
         session.commit()
         return legal
 
-    def approved_at(
+    def get_approved_versions_as_of(
         self,
         session: Session,
         *,
@@ -569,6 +571,45 @@ class KnowledgeRegistryService:
                 or (_aware(version.effective_until) or point) > point
             )
         ]
+
+    def get_current_approved_versions(
+        self,
+        session: Session,
+        *,
+        source_id: uuid.UUID,
+        at: Optional[datetime] = None,
+    ) -> list[KnowledgeDocumentVersion]:
+        point = _aware(at) or utcnow()
+        candidates = list(
+            session.scalars(
+                select(KnowledgeDocumentVersion).where(
+                    KnowledgeDocumentVersion.source_id == source_id,
+                    KnowledgeDocumentVersion.status == KnowledgeVersionStatus.APPROVED,
+                )
+            )
+        )
+        effective = [
+            version
+            for version in candidates
+            if (version.effective_from is None or version.effective_from <= point)
+            and (version.effective_until is None or version.effective_until > point)
+        ]
+        superseded_ids = {
+            version.supersedes_document_version_id
+            for version in effective
+            if version.supersedes_document_version_id is not None
+        }
+        return [version for version in effective if version.id not in superseded_ids]
+
+    def approved_at(
+        self,
+        session: Session,
+        *,
+        source_id: uuid.UUID,
+        at: datetime,
+    ) -> list[KnowledgeDocumentVersion]:
+        """Backward-compatible alias for historical as-of resolution."""
+        return self.get_approved_versions_as_of(session, source_id=source_id, at=at)
 
     def provenance(self, session: Session, *, page_id: uuid.UUID) -> dict[str, object]:
         page = session.get(KnowledgeDocumentPage, page_id)

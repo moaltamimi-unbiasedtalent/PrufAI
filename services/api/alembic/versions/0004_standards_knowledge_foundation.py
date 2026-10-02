@@ -53,6 +53,13 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("source_code", name="uq_knowledge_sources_code"),
+        sa.CheckConstraint(
+            "(assessment_family = 'LANGUAGE' AND "
+            "(cefr_level IS NULL OR cefr_level IN "
+            "('A1','A2','B1','B2','C1','C2'))) OR "
+            "(assessment_family = 'INTEGRATION_KNOWLEDGE' AND cefr_level IS NULL)",
+            name="ck_knowledge_source_taxonomy",
+        ),
     )
     op.create_index("ix_knowledge_sources_authority", "knowledge_sources", ["authority_id"])
     op.create_index(

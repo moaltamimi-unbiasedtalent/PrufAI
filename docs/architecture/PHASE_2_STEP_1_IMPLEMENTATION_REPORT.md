@@ -33,3 +33,30 @@ Phase 2 / Step 2 must not start from this report. Future work may add approved
 knowledge retrieval and Standard Packs only after consuming the approval,
 effective-date, supersession, checksum, and page-provenance invariants defined
 here.
+
+## Final Architecture Closure
+
+Remote ancestry was refreshed and verified: `origin/main` now contains the
+merged Phase 1 Step 2 authentication/session implementation at `e1f6b67`. The
+Phase 2 branch is based on the Phase 1 authentication head and contains only
+the standards foundation plus this closure.
+
+The root assessment taxonomy is intentionally limited to `LANGUAGE` and
+`INTEGRATION_KNOWLEDGE`. Provider, framework/curriculum, exam family, language,
+skill, and CEFR remain separate metadata; LiD is integration knowledge with a
+NULL CEFR level.
+
+Current and historical resolution are separate service methods. Current
+resolution excludes superseded, retired, and replaced versions. As-of-date
+resolution uses approval state and effective intervals, so a superseded version
+can resolve as historical evidence without becoming current.
+
+Production storage is now an S3-compatible private-bucket adapter using the
+maintained boto3 client, compatible with AWS S3 and MinIO endpoints. Backend
+selection is environment-driven; production cannot select memory storage and
+storage failures surface as controlled upload/ingestion failures.
+
+Remote GitHub Actions status remains manual because `gh` is unavailable. Local
+frontend, API, AI, offline Alembic, storage, taxonomy, historical-resolution,
+provenance, rights, and authorization validation passed. Live PostgreSQL/MinIO
+execution remains infrastructure-dependent.

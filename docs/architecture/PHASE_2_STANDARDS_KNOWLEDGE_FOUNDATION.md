@@ -24,11 +24,11 @@ Authority -> Source -> DocumentVersion -> ObjectStorage
 Authorities are controlled identities (for example Council of Europe, BAMF,
 Goethe, telc, and PrüfAI). A source identifies a canonical standard, exam,
 provider, or curriculum within one authority. Source records carry the
-assessment family, document type, language, CEFR level, skill, scope, and
-canonical URL. The implemented families are LiD, language, provider, and
-curriculum; LiD is represented as a first-class assessment family with
-`provider_code`, `exam_family`, `cefr_level`, and `skill` fields available for
-future structured catalogues.
+root assessment family (`LANGUAGE` or `INTEGRATION_KNOWLEDGE`), document type,
+language, CEFR level, skill, scope, and canonical URL. Provider,
+framework/curriculum, exam family, language, skill, and CEFR are separate
+metadata dimensions. LiD uses `INTEGRATION_KNOWLEDGE`,
+`exam_family=LEBEN_IN_DEUTSCHLAND`, and a NULL CEFR level.
 
 ## Versions, dates, and legal metadata
 
@@ -39,11 +39,22 @@ Approval is explicit and a later approved version can supersede an older one;
 approved records cannot receive new files. Each version receives a legal
 metadata row whose unknown values remain explicit rather than inferred.
 
+## Current and historical resolution
+
+`get_current_approved_versions` returns approved, currently effective versions
+and excludes retired/superseded content and versions replaced by an effective
+successor. `get_approved_versions_as_of` resolves approved or superseded
+versions using approval state and effective intervals. A superseded version can
+remain valid historical evidence while never being current. Draft, ingesting,
+ingested, review-required, rejected, and retired content is never
+retrieval-eligible.
+
 ## Storage and ingestion
 
-The service depends on an `ObjectStorage` protocol. The current local adapter
-is an in-memory implementation for tests and development; production must bind
-an encrypted, access-controlled object store. Uploads are basename-sanitised,
+The service depends on an `ObjectStorage` protocol. Development/tests may use
+an explicit in-memory adapter; production requires the S3-compatible adapter
+with a private bucket, including MinIO-compatible endpoints. There is no
+production memory fallback. Uploads are basename-sanitised,
 size-limited to 25 MiB, restricted to PDF/plain-text/Markdown, and SHA-256
 hashed before registration. Parsers are selected by MIME type and emit pages
 with normalized text, content hashes, extraction status, parser identity, and

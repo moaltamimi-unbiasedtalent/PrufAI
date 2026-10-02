@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "prufai-local"
+    object_storage_backend: Literal["memory", "s3"] = "memory"
+    object_storage_access_key: str = ""
+    object_storage_secret_key: str = ""
+    object_storage_region: str = "us-east-1"
+    object_storage_secure: bool = False
     environment: Literal["development", "test", "production"] = "development"
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -53,6 +58,14 @@ class Settings(BaseSettings):
         data = getattr(info, "data", {})
         if data.get("environment") == "production" and value != "redis":
             raise ValueError("production authentication rate limiting must use Redis")
+        return value
+
+    @field_validator("object_storage_backend")
+    @classmethod
+    def production_requires_object_storage(cls, value: str, info: object) -> str:
+        data = getattr(info, "data", {})
+        if data.get("environment") == "production" and value != "s3":
+            raise ValueError("production object storage must use an S3-compatible backend")
         return value
 
 

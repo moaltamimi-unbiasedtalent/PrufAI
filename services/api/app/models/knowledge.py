@@ -54,6 +54,13 @@ class KnowledgeSource(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("source_code", name="uq_knowledge_sources_code"),
         Index("ix_knowledge_sources_authority", "authority_id"),
         Index("ix_knowledge_sources_taxonomy", "assessment_family", "exam_family", "cefr_level"),
+        CheckConstraint(
+            "(assessment_family = 'LANGUAGE' AND "
+            "(cefr_level IS NULL OR cefr_level IN "
+            "('A1','A2','B1','B2','C1','C2'))) OR "
+            "(assessment_family = 'INTEGRATION_KNOWLEDGE' AND cefr_level IS NULL)",
+            name="ck_knowledge_source_taxonomy",
+        ),
     )
 
     authority_id: Mapped[uuid.UUID] = mapped_column(

@@ -6,8 +6,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.authorization import AuthorizationError, TenantContext
+from app.config import Settings
 from app.knowledge.parsers import ParserRegistry, PdfParser
-from app.knowledge.storage import InMemoryObjectStorage
+from app.knowledge.storage import (
+    InMemoryObjectStorage,
+    S3CompatibleObjectStorage,
+    StorageError,
+    build_object_storage,
+    build_storage_key,
+)
 from app.models import Base, KnowledgeDocumentPage, KnowledgeIngestionJob
 from app.models.enums import (
     AssessmentFamily,
@@ -31,6 +38,59 @@ def test_pdf_parser_contract() -> None:
     pages = PdfParser().parse(output.getvalue())
     assert len(pages) == 1
     assert pages[0].extraction_status == "EMPTY"
+
+
+def test_storage_key_and_s3_round_trip_with_fake_client() -> None:
+    import uuid
+
+    class Body:
+        def __init__(self, content: bytes) -> None:
+            self.content = content
+
+        def read(self) -> bytes:
+            return self.content
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.objects: dict[str, bytes] = {}
+
+        def put_object(self, **kwargs: object) -> None:
+            self.objects[str(kwargs["Key"])] = bytes(kwargs["Body"])  # type: ignore[arg-type]
+
+        def get_object(self, **kwargs: object) -> dict[str, Body]:
+            return {"Body": Body(self.objects[str(kwargs["Key"])])}
+
+        def head_object(self, **kwargs: object) -> None:
+            if str(kwargs["Key"]) not in self.objects:
+                raise KeyError(kwargs["Key"])
+
+    source_id, version_id = uuid.uuid4(), uuid.uuid4()
+    key = build_storage_key(source_id, version_id, "../../policy.pdf")
+    assert key.startswith(f"standards/{source_id}/{version_id}/")
+    assert ".." not in key
+    client = FakeClient()
+    storage = S3CompatibleObjectStorage(
+        endpoint="http://minio",
+        bucket="private",
+        access_key="access",
+        secret_key="secret",
+        client=client,
+    )
+    storage.put(key, b"fixture", "text/plain")
+    assert storage.exists(key)
+    assert storage.get(key) == b"fixture"
+    with pytest.raises(StorageError):
+        storage.get("missing")
+
+
+def test_production_storage_cannot_fall_back_to_memory() -> None:
+    settings = Settings(
+        environment="production",
+        auth_rate_limit_backend="redis",
+        object_storage_backend="memory",
+    )
+    with pytest.raises(StorageError, match="cannot use in-memory"):
+        build_object_storage(settings)
 
 
 @pytest.fixture
@@ -228,6 +288,55 @@ def test_platform_permission_and_date_validation(
             effective_until=datetime.now(timezone.utc) - timedelta(days=1),
         )
     assert authority.code == "PRUFAI"
+
+
+def test_current_and_historical_approved_resolution(
+    knowledge_session: Session, platform_context: TenantContext
+) -> None:
+    storage = InMemoryObjectStorage()
+    service, _, source, first = create_fixture(knowledge_session, platform_context, storage)
+    first.effective_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    first.effective_until = datetime(2025, 12, 31, tzinfo=timezone.utc)
+    knowledge_session.commit()
+    second = service.create_version(
+        knowledge_session,
+        platform_context,
+        source_id=source.id,
+        version_label="2026.2",
+        effective_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        supersedes_document_version_id=first.id,
+    )
+    for version, filename, content in (
+        (first, "v1.txt", b"synthetic knowledge v1"),
+        (second, "v2.txt", b"synthetic knowledge v2"),
+    ):
+        service.register_file(
+            knowledge_session,
+            platform_context,
+            version_id=version.id,
+            filename=filename,
+            content=content,
+            declared_mime_type="text/plain",
+        )
+        service.ingest(knowledge_session, platform_context, version_id=version.id)
+        service.approve(knowledge_session, platform_context, version_id=version.id)
+    service.supersede(
+        knowledge_session,
+        platform_context,
+        old_version_id=first.id,
+        new_version_id=second.id,
+    )
+    assert service.get_current_approved_versions(knowledge_session, source_id=source.id) == [second]
+    assert service.get_approved_versions_as_of(
+        knowledge_session,
+        source_id=source.id,
+        at=datetime(2025, 6, 1, tzinfo=timezone.utc),
+    ) == [first]
+    assert service.get_approved_versions_as_of(
+        knowledge_session,
+        source_id=source.id,
+        at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    ) == [second]
 
 
 def test_failed_ingestion_is_not_approvable_and_can_retry(

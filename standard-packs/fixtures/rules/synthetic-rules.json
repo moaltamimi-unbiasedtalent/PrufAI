@@ -1,0 +1,15 @@
+{
+  "fixture_notice": "TEST FIXTURE — NOT OFFICIAL PROVIDER RULE",
+  "dsl_schema_version": "1",
+  "rules": [
+    {"code": "SYNTHETIC.MODULE_REQUIRED", "category": "STRUCTURE", "expression": {"op": "EQ", "left": {"fact": "module.required"}, "right": {"value": true}}},
+    {"code": "SYNTHETIC.TIME_LIMIT", "category": "TIMING", "expression": {"op": "LTE", "left": {"fact": "module.time_limit_seconds"}, "right": {"value": 3600}}},
+    {"code": "SYNTHETIC.TASK_COUNT", "category": "TASK", "expression": {"op": "GTE", "left": {"op": "COUNT", "arg": {"fact": "task.items"}}, "right": {"value": 2}}},
+    {"code": "SYNTHETIC.CLASSIFICATION", "category": "CLASSIFICATION", "expression": {"op": "IN", "left": {"fact": "pack.classification"}, "right": {"value": ["PRACTICE", "INTERNAL"]}}},
+    {"code": "SYNTHETIC.SCORE_THRESHOLD", "category": "SCORING", "expression": {"op": "GTE", "left": {"op": "SUM", "arg": {"fact": "score.parts"}}, "right": {"value": 70}}},
+    {"code": "SYNTHETIC.RESULT_THRESHOLD", "category": "RESULT", "expression": {"op": "GTE", "left": {"fact": "result.score"}, "right": {"value": 60}}},
+    {"code": "SYNTHETIC.INVALID_FACT", "category": "STRUCTURE", "expression": {"fact": "__import__.os"}},
+    {"code": "SYNTHETIC.MISSING_FACT", "category": "STRUCTURE", "expression": {"op": "EQ", "left": {"fact": "module.missing"}, "right": {"value": true}}},
+    {"code": "SYNTHETIC.CERTIFICATION_BLOCKED", "category": "CERTIFICATION", "expression": {"op": "EQ", "left": {"value": 1}, "right": {"value": 1}}}
+  ]
+}

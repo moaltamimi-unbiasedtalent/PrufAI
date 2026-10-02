@@ -32,6 +32,13 @@ from app.models.retrieval import (
     KnowledgeIndexProfile,
     KnowledgeRerankingProfile,
 )
+from app.models.rules import (
+    RuleDefinition,
+    RuleEvidenceBinding,
+    RuleSet,
+    RuleVersion,
+    StandardPackRuleBinding,
+)
 from app.models.standard_pack import (
     StandardPack,
     StandardPackModule,
@@ -74,4 +81,9 @@ __all__ = [
     "StandardPackModule",
     "StandardPackSection",
     "StandardPackTaskSpecification",
+    "RuleDefinition",
+    "RuleVersion",
+    "RuleEvidenceBinding",
+    "StandardPackRuleBinding",
+    "RuleSet",
 ]

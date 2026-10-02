@@ -115,6 +115,12 @@ class StandardPackVersion(UUIDPrimaryKeyMixin, Base):
         cascade="all, delete-orphan",
         order_by="StandardPackModule.sequence",
     )
+    rule_bindings: Mapped[list[Any]] = relationship(
+        "StandardPackRuleBinding",
+        back_populates="pack_version",
+        cascade="all, delete-orphan",
+        order_by="StandardPackRuleBinding.sequence",
+    )
 
 
 class StandardPackSourceBinding(UUIDPrimaryKeyMixin, Base):

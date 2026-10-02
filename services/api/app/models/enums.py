@@ -206,3 +206,48 @@ class PackValidationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     WARN = "WARN"
+
+
+class RuleCategory(str, Enum):
+    STRUCTURE = "STRUCTURE"
+    TIMING = "TIMING"
+    TASK = "TASK"
+    CLASSIFICATION = "CLASSIFICATION"
+    SCORING = "SCORING"
+    RESULT = "RESULT"
+    CERTIFICATION = "CERTIFICATION"
+    DELIVERY = "DELIVERY"
+
+
+class RuleStatus(str, Enum):
+    DRAFT = "DRAFT"
+    VALIDATION_REQUIRED = "VALIDATION_REQUIRED"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    APPROVED = "APPROVED"
+    PUBLISHED = "PUBLISHED"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class RuleSeverity(str, Enum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    BLOCKING = "BLOCKING"
+
+
+class RuleEvaluationStatus(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    ERROR = "ERROR"
+    SKIPPED = "SKIPPED"
+
+
+class RuleEvidenceType(str, Enum):
+    NORMATIVE = "NORMATIVE"
+    SUPPORTING = "SUPPORTING"
+    LEGAL = "LEGAL"
+    SCORING = "SCORING"
+    OTHER = "OTHER"

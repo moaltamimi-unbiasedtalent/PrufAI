@@ -72,6 +72,20 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: >-
+          python -c "import os, psycopg;
+          c=psycopg.connect(os.environ['DATABASE_URL'].replace('postgresql+psycopg://','postgresql://'));
+          print({'database': c.execute('SELECT current_database()').fetchone()[0],
+          'schema': c.execute('SELECT current_schema()').fetchone()[0],
+          'search_path': c.execute('SHOW search_path').fetchone()[0],
+          'alembic_head': c.execute(\"SELECT version_num FROM alembic_version\").fetchall()})"
+        working-directory: services/api
+        env:
+          DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_rules_engine.py tests/test_rules_postgresql_integration.py
+        working-directory: services/api
+        env:
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -c "import psycopg; c=psycopg.connect('postgresql://prufai:prufai_ci@localhost:5432/prufai'); print(c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone()); assert c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone() is not None"
         working-directory: services/api
       - run: python -m pytest tests/test_postgresql_integration.py

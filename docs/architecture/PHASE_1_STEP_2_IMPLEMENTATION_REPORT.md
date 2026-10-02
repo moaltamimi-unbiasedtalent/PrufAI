@@ -93,7 +93,7 @@ Recorded events include `auth.login.succeeded`, `auth.login.failed`,
 
 ## Tests
 
-The API suite contains 14 passing tests, including credential hashing and
+The API suite contains 15 passing tests, including credential hashing and
 policy, generic login behavior, session rotation/reuse, suspended users,
 invitation replay, password-reset replay, and token claim minimization. A
 PostgreSQL integration test is skipped locally without a service and runs in CI

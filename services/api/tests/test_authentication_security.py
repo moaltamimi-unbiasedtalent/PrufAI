@@ -160,3 +160,12 @@ def test_access_token_claims_do_not_include_authorization_state(auth_settings: S
     token, _ = TokenService(auth_settings).issue_access_token(uuid.uuid4(), uuid.uuid4())
     assert "permissions" not in token
     assert "roles" not in token
+
+
+def test_authentication_rate_limiter_is_temporary_and_resettable() -> None:
+    limiter = InMemoryRateLimiter()
+    assert limiter.allow("login:ip:account", 2, 300)
+    assert limiter.allow("login:ip:account", 2, 300)
+    assert not limiter.allow("login:ip:account", 2, 300)
+    limiter.clear("login:ip:account")
+    assert limiter.allow("login:ip:account", 2, 300)

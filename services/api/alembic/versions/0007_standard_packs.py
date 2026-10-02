@@ -89,6 +89,7 @@ def upgrade() -> None:
         sa.Column("standard_pack_version_id", sa.Uuid(), nullable=False),
         sa.Column("knowledge_source_id", sa.Uuid(), nullable=True),
         sa.Column("document_version_id", sa.Uuid(), nullable=True),
+        sa.Column("document_checksum", sa.String(length=64), nullable=True),
         sa.Column("binding_type", sa.String(length=30), nullable=False),
         sa.Column("purpose", sa.String(length=500), nullable=True),
         sa.Column("required", sa.Boolean(), nullable=False),

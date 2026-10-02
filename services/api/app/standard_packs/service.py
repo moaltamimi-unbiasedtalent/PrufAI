@@ -169,10 +169,14 @@ class StandardPackService:
             if knowledge_source_id is not None and document.source_id != knowledge_source_id:
                 raise ValueError("document version does not belong to the selected source")
             knowledge_source_id = document.source_id
+            document_checksum = document.sha256
+        else:
+            document_checksum = None
         binding = StandardPackSourceBinding(
             standard_pack_version_id=version.id,
             knowledge_source_id=knowledge_source_id,
             document_version_id=document_version_id,
+            document_checksum=document_checksum,
             binding_type=binding_type,
             purpose=purpose,
             required=required,
@@ -491,6 +495,7 @@ class StandardPackService:
                     "document_version_id": str(item.document_version_id)
                     if item.document_version_id
                     else None,
+                    "document_checksum": item.document_checksum,
                     "binding_type": item.binding_type.value,
                     "purpose": item.purpose,
                     "required": item.required,

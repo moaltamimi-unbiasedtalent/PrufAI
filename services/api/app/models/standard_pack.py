@@ -136,6 +136,7 @@ class StandardPackSourceBinding(UUIDPrimaryKeyMixin, Base):
     document_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("knowledge_document_versions.id", ondelete="RESTRICT")
     )
+    document_checksum: Mapped[Optional[str]] = mapped_column(String(64))
     binding_type: Mapped[StandardPackBindingType] = mapped_column(
         enum_type(StandardPackBindingType), nullable=False
     )

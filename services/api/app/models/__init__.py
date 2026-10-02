@@ -32,6 +32,14 @@ from app.models.retrieval import (
     KnowledgeIndexProfile,
     KnowledgeRerankingProfile,
 )
+from app.models.standard_pack import (
+    StandardPack,
+    StandardPackModule,
+    StandardPackSection,
+    StandardPackSourceBinding,
+    StandardPackTaskSpecification,
+    StandardPackVersion,
+)
 
 __all__ = [
     "AuditEvent",
@@ -60,4 +68,10 @@ __all__ = [
     "KnowledgeIndexJob",
     "KnowledgeIndexProfile",
     "KnowledgeRerankingProfile",
+    "StandardPack",
+    "StandardPackVersion",
+    "StandardPackSourceBinding",
+    "StandardPackModule",
+    "StandardPackSection",
+    "StandardPackTaskSpecification",
 ]

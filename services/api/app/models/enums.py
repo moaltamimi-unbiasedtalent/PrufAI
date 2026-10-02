@@ -143,3 +143,66 @@ class ActorType(str, Enum):
     HUMAN = "HUMAN"
     AI_AGENT = "AI_AGENT"
     SYSTEM_SERVICE = "SYSTEM_SERVICE"
+
+
+class StandardPackStatus(str, Enum):
+    DRAFT = "DRAFT"
+    VALIDATION_REQUIRED = "VALIDATION_REQUIRED"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    APPROVED = "APPROVED"
+    PUBLISHED = "PUBLISHED"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class StandardPackBindingType(str, Enum):
+    NORMATIVE = "NORMATIVE"
+    SUPPORTING = "SUPPORTING"
+    SCORING = "SCORING"
+    RUBRIC = "RUBRIC"
+    DELIVERY = "DELIVERY"
+    LEGAL = "LEGAL"
+    OTHER = "OTHER"
+
+
+class PackNavigationMode(str, Enum):
+    LINEAR = "LINEAR"
+    FREE_WITHIN_MODULE = "FREE_WITHIN_MODULE"
+    LOCK_AFTER_SUBMIT = "LOCK_AFTER_SUBMIT"
+    NO_BACKTRACK = "NO_BACKTRACK"
+    SEQUENTIAL_SECTION = "SEQUENTIAL_SECTION"
+
+
+class PackResponseMode(str, Enum):
+    SELECT_ONE = "SELECT_ONE"
+    SELECT_MULTIPLE = "SELECT_MULTIPLE"
+    TEXT = "TEXT"
+    LONG_TEXT = "LONG_TEXT"
+    AUDIO = "AUDIO"
+    LIVE_ORAL = "LIVE_ORAL"
+    MATCH = "MATCH"
+    ORDER = "ORDER"
+
+
+class PackMediaRequirement(str, Enum):
+    NONE = "NONE"
+    AUDIO = "AUDIO"
+    IMAGE = "IMAGE"
+    DOCUMENT = "DOCUMENT"
+    PROMPT_CARD = "PROMPT_CARD"
+
+
+class AssessmentClassification(str, Enum):
+    PRACTICE = "PRACTICE"
+    MOCK = "MOCK"
+    PLACEMENT_PROGRESS = "PLACEMENT_PROGRESS"
+    INSTITUTIONAL = "INSTITUTIONAL"
+    OFFICIAL_CERTIFICATION = "OFFICIAL_CERTIFICATION"
+
+
+class PackValidationStatus(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    WARN = "WARN"

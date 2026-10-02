@@ -9,7 +9,7 @@ authentication and platform authorization foundation.
 
 ## Delivered
 
-- Migration `0004_standards_knowledge_foundation` with seven UUID-backed tables,
+- Migration `0004_standards_knowledge` with seven UUID-backed tables,
   foreign keys, uniqueness/index constraints, and effective-date validation.
 - Authority/source/document-version models with LiD and assessment taxonomy.
 - Legal metadata with explicit tri-state rights and review fields.
@@ -60,3 +60,10 @@ Remote GitHub Actions status remains manual because `gh` is unavailable. Local
 frontend, API, AI, offline Alembic, storage, taxonomy, historical-resolution,
 provenance, rights, and authorization validation passed. Live PostgreSQL/MinIO
 execution remains infrastructure-dependent.
+
+## Migration development convention
+
+Alembic revision identifiers must be 32 characters or fewer because the
+standard `alembic_version.version_num` column is `VARCHAR(32)`. Use concise,
+stable identifiers such as `0005_knowledge_chunks`; keep longer explanations
+in migration filenames, docstrings, or reports.

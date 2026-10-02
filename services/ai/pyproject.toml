@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prufai-ai"
+version = "0.1.0"
+description = "PrüfAI future AI service boundary"
+requires-python = ">=3.9"
+dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.32,<1"]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27,<1", "mypy>=1.13,<2", "pytest>=8.3,<9", "ruff>=0.8,<1"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true

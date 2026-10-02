@@ -1,0 +1,27 @@
+# Dependencies and local environments
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and coverage output
+.next/
+out/
+coverage/
+dist/
+*.egg-info/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling and OS metadata
+.DS_Store
+.idea/
+.vscode/

@@ -76,6 +76,7 @@ Eight API tests cover normalized email uniqueness, user status, organisation/sit
 - PII is limited to identity baseline fields.
 - Audit metadata rejects sensitive-key-shaped entries.
 - `npm audit --omit=dev`: 0 critical, 1 high, 1 moderate, 0 low. The remaining PostCSS advisory is inherited through Next.js 15.5.27; npm offers only a breaking Next.js 16.3.8 remediation, which was not applied automatically.
+- Technical debt: Review Next.js major-version upgrade for inherited PostCSS security advisory.
 
 ## 13. Validation Results
 

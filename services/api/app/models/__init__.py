@@ -25,6 +25,12 @@ from app.models.knowledge import (
     KnowledgeLegalMetadata,
     KnowledgeSource,
 )
+from app.models.retrieval import (
+    KnowledgeChunk,
+    KnowledgeChunkEmbedding,
+    KnowledgeIndexJob,
+    KnowledgeIndexProfile,
+)
 
 __all__ = [
     "AuditEvent",
@@ -48,4 +54,8 @@ __all__ = [
     "KnowledgeLegalMetadata",
     "KnowledgeIngestionJob",
     "KnowledgeDocumentPage",
+    "KnowledgeChunk",
+    "KnowledgeChunkEmbedding",
+    "KnowledgeIndexJob",
+    "KnowledgeIndexProfile",
 ]

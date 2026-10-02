@@ -125,6 +125,20 @@ class AssessmentFamily(str, Enum):
     INTEGRATION_KNOWLEDGE = "INTEGRATION_KNOWLEDGE"
 
 
+class KnowledgeIndexJobStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class KnowledgeIndexStatus(str, Enum):
+    NOT_INDEXED = "NOT_INDEXED"
+    INDEXING = "INDEXING"
+    READY = "READY"
+    FAILED = "FAILED"
+
+
 class ActorType(str, Enum):
     HUMAN = "HUMAN"
     AI_AGENT = "AI_AGENT"

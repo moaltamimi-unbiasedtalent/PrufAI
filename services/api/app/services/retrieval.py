@@ -517,13 +517,15 @@ class RetrievalService:
         by_id: dict[uuid.UUID, CitationReadyResult] = {}
         for result in lexical + vector:
             by_id.setdefault(result.chunk_id, result)
+        lexical_ranks = {result.chunk_id: index for index, result in enumerate(lexical, 1)}
+        vector_ranks = {result.chunk_id: index for index, result in enumerate(vector, 1)}
         for result in by_id.values():
-            if result in lexical:
+            if result.chunk_id in lexical_ranks:
                 result.matched_lexical = True
-                result.lexical_rank = lexical.index(result) + 1
-            if result in vector:
+                result.lexical_rank = lexical_ranks[result.chunk_id]
+            if result.chunk_id in vector_ranks:
                 result.matched_vector = True
-                result.vector_rank = vector.index(result) + 1
+                result.vector_rank = vector_ranks[result.chunk_id]
             result.fusion_score = (1 / (60 + (result.lexical_rank or 999))) + (
                 1 / (60 + (result.vector_rank or 999))
             )

@@ -171,4 +171,19 @@ def test_provider_isolation_and_idempotent_indexing(
         RetrievalScope(provider_codes=("TELC",)),
     )
     assert results and {result.authority_code for result in results} == {"TELC"}
+    hybrid = RetrievalService(indexer).search_hybrid(
+        retrieval_session,
+        "reading",
+        RetrievalScope(provider_codes=("TELC",)),
+    )
+    assert hybrid and hybrid[0].hybrid_rank == 1
+    assert hybrid[0].matched_lexical and hybrid[0].matched_vector
     assert len(list(retrieval_session.scalars(select(KnowledgeDocumentPage)))) == 2
+
+
+def test_shared_authorities_are_explicit() -> None:
+    from app.services.retrieval import RetrievalScope
+
+    scope = RetrievalScope(provider_codes=("TELC",), include_shared_authorities=("CEFR",))
+    assert scope.provider_codes == ("TELC",)
+    assert scope.include_shared_authorities == ("CEFR",)

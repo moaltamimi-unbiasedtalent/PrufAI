@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     object_storage_secret_key: str = ""
     object_storage_region: str = "us-east-1"
     object_storage_secure: bool = False
+    knowledge_embedding_backend: Literal["deterministic", "openai"] = "deterministic"
+    knowledge_embedding_model: str = "text-embedding-3-small"
+    knowledge_embedding_dimension: int = 384
+    knowledge_embedding_api_key: str = ""
+    knowledge_embedding_timeout_seconds: int = 20
+    knowledge_vector_metric: Literal["cosine"] = "cosine"
     environment: Literal["development", "test", "production"] = "development"
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -66,6 +72,21 @@ class Settings(BaseSettings):
         data = getattr(info, "data", {})
         if data.get("environment") == "production" and value != "s3":
             raise ValueError("production object storage must use an S3-compatible backend")
+        return value
+
+    @field_validator("knowledge_embedding_backend")
+    @classmethod
+    def production_requires_real_embeddings(cls, value: str, info: object) -> str:
+        data = getattr(info, "data", {})
+        if data.get("environment") == "production" and value == "deterministic":
+            raise ValueError("production embeddings cannot use the deterministic test backend")
+        return value
+
+    @field_validator("knowledge_embedding_dimension")
+    @classmethod
+    def embedding_dimension_is_supported(cls, value: int) -> int:
+        if value != 384:
+            raise ValueError("the MVP pgvector dimension is fixed at 384")
         return value
 
 

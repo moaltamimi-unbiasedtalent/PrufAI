@@ -98,3 +98,35 @@ class AuditService:
                 .order_by(AuditEvent.timestamp)
             )
         )
+
+    @staticmethod
+    def record_security(
+        session: Session,
+        *,
+        event_type: str,
+        entity_type: str,
+        entity_id: Optional[str] = None,
+        actor_id: Optional[uuid.UUID] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AuditEvent:
+        """Record an authentication event without requiring tenant context."""
+        record = AuditRecordInput(
+            event_type=event_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            metadata=metadata or {},
+        )
+        if _contains_sensitive_key(record.metadata):
+            raise ValueError("audit metadata contains a prohibited sensitive key")
+        event = AuditEvent(
+            timestamp=datetime.now(timezone.utc),
+            actor_type=ActorType.HUMAN if actor_id else ActorType.SYSTEM_SERVICE,
+            actor_id=actor_id,
+            event_type=record.event_type,
+            entity_type=record.entity_type,
+            entity_id=record.entity_id,
+            metadata_json=record.metadata,
+        )
+        session.add(event)
+        session.flush()
+        return event

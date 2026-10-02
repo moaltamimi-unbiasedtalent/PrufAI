@@ -1,9 +1,10 @@
 from collections.abc import Generator
 
+from fastapi import Depends
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.models import Base
 
 
@@ -17,7 +18,7 @@ def create_session_factory(settings: Settings) -> sessionmaker[Session]:
     return sessionmaker(bind=create_db_engine(settings), autoflush=False, expire_on_commit=False)
 
 
-def get_db_engine(settings: Settings) -> Generator[Engine, None, None]:
+def get_db_engine(settings: Settings = Depends(get_settings)) -> Generator[Engine, None, None]:  # noqa: B008
     """Dependency seam for future request-scoped database work."""
 
     engine = create_db_engine(settings)
@@ -27,7 +28,7 @@ def get_db_engine(settings: Settings) -> Generator[Engine, None, None]:
         engine.dispose()
 
 
-def get_db_session(settings: Settings) -> Generator[Session, None, None]:
+def get_db_session(settings: Settings = Depends(get_settings)) -> Generator[Session, None, None]:  # noqa: B008
     """FastAPI-compatible request session dependency."""
 
     factory = create_session_factory(settings)

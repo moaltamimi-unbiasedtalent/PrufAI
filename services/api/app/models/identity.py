@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.enums import (
+    AuthSessionStatus,
+    InvitationStatus,
     MembershipStatus,
     OrganisationStatus,
     OrganisationType,
@@ -33,6 +36,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     memberships: Mapped[list[OrganisationMembership]] = relationship(back_populates="user")
     platform_assignments: Mapped[list[PlatformRoleAssignment]] = relationship(back_populates="user")
+    password_credential: Mapped[Optional[UserPasswordCredential]] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    auth_sessions: Mapped[list[AuthSession]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Organisation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -170,3 +179,90 @@ class PlatformRoleAssignment(UUIDPrimaryKeyMixin, Base):
 
     user: Mapped[User] = relationship(back_populates="platform_assignments")
     role: Mapped[Role] = relationship(back_populates="platform_assignments")
+
+
+class UserPasswordCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_password_credentials"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_password_credential_user"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    password_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="password_credential")
+
+
+class AuthSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index("ix_auth_sessions_user_status", "user_id", "status"),
+        Index("ix_auth_sessions_refresh_hash", "refresh_token_hash"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[AuthSessionStatus] = mapped_column(
+        enum_type(AuthSessionStatus), default=AuthSessionStatus.ACTIVE, nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revocation_reason: Mapped[Optional[str]] = mapped_column(String(120))
+    refresh_token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    refresh_token_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    refresh_generation: Mapped[int] = mapped_column(default=0, nullable=False)
+    authentication_method: Mapped[str] = mapped_column(
+        String(40), default="password", nullable=False
+    )
+    user_agent: Mapped[Optional[str]] = mapped_column(String(500))
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+
+    user: Mapped[User] = relationship(back_populates="auth_sessions")
+
+
+class OrganisationInvitation(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "organisation_invitations"
+    __table_args__ = (
+        Index("ix_invitations_org_status", "organisation_id", "status"),
+        Index("ix_invitations_token_hash", "token_hash"),
+    )
+
+    organisation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False
+    )
+    email_normalized: Mapped[str] = mapped_column(String(320), nullable=False)
+    status: Mapped[InvitationStatus] = mapped_column(
+        enum_type(InvitationStatus), default=InvitationStatus.PENDING, nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    intended_role_keys: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class PasswordResetToken(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (Index("ix_password_reset_token_hash", "token_hash"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )

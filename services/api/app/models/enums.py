@@ -47,6 +47,19 @@ class PlatformAssignmentStatus(str, Enum):
     SUSPENDED = "SUSPENDED"
 
 
+class AuthSessionStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    REVOKED = "REVOKED"
+    EXPIRED = "EXPIRED"
+
+
+class InvitationStatus(str, Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+
+
 class ActorType(str, Enum):
     HUMAN = "HUMAN"
     AI_AGENT = "AI_AGENT"

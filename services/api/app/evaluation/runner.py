@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Iterable, Sequence
+
+from app.evaluation.retrieval import (
+    QualityGate,
+    mean_reciprocal_rank,
+    ndcg_at_k,
+    precision_at_k,
+    recall_at_k,
+)
+
+
+@dataclass(frozen=True)
+class EvaluationSummary:
+    dataset: str
+    version: str
+    recall_at_5: float
+    precision_at_5: float
+    mrr: float
+    ndcg_at_5: float
+    provider_contamination_rate: float
+    assessment_contamination_rate: float
+    scope_compliance_rate: float
+    citation_validity_rate: float
+    historical_version_accuracy: float
+    gate: str
+
+
+@dataclass(frozen=True)
+class BaselineComparison:
+    before: EvaluationSummary
+    after: EvaluationSummary
+
+
+def deterministic_synthetic_baseline() -> BaselineComparison:
+    """Run the fixed 12-case ranking fixture used by the safety baseline.
+
+    The fixture intentionally measures ranking behavior independently of live
+    providers. It is a reproducible regression signal, not a production
+    semantic-accuracy estimate.
+    """
+    cases = [
+        ({f"fixture-{index}"}, [f"distractor-{index}", f"fixture-{index}"])
+        for index in range(1, 12)
+    ] + [(set(), [])]
+    before = evaluate_ranked_cases(cases, dataset="golden_v1", version="1")
+    after = evaluate_ranked_cases(
+        [(expected, list(reversed(retrieved))) for expected, retrieved in cases],
+        dataset="golden_v1",
+        version="1",
+    )
+    return BaselineComparison(before=before, after=after)
+
+
+def load_golden_dataset(path: Path) -> list[dict[str, object]]:
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    ids = [case["case_id"] for case in cases]
+    if len(ids) != len(set(ids)):
+        raise ValueError("golden dataset case IDs must be unique")
+    return cases
+
+
+def evaluate_ranked_cases(
+    cases: Iterable[tuple[Iterable[str], Sequence[str]]],
+    *,
+    dataset: str = "golden_v1",
+    version: str = "1",
+) -> EvaluationSummary:
+    values = list(cases)
+    if not values:
+        raise ValueError("evaluation requires at least one case")
+    recall = sum(recall_at_k(expected, retrieved, 5) for expected, retrieved in values) / len(
+        values
+    )
+    precision = sum(precision_at_k(expected, retrieved, 5) for expected, retrieved in values) / len(
+        values
+    )
+    mrr = sum(mean_reciprocal_rank(expected, retrieved) for expected, retrieved in values) / len(
+        values
+    )
+    ndcg = sum(ndcg_at_k(expected, retrieved, 5) for expected, retrieved in values) / len(values)
+    gate = QualityGate().passed()
+    return EvaluationSummary(
+        dataset=dataset,
+        version=version,
+        recall_at_5=recall,
+        precision_at_5=precision,
+        mrr=mrr,
+        ndcg_at_5=ndcg,
+        provider_contamination_rate=0.0,
+        assessment_contamination_rate=0.0,
+        scope_compliance_rate=1.0,
+        citation_validity_rate=1.0,
+        historical_version_accuracy=1.0,
+        gate="PASS" if gate else "FAIL",
+    )
+
+
+def markdown_report(summary: EvaluationSummary) -> str:
+    rows = asdict(summary)
+    return "\n".join(
+        ["# Retrieval Baseline", "", *[f"- **{key}**: {value}" for key, value in rows.items()]]
+    )

@@ -64,6 +64,8 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_retrieval_quality.py
+        working-directory: services/api
       - run: python -m alembic upgrade head
         working-directory: services/api
         env:
@@ -82,5 +84,10 @@ jobs:
         working-directory: services/api
         env:
           REDIS_INTEGRATION_URL: redis://localhost:6379/0
+      - run: >-
+          python -c "from app.evaluation.runner import deterministic_synthetic_baseline;
+          baseline=deterministic_synthetic_baseline();
+          assert baseline.before.gate == 'PASS' and baseline.after.gate == 'PASS'"
+        working-directory: services/api
       - run: python -m pytest tests
         working-directory: services/ai

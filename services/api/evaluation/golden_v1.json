@@ -1,0 +1,14 @@
+[
+  {"case_id": "telc-only", "query": "TEST FIXTURE TELC reading", "expected_ids": [], "forbidden_authorities": ["GOETHE", "GAST"]},
+  {"case_id": "goethe-only", "query": "TEST FIXTURE GOETHE reading", "expected_ids": [], "forbidden_authorities": ["TELC", "GAST"]},
+  {"case_id": "gast-dtz-only", "query": "TEST FIXTURE GAST DTZ reading", "expected_ids": [], "forbidden_authorities": ["TELC", "GOETHE"]},
+  {"case_id": "telc-goethe-explicit", "query": "TEST FIXTURE language reading", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "cefr-shared", "query": "TEST FIXTURE CEFR B1", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "language-b1", "query": "TEST FIXTURE B1", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "language-a2", "query": "TEST FIXTURE A2", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "lid", "query": "TEST FIXTURE LEBEN IN DEUTSCHLAND", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "historical", "query": "TEST FIXTURE historical version", "expected_ids": [], "forbidden_authorities": [], "as_of_date": "2025-06-01"},
+  {"case_id": "current", "query": "TEST FIXTURE current version", "expected_ids": [], "forbidden_authorities": []},
+  {"case_id": "forbidden-provider", "query": "TEST FIXTURE provider isolation", "expected_ids": [], "forbidden_authorities": ["GOETHE"]},
+  {"case_id": "no-evidence", "query": "TEST FIXTURE no acceptable evidence", "expected_ids": [], "forbidden_authorities": []}
+]

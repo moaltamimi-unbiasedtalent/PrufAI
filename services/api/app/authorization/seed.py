@@ -17,6 +17,13 @@ PLATFORM_PERMISSIONS = (
     "platform.user.manage",
     "platform.audit.read",
     "platform.role.assign",
+    "standards.authority.read",
+    "standards.authority.manage",
+    "standards.source.read",
+    "standards.source.manage",
+    "standards.document.read",
+    "standards.document.manage",
+    "standards.document.review",
 )
 TENANT_PERMISSIONS = (
     "organisation.read",
@@ -33,7 +40,17 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
     "PRUFAI_SUPER_ADMIN": (RoleScope.PLATFORM, PLATFORM_PERMISSIONS),
     "PRUFAI_STANDARDS_ADMIN": (
         RoleScope.PLATFORM,
-        ("platform.organisation.read", "platform.audit.read"),
+        (
+            "platform.organisation.read",
+            "platform.audit.read",
+            "standards.authority.read",
+            "standards.authority.manage",
+            "standards.source.read",
+            "standards.source.manage",
+            "standards.document.read",
+            "standards.document.manage",
+            "standards.document.review",
+        ),
     ),
     "PRUFAI_AI_ADMIN": (RoleScope.PLATFORM, ("platform.organisation.read", "platform.audit.read")),
     "INSTITUTION_ADMIN": (RoleScope.TENANT, TENANT_PERMISSIONS),

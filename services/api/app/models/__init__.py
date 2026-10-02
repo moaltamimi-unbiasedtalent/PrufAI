@@ -17,6 +17,14 @@ from app.models.identity import (
     User,
     UserPasswordCredential,
 )
+from app.models.knowledge import (
+    KnowledgeAuthority,
+    KnowledgeDocumentPage,
+    KnowledgeDocumentVersion,
+    KnowledgeIngestionJob,
+    KnowledgeLegalMetadata,
+    KnowledgeSource,
+)
 
 __all__ = [
     "AuditEvent",
@@ -34,4 +42,10 @@ __all__ = [
     "RolePermission",
     "User",
     "UserPasswordCredential",
+    "KnowledgeAuthority",
+    "KnowledgeSource",
+    "KnowledgeDocumentVersion",
+    "KnowledgeLegalMetadata",
+    "KnowledgeIngestionJob",
+    "KnowledgeDocumentPage",
 ]

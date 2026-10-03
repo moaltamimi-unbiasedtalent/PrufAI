@@ -3,6 +3,8 @@ import os
 import psycopg
 import pytest
 
+from tests.alembic_helpers import repository_alembic_head
+
 pytestmark = pytest.mark.skipif(
     not os.getenv("POSTGRES_INTEGRATION_URL"),
     reason="POSTGRES_INTEGRATION_URL is required for question-bank integration",
@@ -27,5 +29,5 @@ def test_question_bank_schema_is_migration_backed() -> None:
         } <= tables
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-            == "0012_question_bank"
+            == repository_alembic_head()
         )

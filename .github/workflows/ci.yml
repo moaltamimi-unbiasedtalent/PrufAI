@@ -49,24 +49,14 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
-      minio:
-        image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-        env:
-          MINIO_ROOT_USER: prufai_ci
-          MINIO_ROOT_PASSWORD: prufai_ci_secret
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e services/api[dev] -e services/ai[dev]
       - run: python -m ruff check services/api services/ai
@@ -107,6 +97,46 @@ jobs:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Install pinned MinIO
+        run: |
+          set -euo pipefail
+          go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
+          MINIO_BIN="$(go env GOPATH)/bin/minio"
+          test -x "$MINIO_BIN"
+          echo "MinIO binary: $MINIO_BIN"
+      - name: Start pinned MinIO
+        env:
+          MINIO_ROOT_USER: prufai_ci
+          MINIO_ROOT_PASSWORD: prufai_ci_secret
+        run: |
+          set -euo pipefail
+          MINIO_BIN="$(go env GOPATH)/bin/minio"
+          MINIO_DATA_DIR="$RUNNER_TEMP/prufai-minio-data"
+          MINIO_LOG="$RUNNER_TEMP/minio.log"
+          MINIO_PID="$RUNNER_TEMP/minio.pid"
+          mkdir -p "$MINIO_DATA_DIR"
+          MINIO_ROOT_USER="$MINIO_ROOT_USER" MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD" \
+            "$MINIO_BIN" server "$MINIO_DATA_DIR" \
+            --address ":9000" --console-address ":9001" >"$MINIO_LOG" 2>&1 &
+          echo $! > "$MINIO_PID"
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "MinIO did not become ready."
+            cat "$MINIO_LOG"
+            exit 1
+          fi
+          if ! kill -0 "$(cat "$MINIO_PID")" 2>/dev/null; then
+            echo "MinIO exited after becoming ready."
+            cat "$MINIO_LOG"
+            exit 1
+          fi
       - run: >-
           python -c "import boto3;
           c=boto3.client('s3', endpoint_url='http://localhost:9000',
@@ -185,3 +215,15 @@ jobs:
         working-directory: services/api
       - run: python -m pytest tests
         working-directory: services/ai
+      - name: Stop MinIO
+        if: always()
+        run: |
+          set -euo pipefail
+          MINIO_PID="$RUNNER_TEMP/minio.pid"
+          if [ -f "$MINIO_PID" ]; then
+            pid="$(cat "$MINIO_PID")"
+            if kill -0 "$pid" 2>/dev/null; then
+              kill "$pid" || true
+              wait "$pid" 2>/dev/null || true
+            fi
+          fi

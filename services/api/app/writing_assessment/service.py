@@ -503,6 +503,8 @@ class SubjectiveAssessmentService:
         if rubric is None:
             raise RubricError("rubric version not found")
         RubricService.assert_executable(rubric)
+        if ai_run_id is None:
+            raise RubricError("exact AI run provenance is required for a proposal")
         entries = proposal.get("criteria")
         if not isinstance(entries, list):
             raise RubricError("AI proposal must contain structured criteria")

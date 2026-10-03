@@ -25,6 +25,22 @@ def bounded_structured_retry(adapter: Any, *, max_attempts: int = 2) -> tuple[An
     raise ValueError("INVALID_MODEL_OUTPUT after bounded retries") from last_error
 
 
+def human_governance_gate(outcomes: list[dict[str, Any]]) -> bool:
+    """Validate that only reviewed proposals or safe failures reach scoring."""
+    for outcome in outcomes:
+        if outcome.get("status") == "VALID_PROPOSAL":
+            if outcome.get("review_status") != "APPROVED" or not outcome.get(
+                "human_review_required"
+            ):
+                return False
+        elif outcome.get("status") == "FAILED_AFTER_RETRY":
+            if outcome.get("score_usable") or outcome.get("rescoring") or outcome.get("released"):
+                return False
+        else:
+            return False
+    return True
+
+
 def validate_stage_output(
     *,
     criteria: list[dict[str, Any]],

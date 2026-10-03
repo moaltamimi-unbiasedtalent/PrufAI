@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pgvector.sqlalchemy import VECTOR  # type: ignore[import-untyped]
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 

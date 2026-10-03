@@ -32,7 +32,9 @@ cross-pack, inactive, rights-blocked and duplicate bindings are rejected.
 
 Scopes are `PLATFORM_SHARED` and `ORGANISATION_PRIVATE` with database checks and
 capability checks. Structural, blueprint, Question Bank, pack-compatibility,
-rights, classification and Rules issues retain separate origins. The exact
+rights, classification and Rules issues retain separate origins. Timing and
+navigation overrides are currently unauthorized and block validation; they
+cannot be smuggled into delivery through a version override. The exact
 Standard Pack rule bindings are evaluated by the existing RulesEngine using a
 narrow exam fact adapter. Blocking failures and errors prevent protected
 transitions. Official certification is blocked because no explicit
@@ -76,7 +78,12 @@ lifecycle transitions, diff, administrative manifest, delivery preview and AI
 proposal endpoints. Capabilities are `exam.read`, `exam.manage`, `exam.review`,
 `exam.publish`, `exam.activate` and `exam.export`. Consequential actions use
 the existing immutable audit service without writing answer keys or full
-protected content to audit metadata.
+protected content to audit metadata. The implemented event set is
+`exam.created`, `exam.version.created`, `exam.version.superseded`,
+`exam.blueprint.materialized`, `exam.item.assigned`, `exam.item.removed`,
+`exam.validation.completed`, `exam.review_requested`, `exam.approved`,
+`exam.rejected`, `exam.published`, `exam.activated`, `exam.retired`,
+`exam.exported` and `exam.ai_proposal.created`.
 
 ## Frontend
 
@@ -86,11 +93,16 @@ validation to the server API. It is not a candidate UI.
 
 ## Tests and integration
 
-The API suite includes Exam Studio checksum coverage and a migration-backed
-PostgreSQL schema integration test. CI runs Alembic through the repository head,
+The API suite includes checksum, server-side eligibility revalidation,
+certification/rights and override gates, bound-rule blocking, review checksum
+staleness, published immutability, effective-date resolution, scope isolation,
+AI proposal boundaries and delivery-safe manifest assertions. The dedicated
+PostgreSQL integration checks the migration head, all six Exam Studio tables and
+the core scope/slot constraints. CI runs Alembic through the repository head,
 then explicitly runs the Exam Studio integration alongside Question Bank,
-Rules, AI, memory and prior regression gates. Local PostgreSQL/Redis-dependent
-tests remain infrastructure skips when those services are unavailable.
+Rules, AI, memory and prior regression gates; the Exam Studio test is not
+silently skipped in CI if its PostgreSQL URL is missing. Local PostgreSQL/Redis-
+dependent tests remain infrastructure skips when those services are unavailable.
 
 ## Known limitations
 
@@ -99,8 +111,11 @@ local validation cannot certify it without PostgreSQL. Import, non-trivial
 provider scoring transformations, Candidate Runtime, sessions, responses,
 grading, appeals, adaptive testing and official delivery are later phases.
 
-The final local API run completed with 68 passed and 9 expected PostgreSQL/Redis
-infrastructure skips. AI tests completed with 7 passed. Web lint, typecheck,
+The final local API run completed with 74 passed and 9 expected PostgreSQL/Redis
+infrastructure skips. The skips are the configured PostgreSQL AI, Exam Studio,
+memory, core/retrieval, Question Bank and Rules integration tests plus the two
+Redis integration tests; they are not reported as application failures. AI tests
+completed with 7 passed. Web lint, typecheck,
 tests and production build passed. Ruff, mypy, Alembic heads/history and
 offline SQL generation passed. `npm audit --omit=dev` reported one high and one
 moderate PostCSS/Next advisory with only a breaking `next@16` forced fix; no

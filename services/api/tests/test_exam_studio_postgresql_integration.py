@@ -6,7 +6,7 @@ import pytest
 from tests.alembic_helpers import repository_alembic_head
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("POSTGRES_INTEGRATION_URL"),
+    not os.getenv("POSTGRES_INTEGRATION_URL") and not os.getenv("CI"),
     reason="POSTGRES_INTEGRATION_URL is required for Exam Studio integration",
 )
 
@@ -28,6 +28,22 @@ def test_exam_studio_schema_is_migration_backed() -> None:
             "exam_version_tasks",
             "exam_version_item_bindings",
         } <= tables
+        constraints = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name IN ('exams', 'exam_version_item_bindings')
+                """
+            )
+        }
+        assert {
+            "ck_exam_scope",
+            "uq_exam_item_slot",
+            "ck_exam_item_slot_nonnegative",
+        } <= constraints
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
             == repository_alembic_head()

@@ -131,6 +131,13 @@ def test_delivery_manifest_uses_answer_key_safe_item_projection() -> None:
             "prompt": "Synthetic prompt",
             "options": [{"option_id": "a", "display_text": "A", "order": 0}],
             "correct_option_ids": ["a"],
+            "solution": "internal solution",
+            "scoring_key": {"a": 1},
+            "reviewer_notes": "internal note",
+            "ai_critique": "internal critique",
+            "validation": {"status": "PASS"},
+            "legal_notes": "restricted",
+            "private_object_url": "https://private.invalid/object",
         },
         rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
     )
@@ -150,3 +157,13 @@ def test_delivery_manifest_uses_answer_key_safe_item_projection() -> None:
     serialized = str(manifest)
     assert "correct_option_ids" not in serialized
     assert "answer_key" not in serialized
+    for protected in (
+        "solution",
+        "scoring_key",
+        "reviewer_notes",
+        "ai_critique",
+        "validation",
+        "legal_notes",
+        "private_object_url",
+    ):
+        assert protected not in serialized

@@ -105,6 +105,16 @@ class ExamStudioService:
         )
         session.add(exam)
         session.flush()
+        if AuthorizationService.has_permission(context, "audit.read", exam.organisation_id):
+            AuditService.record(
+                session,
+                context,
+                event_type="exam.created",
+                entity_type="EXAM",
+                entity_id=str(exam.id),
+                organisation_id=exam.organisation_id,
+                metadata={"scope_type": exam.scope_type, "code": exam.code},
+            )
         return exam
 
     @staticmethod
@@ -156,6 +166,8 @@ class ExamStudioService:
         session.add(version)
         session.flush()
         ExamStudioService._audit(session, context, "exam.version.created", version, exam)
+        if supersedes_version_id is not None:
+            ExamStudioService._audit(session, context, "exam.version.superseded", version, exam)
         return version
 
     @staticmethod
@@ -418,6 +430,26 @@ class ExamStudioService:
                     "official certification authorization is not available",
                 )
             )
+        if version.timing_override:
+            issues.append(
+                ValidationIssue(
+                    "EXAM.TIMING.OVERRIDE_NOT_AUTHORIZED",
+                    "FAIL",
+                    "STRUCTURAL",
+                    "timing_override",
+                    "the current Standard Pack does not authorize timing overrides",
+                )
+            )
+        if version.navigation_override:
+            issues.append(
+                ValidationIssue(
+                    "EXAM.NAVIGATION.OVERRIDE_NOT_AUTHORIZED",
+                    "FAIL",
+                    "STRUCTURAL",
+                    "navigation_override",
+                    "the current Standard Pack does not authorize navigation overrides",
+                )
+            )
         expected_modules = {module.id for module in pack.modules if module.required}
         actual_modules = {module.standard_pack_module_id for module in version.modules}
         if expected_modules != actual_modules:
@@ -585,6 +617,9 @@ class ExamStudioService:
             else "PASS"
         )
         ExamStudioService._refresh_checksum(session, version)
+        ExamStudioService._audit(
+            session, context, "exam.validation.completed", version, version.exam
+        )
         return ValidationResult(status, tuple(issues), version.checksum)
 
     @staticmethod
@@ -757,6 +792,7 @@ class ExamStudioService:
                     "content": item.content,
                 }
             )
+        ExamStudioService._audit(session, context, "exam.exported", version, version.exam)
         return {
             "exam_version_id": str(version.id),
             "checksum": version.checksum,
@@ -885,6 +921,9 @@ class ExamStudioService:
                 proposed_by_ai_step_id=ai_step_id,
             )
             assigned.append(str(binding.id))
+        ExamStudioService._audit(
+            session, context, "exam.ai_proposal.created", version, version.exam
+        )
         return {
             "status": version.status.value,
             "assigned_binding_ids": assigned,

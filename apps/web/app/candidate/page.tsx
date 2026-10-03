@@ -12,6 +12,10 @@ function availabilityLabel(
   assignment: CandidateAssignment,
   now: number,
 ): string {
+  const latest = assignment.attempts.at(-1);
+  if (latest?.status === "IN_PROGRESS") return "In progress";
+  if (latest?.status === "SUBMITTED") return "Submitted";
+  if (latest?.status === "EXPIRED") return "Expired";
   if (["CANCELLED", "EXPIRED", "COMPLETED"].includes(assignment.status)) {
     return assignment.status[0] + assignment.status.slice(1).toLowerCase();
   }

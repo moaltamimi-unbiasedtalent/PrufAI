@@ -74,6 +74,13 @@ from app.models.rules import (
     RuleVersion,
     StandardPackRuleBinding,
 )
+from app.models.runtime import (
+    CandidateExamAssignment,
+    CandidateExamAttempt,
+    CandidateExamSession,
+    CandidateResponse,
+    CandidateResponseRevision,
+)
 from app.models.standard_pack import (
     StandardPack,
     StandardPackModule,
@@ -148,4 +155,9 @@ __all__ = [
     "ExamVersionSection",
     "ExamVersionTask",
     "ExamVersionItemBinding",
+    "CandidateExamAssignment",
+    "CandidateExamAttempt",
+    "CandidateExamSession",
+    "CandidateResponse",
+    "CandidateResponseRevision",
 ]

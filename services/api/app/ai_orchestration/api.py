@@ -163,3 +163,51 @@ def decide_review(
         session.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"id": str(item.id), "status": item.status.value}
+
+
+def _decision(
+    review_id: uuid.UUID,
+    decision: HumanReviewStatus,
+    principal: Principal,
+    session: Session,
+) -> dict[str, str]:
+    _require(principal, "ai.review")
+    review = session.get(HumanReviewRequest, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="review not found")
+    try:
+        item = AIOrchestrationService.decide_review(
+            session, review, decision=decision, actor_id=principal.user.id
+        )
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": str(item.id), "status": item.status.value}
+
+
+@router.post("/reviews/{review_id}/approve")
+def approve_review(
+    review_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    return _decision(review_id, HumanReviewStatus.APPROVED, principal, session)
+
+
+@router.post("/reviews/{review_id}/reject")
+def reject_review(
+    review_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    return _decision(review_id, HumanReviewStatus.REJECTED, principal, session)
+
+
+@router.post("/reviews/{review_id}/request-changes")
+def request_review_changes(
+    review_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    return _decision(review_id, HumanReviewStatus.CHANGES_REQUESTED, principal, session)

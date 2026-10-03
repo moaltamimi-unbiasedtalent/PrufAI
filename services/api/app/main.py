@@ -1,7 +1,10 @@
+from collections.abc import Awaitable, Callable
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from app.ai_orchestration.api import router as ai_orchestration_router
 from app.auth.api import org_router
 from app.auth.api import router as auth_router
 from app.config import Settings
@@ -15,8 +18,10 @@ app = FastAPI(title="PrüfAI API", version="0.1.0")
 
 
 @app.middleware("http")
-async def security_headers(request: Request, call_next: object) -> Response:
-    response = await call_next(request)  # type: ignore[operator]
+async def security_headers(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -47,6 +52,7 @@ app.include_router(knowledge_router)
 app.include_router(retrieval_router)
 app.include_router(standard_packs_router)
 app.include_router(rules_router)
+app.include_router(ai_orchestration_router)
 
 
 @app.get("/health")

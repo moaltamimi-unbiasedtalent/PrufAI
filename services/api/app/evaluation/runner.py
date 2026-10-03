@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, cast
 
 from app.evaluation.retrieval import (
     QualityGate,
@@ -61,7 +61,9 @@ def load_golden_dataset(path: Path) -> list[dict[str, object]]:
     ids = [case["case_id"] for case in cases]
     if len(ids) != len(set(ids)):
         raise ValueError("golden dataset case IDs must be unique")
-    return cases
+    if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
+        raise ValueError("golden dataset must contain objects")
+    return cast(list[dict[str, object]], cases)
 
 
 def evaluate_ranked_cases(

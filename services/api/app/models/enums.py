@@ -251,3 +251,31 @@ class RuleEvidenceType(str, Enum):
     LEGAL = "LEGAL"
     SCORING = "SCORING"
     OTHER = "OTHER"
+
+
+class AIArtifactStatus(str, Enum):
+    DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    ACTIVE = "ACTIVE"
+    DEPRECATED = "DEPRECATED"
+    DISABLED = "DISABLED"
+    PUBLISHED = "PUBLISHED"
+
+
+class AIRunStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    WAITING_FOR_HUMAN = "WAITING_FOR_HUMAN"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+
+
+class HumanReviewStatus(str, Enum):
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    CHANGES_REQUESTED = "CHANGES_REQUESTED"
+    CANCELLED = "CANCELLED"

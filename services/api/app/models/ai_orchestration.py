@@ -189,6 +189,22 @@ class AIRunStep(UUIDPrimaryKeyMixin, Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class AIWorkflowCheckpoint(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "ai_workflow_checkpoints"
+    __table_args__ = (UniqueConstraint("run_id", name="uq_ai_checkpoint_run"),)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ai_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ai_workflow_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    organisation_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("organisations.id"))
+    node_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class HumanReviewRequest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "human_review_requests"
     __table_args__ = (Index("ix_human_review_status", "status"),)

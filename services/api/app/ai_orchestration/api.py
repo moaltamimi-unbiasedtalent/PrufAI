@@ -53,6 +53,12 @@ class ReviewDecision(BaseModel):
     reason: Optional[str] = None
 
 
+class ReviewRequest(BaseModel):
+    entity_type: str = Field(min_length=1, max_length=120)
+    entity_id: uuid.UUID
+    checksum: Optional[str] = None
+
+
 @router.get("/models")
 def list_models(
     principal: Principal = Depends(get_principal), session: Session = Depends(get_db_session)
@@ -125,6 +131,51 @@ def get_run(
     return {"id": str(run.id), "status": run.status.value, "request_id": run.request_id}
 
 
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(
+    run_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    context = _require(principal, "ai.run")
+    run = session.get(AIRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="AI run not found")
+    try:
+        AIOrchestrationService.cancel_run(session, run, context=context)
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": str(run.id), "status": run.status.value}
+
+
+@router.post("/runs/{run_id}/review", status_code=status.HTTP_201_CREATED)
+def request_review(
+    run_id: uuid.UUID,
+    payload: ReviewRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    context = _require(principal, "ai.review")
+    run = session.get(AIRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="AI run not found")
+    try:
+        item = AIOrchestrationService.request_review(
+            session,
+            run,
+            requested_by=principal.user.id,
+            context=context,
+            **payload.model_dump(),
+        )
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"id": str(item.id), "status": item.status.value}
+
+
 @router.get("/reviews")
 def list_reviews(
     principal: Principal = Depends(get_principal), session: Session = Depends(get_db_session)
@@ -145,7 +196,7 @@ def decide_review(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, str]:
-    _require(principal, "ai.review")
+    context = _require(principal, "ai.review")
     review = session.get(HumanReviewRequest, review_id)
     if review is None:
         raise HTTPException(status_code=404, detail="review not found")
@@ -157,6 +208,7 @@ def decide_review(
             actor_id=principal.user.id,
             checksum=payload.checksum,
             reason=payload.reason,
+            context=context,
         )
         session.commit()
     except Exception as exc:
@@ -171,13 +223,13 @@ def _decision(
     principal: Principal,
     session: Session,
 ) -> dict[str, str]:
-    _require(principal, "ai.review")
+    context = _require(principal, "ai.review")
     review = session.get(HumanReviewRequest, review_id)
     if review is None:
         raise HTTPException(status_code=404, detail="review not found")
     try:
         item = AIOrchestrationService.decide_review(
-            session, review, decision=decision, actor_id=principal.user.id
+            session, review, decision=decision, actor_id=principal.user.id, context=context
         )
         session.commit()
     except Exception as exc:

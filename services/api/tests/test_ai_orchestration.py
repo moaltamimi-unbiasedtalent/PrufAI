@@ -90,3 +90,54 @@ def test_forbidden_tools_are_rejected(session):
             input_schema={},
             output_schema={},
         )
+
+
+def test_checkpoint_is_domain_state_not_approval_and_terminal_runs_cannot_resume(session):
+    model = AIOrchestrationService.create_model(
+        session,
+        code="test.model.checkpoint",
+        name="Test",
+        provider="TEST",
+        model_name="v1",
+        purpose="test",
+    )
+    prompt = AIOrchestrationService.create_prompt(
+        session, code="test.prompt.checkpoint", name="Prompt", purpose="test"
+    )
+    prompt_version = AIOrchestrationService.create_prompt_version(
+        session, prompt, version_label="1", system_template="safe"
+    )
+    agent = AIOrchestrationService.create_agent(
+        session, code="test.agent.checkpoint", name="Agent", purpose="test"
+    )
+    AIOrchestrationService.create_agent_version(
+        session,
+        agent,
+        version_label="1",
+        model_profile_id=model.id,
+        prompt_version_id=prompt_version.id,
+        tool_policy=[],
+        input_schema={},
+        output_schema={},
+    )
+    workflow = AIOrchestrationService.create_workflow(
+        session, code="test.workflow.checkpoint", name="Workflow", purpose="test"
+    )
+    workflow_version = AIOrchestrationService.create_workflow_version(
+        session, workflow, version_label="1", graph_definition={"nodes": [{"type": "HITL"}]}
+    )
+    workflow_version.status = AIArtifactStatus.PUBLISHED
+    run = AIOrchestrationService.start_run(session, workflow_version, request_id="checkpoint-1")
+    review = AIOrchestrationService.request_review(
+        session, run, entity_type="proposal", entity_id=uuid.uuid4()
+    )
+    checkpoint = AIOrchestrationService.save_checkpoint(
+        session, run, workflow_version, node_id="HITL", state={"proposal": "synthetic"}
+    )
+    assert checkpoint.status == "ACTIVE"
+    assert run.status.value == "WAITING_FOR_HUMAN"
+    AIOrchestrationService.decide_review(
+        session, review, decision=HumanReviewStatus.APPROVED, actor_id=uuid.uuid4()
+    )
+    with pytest.raises(ValueError, match="terminal run"):
+        AIOrchestrationService.load_checkpoint(session, run)

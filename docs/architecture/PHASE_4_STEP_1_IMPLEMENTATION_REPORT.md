@@ -6,7 +6,7 @@ Added governed AI registries, exact version provenance, bounded provider-neutral
 
 ## Schema and migration
 
-Migration `0009_ai_orchestration` adds model profiles, prompt definitions/versions, agent definitions/versions, workflow definitions/versions, AI runs/steps and HumanReviewRequest. Published artifacts are immutable by service guard; checksums cover substantive configuration. Revision length is 20 characters.
+Migrations `0009_ai_orchestration` and `0010_ai_checkpoints` add model profiles, prompt definitions/versions, agent definitions/versions, workflow definitions/versions, AI runs/steps, durable workflow checkpoints and HumanReviewRequest. Published artifacts are immutable by service guard; checksums cover substantive configuration. Revision lengths are 20 and 19 characters.
 
 ## Runtime and safety
 
@@ -19,3 +19,13 @@ AI runs enter `WAITING_FOR_HUMAN` and create a domain HumanReviewRequest. Approv
 ## Validation and limitations
 
 Local AI tests, API tests, lint and targeted mypy are available. PostgreSQL and remote CI remain external gates. A full production provider call is intentionally not exercised in CI. Memory governance is deferred to Step 2; Question Bank and Exam Studio remain Phase 5.
+
+## Final governance closure details
+
+- Production checkpoint backend: PostgreSQL `ai_workflow_checkpoints`; test execution uses explicit in-memory state only.
+- Checkpoint keys include run ID, workflow-version ID and optional organisation ID. Checkpoints cannot change HumanReviewRequest state, and terminal runs cannot resume.
+- Retention is service-level: active waiting checkpoints are retained; cancelled/completed/non-active checkpoints are cleanup candidates; orphan handling is documented rather than scheduled in this MVP.
+- Provider retry policy is bounded to three attempts per call. Structured output is bounded to two attempts. Tool limits are three calls per step, twelve per run and twenty retrieval results per call.
+- Cancellation is terminal and idempotent. Review decisions and resume state are guarded against stale checksums and duplicate decisions.
+- HITL audit hooks cover review requested, approved, rejected, changes requested and cancelled; run telemetry remains in AIRun/AIRunStep rather than duplicating payloads in audit metadata.
+- API and AI currently communicate as separately executable boundaries; this step does not introduce an HTTP cross-service call. No caller-supplied tenant privilege is trusted by platform routes.

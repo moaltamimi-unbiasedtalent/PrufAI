@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -15,6 +16,7 @@ from app.models import (
     AgentVersion,
     AIModelProfile,
     AIRun,
+    AIWorkflowCheckpoint,
     AIWorkflowDefinition,
     AIWorkflowVersion,
     HumanReviewRequest,
@@ -268,6 +270,7 @@ class AIOrchestrationService:
         entity_id: uuid.UUID,
         requested_by: Optional[uuid.UUID] = None,
         checksum: Optional[str] = None,
+        context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
         if run.status not in {AIRunStatus.RUNNING, AIRunStatus.WAITING_FOR_HUMAN}:
             raise ValueError("run is not reviewable")
@@ -284,6 +287,7 @@ class AIOrchestrationService:
         )
         session.add(item)
         session.flush()
+        AIOrchestrationService._audit(session, context, "ai.review.requested", item)
         return item
 
     @staticmethod
@@ -295,6 +299,7 @@ class AIOrchestrationService:
         actor_id: uuid.UUID,
         checksum: Optional[str] = None,
         reason: Optional[str] = None,
+        context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
         if review.status not in {HumanReviewStatus.PENDING, HumanReviewStatus.IN_REVIEW}:
             raise ValueError("review already decided")
@@ -317,8 +322,86 @@ class AIOrchestrationService:
                     if decision is HumanReviewStatus.REJECTED
                     else AIRunStatus.WAITING_FOR_HUMAN
                 )
+        events = {
+            HumanReviewStatus.APPROVED: "ai.review.approved",
+            HumanReviewStatus.REJECTED: "ai.review.rejected",
+            HumanReviewStatus.CHANGES_REQUESTED: "ai.review.changes_requested",
+            HumanReviewStatus.CANCELLED: "ai.review.cancelled",
+        }
+        AIOrchestrationService._audit(session, context, events[decision], review)
         session.flush()
         return review
+
+    @staticmethod
+    def cancel_run(session: Session, run: AIRun, context: Optional[TenantContext] = None) -> AIRun:
+        if run.status is AIRunStatus.CANCELLED:
+            return run
+        if run.status not in {
+            AIRunStatus.PENDING,
+            AIRunStatus.RUNNING,
+            AIRunStatus.WAITING_FOR_HUMAN,
+        }:
+            raise ValueError("run is not cancellable")
+        run.status = AIRunStatus.CANCELLED
+        session.query(AIWorkflowCheckpoint).filter(AIWorkflowCheckpoint.run_id == run.id).update(
+            {"status": "CANCELLED"}
+        )
+        session.flush()
+        AIOrchestrationService._audit(session, context, "ai.workflow.run.cancelled", run)
+        return run
+
+    @staticmethod
+    def save_checkpoint(
+        session: Session,
+        run: AIRun,
+        workflow_version: AIWorkflowVersion,
+        *,
+        node_id: str,
+        state: dict[str, Any],
+        organisation_id: Optional[uuid.UUID] = None,
+    ) -> AIWorkflowCheckpoint:
+        if run.status is not AIRunStatus.WAITING_FOR_HUMAN:
+            raise ValueError("checkpoint requires a human-waiting run")
+        checkpoint = session.scalar(
+            select(AIWorkflowCheckpoint).where(AIWorkflowCheckpoint.run_id == run.id)
+        )
+        if checkpoint is None:
+            checkpoint = AIWorkflowCheckpoint(
+                run_id=run.id,
+                workflow_version_id=workflow_version.id,
+                organisation_id=organisation_id,
+                node_id=node_id,
+                state=state,
+                status="ACTIVE",
+            )
+            session.add(checkpoint)
+        else:
+            checkpoint.node_id, checkpoint.state, checkpoint.status = node_id, state, "ACTIVE"
+        session.flush()
+        return checkpoint
+
+    @staticmethod
+    def load_checkpoint(
+        session: Session, run: AIRun, *, organisation_id: Optional[uuid.UUID] = None
+    ) -> AIWorkflowCheckpoint:
+        checkpoint = session.scalar(
+            select(AIWorkflowCheckpoint).where(AIWorkflowCheckpoint.run_id == run.id)
+        )
+        if checkpoint is None or checkpoint.organisation_id != organisation_id:
+            raise ValueError("checkpoint is not available for this run context")
+        if run.status in {AIRunStatus.CANCELLED, AIRunStatus.SUCCEEDED, AIRunStatus.REJECTED}:
+            raise ValueError("terminal run cannot resume from checkpoint")
+        return checkpoint
+
+    @staticmethod
+    def cleanup_checkpoints(session: Session) -> int:
+        result = (
+            session.query(AIWorkflowCheckpoint)
+            .filter(AIWorkflowCheckpoint.status != "ACTIVE")
+            .delete()
+        )
+        session.flush()
+        return result
 
     @staticmethod
     def _audit(session: Session, context: Optional[TenantContext], event: str, entity: Any) -> None:

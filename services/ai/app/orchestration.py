@@ -18,6 +18,27 @@ from typing import Any, Callable, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+MAX_MODEL_ATTEMPTS = 3
+MAX_STRUCTURED_OUTPUT_ATTEMPTS = 2
+MAX_TOOL_CALLS_PER_STEP = 3
+MAX_TOOL_CALLS_PER_RUN = 12
+MAX_RETRIEVAL_RESULTS = 20
+
+
+class ProviderFailure(RuntimeError):
+    def __init__(self, category: str, message: str) -> None:
+        super().__init__(message)
+        self.category = category
+
+
+RETRYABLE_FAILURES = {"TIMEOUT", "RATE_LIMIT", "PROVIDER_UNAVAILABLE"}
+NON_RETRYABLE_FAILURES = {
+    "INVALID_OUTPUT",
+    "CONFIGURATION_ERROR",
+    "POLICY_BLOCK",
+    "INTERNAL_ERROR",
+}
+
 
 class ModelProfileStatus(str, Enum):
     TEST = "TEST"
@@ -68,6 +89,21 @@ class DeterministicTestModel:
                 payload = {"agrees": True, "concerns": [], "evidence_ids": []}
         return output_schema.model_validate(payload)
 
+    def invoke_with_retry(
+        self,
+        messages: list[dict[str, str]],
+        output_schema: type[BaseModel],
+        max_attempts: int = MAX_MODEL_ATTEMPTS,
+    ) -> BaseModel:
+        attempts = min(max_attempts, MAX_MODEL_ATTEMPTS)
+        for attempt in range(attempts):
+            try:
+                return self.invoke(messages, output_schema)
+            except ProviderFailure as exc:
+                if exc.category not in RETRYABLE_FAILURES or attempt == attempts - 1:
+                    raise
+        raise ProviderFailure("INTERNAL_ERROR", "provider retry exhausted")
+
 
 class OpenAICompatibleProvider:
     """Production adapter seam. Credentials are supplied by the host, never persisted."""
@@ -84,8 +120,11 @@ class OpenAICompatibleProvider:
             messages=messages, timeout=self.timeout_seconds, response_schema=output_schema
         )
         if time.monotonic() - started > self.timeout_seconds:
-            raise TimeoutError("model provider timeout")
-        return output_schema.model_validate(payload)
+            raise ProviderFailure("TIMEOUT", "model provider timeout")
+        try:
+            return output_schema.model_validate(payload)
+        except Exception as exc:
+            raise ProviderFailure("INVALID_OUTPUT", "structured output validation failed") from exc
 
 
 class LangChainCompatibleModel:
@@ -129,7 +168,7 @@ class KnowledgeRetrievalTool:
         ]
         if scope.allowed_document_ids:
             result = [item for item in result if item.evidence_id in scope.allowed_document_ids]
-        return result[:20]
+        return result[:MAX_RETRIEVAL_RESULTS]
 
 
 class StandardPackReadTool:
@@ -152,6 +191,23 @@ class RulesEvaluationTool:
 
     def evaluate(self, facts: Mapping[str, Any]) -> Any:
         return self._evaluator(facts)
+
+
+@dataclass
+class ToolBudget:
+    per_step: int = MAX_TOOL_CALLS_PER_STEP
+    per_run: int = MAX_TOOL_CALLS_PER_RUN
+    _step_calls: int = 0
+    _run_calls: int = 0
+
+    def consume(self) -> None:
+        if self._step_calls >= self.per_step or self._run_calls >= self.per_run:
+            raise ProviderFailure("POLICY_BLOCK", "tool-call limit exceeded")
+        self._step_calls += 1
+        self._run_calls += 1
+
+    def next_step(self) -> None:
+        self._step_calls = 0
 
 
 @dataclass

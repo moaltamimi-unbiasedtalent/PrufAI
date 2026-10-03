@@ -31,8 +31,12 @@ Only `KNOWLEDGE_RETRIEVAL`, `STANDARD_PACK_READ`, `RULES_EVALUATE` and `CITATION
 
 AIRun and AIRunStep capture workflow, agent, prompt, model, pack, retrieval, rule, checksum, token, latency and provider-request provenance. HumanReviewRequest owns approval status in PostgreSQL. Workflow execution may checkpoint/resume, but checkpoints never replace business decisions. Approvals are checksum-bound, stale decisions are rejected, and decisions are idempotently guarded.
 
+Checkpoints are persisted in the PostgreSQL `ai_workflow_checkpoints` table, keyed by run and workflow version with optional organisation scope. The test runtime may use an in-memory state object; production has no silent in-memory fallback. Active waiting checkpoints are retained; completed, cancelled and orphaned non-active checkpoints are eligible for cleanup through the service policy.
+
 ## Safety and limits
 
 Pydantic structured outputs reject extra fields and fabricated evidence references. Prompt templates are data-only; no executable template language is accepted. Symbolic graph nodes, bounded iterations, tool allow-lists, retry limits and explicit failure states prevent unbounded or arbitrary execution. Fixtures are synthetic and marked `TEST FIXTURE — NOT OFFICIAL MATERIAL`.
+
+Provider attempts are capped at 3; structured-output attempts are capped at 2. TIMEOUT, RATE_LIMIT and PROVIDER_UNAVAILABLE are retryable; INVALID_OUTPUT, CONFIGURATION_ERROR, POLICY_BLOCK and INTERNAL_ERROR are not blindly retried. Tool calls are capped at 3 per step and 12 per run; retrieval returns at most 20 results. Workflow execution is capped at 12 steps, including correction rounds. Cancellation is terminal and resume is state/idempotency guarded.
 
 Phase 4 / Step 2 owns governed memory. Phase 5 owns Question Bank and Exam Studio.

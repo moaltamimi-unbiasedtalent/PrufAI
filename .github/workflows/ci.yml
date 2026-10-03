@@ -86,6 +86,10 @@ jobs:
         working-directory: services/api
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_ai_orchestration.py tests/test_ai_orchestration_postgresql_integration.py
+        working-directory: services/api
+        env:
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -c "import psycopg; c=psycopg.connect('postgresql://prufai:prufai_ci@localhost:5432/prufai'); print(c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone()); assert c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone() is not None"
         working-directory: services/api
       - run: python -m pytest tests/test_postgresql_integration.py

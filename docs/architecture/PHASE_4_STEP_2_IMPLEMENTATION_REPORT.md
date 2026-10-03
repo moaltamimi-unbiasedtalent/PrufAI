@@ -46,6 +46,15 @@ claimed by local checks alone.
 - Local integration skips are infrastructure skips only: PostgreSQL and Redis
   services are unavailable locally. CI invokes both required integration
   subsets after service startup and Alembic migration.
+- Final local counts: API `54 passed, 7 skipped`; AI `7 passed`; frontend lint,
+  typecheck, test and production build passed. The seven skips are the existing
+  PostgreSQL/pgvector/Redis integration suites, including the new memory
+  integration subsets, because those services are not available in this local
+  environment.
+- `npm audit` and `npm audit --omit=dev` were not available because the npm
+  advisory endpoint could not resolve from this environment. No dependency
+  changes or unrelated framework upgrades were made. Python security audit was
+  likewise not available as a configured command.
 - Audit event names emitted by the memory service are `memory.created`,
   `memory.version.created`, `memory.proposed`, `memory.review_required`,
   `memory.approved`, `memory.active`, `memory.retired`,

@@ -79,6 +79,29 @@ response operations during a temporary interruption; it stores no auth tokens
 and is reconciled idempotently on reconnect. Conflicts, expiry and submission
 are surfaced rather than hidden.
 
+## Candidate App flow
+
+The candidate route loads only the authenticated candidate's assignment DTOs.
+An assignment opens a safe pre-start view; preparation creates a `READY`
+attempt but does not set `started_at` or a deadline. The explicit Start action
+calls the candidate start endpoint, after which the app loads the safe runtime
+DTO and renders the current module/task/item, typed response control, timer,
+connection state and server-authoritative navigation. Response changes call the
+existing idempotent save contract with the expected revision and client
+operation ID; offline changes enter the bounded IndexedDB outbox and replay
+with the same operation ID after reconnection. Server navigation rejection
+leaves the current location unchanged. Heartbeats refresh status and deadline
+presentation without becoming timing authority. Submit calls the final-submit
+endpoint and switches the runtime to read-only `SUBMITTED` state. Refreshing an
+`IN_PROGRESS` URL fetches runtime state and persisted responses without calling
+Start again. Unsupported modes, expiry, conflicts and ownership failures are
+shown as normalized candidate-safe messages.
+
+Dashboard status is textual (`Not yet available`, `Available`, `In progress`,
+`Submitted`, `Expired` or `Cancelled`) and actions are native keyboard
+controls/links. Full browser authentication and remote PostgreSQL execution
+remain external gates.
+
 ### Local accessibility and runtime UX closure
 
 The runtime screen uses native headings, labels, `fieldset`/`legend`, radio and

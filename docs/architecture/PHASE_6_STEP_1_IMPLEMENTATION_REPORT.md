@@ -79,6 +79,12 @@ keyboard-reachable conflict recovery, and disabled controls after expiry or
 submission. The timer remains presentation-only and waits for the
 server-provided deadline; it does not become a client authority.
 
+The completed local flow is dashboard → safe pre-start → explicit server
+start → candidate-safe runtime → typed autosave → server-authoritative
+navigation → offline outbox replay → submit/read-only state. Refresh/resume
+fetches runtime state and persisted responses without starting a new attempt.
+The frontend does not call Exam Studio or Question Bank admin endpoints.
+
 Audit lifecycle events implemented are `exam_assignment.created`,
 `exam_assignment.cancelled`, `exam_attempt.created`, `exam_attempt.started`,
 `exam_attempt.expired` and `exam_attempt.submitted`. Response content and
@@ -101,6 +107,10 @@ proctoring telemetry has been invented.
 - Frontend accessibility tests cover timer labelling/non-flooding announcements,
   response labelling, textual connection/sync states, conflict and expiry
   messaging, and the rendered candidate flow.
+- Candidate API flow and runtime-contract tests cover assignment preparation,
+  explicit start, safe runtime loading, operation-ID save, navigation,
+  submission, normalized unsupported/ownership errors, conflict and expiry
+  states.
 - Existing Phase 5 gates: **PASS locally** where infrastructure is available.
 - npm and Python dependency audits: **NOT AVAILABLE** in this environment
   (npm registry DNS failure; `pip_audit` unavailable).

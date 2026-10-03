@@ -24,12 +24,10 @@ describe("candidate runtime accessibility", () => {
     expect(formatRemaining(3661)).toBe("01:01:01");
   });
 
-  it("renders labelled response controls and textual connection/sync states", () => {
+  it("renders an accessible loading state before runtime data is available", () => {
     const markup = renderToStaticMarkup(<CandidateExamRuntimePage />);
-    expect(markup).toContain('for="response-mode"');
-    expect(markup).toContain("Long response");
-    expect(markup).toContain("Online — responses can sync with the server.");
-    expect(markup).toContain('aria-live="off"');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Loading exam");
     expect(markup).not.toContain("dangerouslySetInnerHTML");
   });
 

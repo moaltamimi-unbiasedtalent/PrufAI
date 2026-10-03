@@ -11,7 +11,12 @@ from app.models.enums import (
     QuestionBankTaskType,
 )
 from app.question_bank.schemas import parse_item_content
-from app.question_bank.service import item_checksum, parse_safe_import, validate_item_payload
+from app.question_bank.service import (
+    delivery_projection,
+    item_checksum,
+    parse_safe_import,
+    validate_item_payload,
+)
 
 
 def _mc(**overrides: object) -> dict:
@@ -111,3 +116,22 @@ def test_import_is_inert_and_rejects_executable_fields() -> None:
     assert parse_safe_import({"content": _mc()})["status"] == "DRAFT"
     with pytest.raises(ValueError):
         parse_safe_import({"content": _mc(), "python": "__import__('os')"})
+
+
+def test_delivery_projection_strips_answer_key_and_internal_fields() -> None:
+    from types import SimpleNamespace
+
+    version = SimpleNamespace(
+        id="v1",
+        version_label="1",
+        assessment_family=AssessmentFamily.LANGUAGE,
+        language="de",
+        task_type=QuestionBankTaskType.MULTIPLE_CHOICE,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        content=_mc(),
+    )
+    projection = delivery_projection(version)
+    serialized = str(projection)
+    assert "correct_option_ids" not in serialized
+    assert projection["content"]["options"]

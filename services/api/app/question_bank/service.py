@@ -17,6 +17,7 @@ from app.models import (
     QuestionBankItem,
     QuestionBankItemCefrLevel,
     QuestionBankItemVersion,
+    QuestionBankStandardPackBinding,
 )
 from app.models.enums import (
     AssessmentFamily,
@@ -70,6 +71,22 @@ def item_checksum(payload: dict[str, Any]) -> str:
 def normalized_fingerprint(content: dict[str, Any]) -> str:
     text = str(content.get("prompt", "")).casefold().split()
     return hashlib.sha256(" ".join(text).encode()).hexdigest()
+
+
+def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
+    """Candidate-safe shape; answer keys and internal governance are omitted."""
+    content = dict(version.content)
+    content.pop("correct_option_ids", None)
+    return {
+        "item_version_id": str(version.id),
+        "version_label": version.version_label,
+        "assessment_family": version.assessment_family.value,
+        "language": version.language,
+        "task_type": version.task_type.value,
+        "response_mode": version.response_mode.value,
+        "content": content,
+        "media_requirement": version.media_requirement.value,
+    }
 
 
 def parse_safe_import(payload: dict[str, Any]) -> dict[str, Any]:
@@ -410,6 +427,93 @@ class QuestionBankService:
             version.status is QuestionBankLifecycleStatus.ACTIVE
             and version.rights_status in PUBLISHABLE_RIGHTS
         )
+
+    @staticmethod
+    def resolve_as_of(
+        session: Session, context: TenantContext, item_id: uuid.UUID, as_of: datetime
+    ) -> Optional[QuestionBankItemVersion]:
+        AuthorizationService.require_permission(
+            context, "question_bank.read", context.organisation_id
+        )
+        query = (
+            select(QuestionBankItemVersion)
+            .join(QuestionBankItem)
+            .where(
+                QuestionBankItemVersion.item_id == item_id,
+                QuestionBankItemVersion.status.in_(
+                    {
+                        QuestionBankLifecycleStatus.ACTIVE,
+                        QuestionBankLifecycleStatus.RETIRED,
+                        QuestionBankLifecycleStatus.SUPERSEDED,
+                    }
+                ),
+                (QuestionBankItemVersion.effective_from.is_(None))
+                | (QuestionBankItemVersion.effective_from <= as_of),
+                (QuestionBankItemVersion.effective_until.is_(None))
+                | (QuestionBankItemVersion.effective_until > as_of),
+                (QuestionBankItem.scope_type == "PLATFORM_SHARED")
+                | (QuestionBankItem.organisation_id == context.organisation_id),
+            )
+            .order_by(QuestionBankItemVersion.effective_from.desc().nullslast())
+        )
+        return session.scalar(query.limit(1))
+
+    @staticmethod
+    def duplicate_inspection(
+        session: Session, context: TenantContext, version: QuestionBankItemVersion
+    ) -> int:
+        """Return only a count within authorized scope, never foreign IDs/content."""
+        AuthorizationService.require_permission(
+            context, "question_bank.read", context.organisation_id
+        )
+        query = (
+            select(QuestionBankItemVersion)
+            .join(QuestionBankItem)
+            .where(
+                QuestionBankItemVersion.checksum == version.checksum,
+                (QuestionBankItem.scope_type == "PLATFORM_SHARED")
+                | (QuestionBankItem.organisation_id == context.organisation_id),
+            )
+        )
+        return len(list(session.scalars(query.limit(100))))
+
+    @staticmethod
+    def bind_pack(
+        session: Session,
+        context: TenantContext,
+        version: QuestionBankItemVersion,
+        standard_pack_version_id: uuid.UUID,
+        task_spec_id: Optional[uuid.UUID] = None,
+        validation_status: str = "PASS",
+    ) -> QuestionBankStandardPackBinding:
+        AuthorizationService.require_permission(
+            context, "question_bank.manage", version.item.organisation_id
+        )
+        if validation_status != "PASS":
+            raise ValueError("only passing pack compatibility may be bound")
+        binding = QuestionBankStandardPackBinding(
+            item_version_id=version.id,
+            standard_pack_version_id=standard_pack_version_id,
+            task_spec_id=task_spec_id,
+            validation_status=validation_status,
+            validated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(binding)
+        session.flush()
+        AuditService.record(
+            session,
+            context,
+            event_type="question_bank.item.pack_bound",
+            entity_type="question_bank_item_version",
+            entity_id=str(version.id),
+            organisation_id=version.item.organisation_id,
+            metadata={
+                "standard_pack_version_id": str(standard_pack_version_id),
+                "task_spec_id": str(task_spec_id) if task_spec_id else None,
+            },
+        )
+        return binding
 
     @staticmethod
     def create_item(

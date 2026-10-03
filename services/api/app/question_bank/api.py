@@ -24,7 +24,11 @@ from app.models.enums import (
     QuestionBankSkill,
     QuestionBankTaskType,
 )
-from app.question_bank.service import QuestionBankService, validate_item_payload
+from app.question_bank.service import (
+    QuestionBankService,
+    delivery_projection,
+    validate_item_payload,
+)
 
 router = APIRouter(prefix="/api/v1/platform/question-bank", tags=["question-bank"])
 service = QuestionBankService()
@@ -194,7 +198,29 @@ def export_version(
     context = _context(principal)
     if version.item.organisation_id != context.organisation_id and not context.platform_scope:
         raise HTTPException(status_code=403, detail="question bank scope denied")
+    from app.authorization import AuthorizationService
+
+    AuthorizationService.require_permission(
+        context, "question_bank.export", version.item.organisation_id
+    )
     return service.export_safe(version, cefr_levels=[], pack_binding_ids=[], evidence_ids=[])
+
+
+@router.get("/item-versions/{version_id}/delivery")
+def delivery_version(
+    version_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    version = session.get(QuestionBankItemVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="version not found")
+    context = _context(principal)
+    if version.item.organisation_id != context.organisation_id and not context.platform_scope:
+        raise HTTPException(status_code=403, detail="question bank scope denied")
+    if not service.eligible_for_exam_studio(version):
+        raise HTTPException(status_code=409, detail="item version is not eligible for delivery")
+    return delivery_projection(version)
 
 
 @router.post("/item-versions/{version_id}/approve")

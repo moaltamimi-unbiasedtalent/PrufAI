@@ -82,6 +82,9 @@ export default function CandidatePage() {
       <p>
         Only assignments belonging to the authenticated candidate are shown.
       </p>
+      <p>
+        <Link href="/candidate/results">View released results</Link>
+      </p>
       <section
         aria-labelledby="assignment-heading"
         style={{ marginTop: "2rem" }}

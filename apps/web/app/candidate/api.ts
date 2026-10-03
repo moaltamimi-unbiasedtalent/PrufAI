@@ -133,4 +133,7 @@ export const candidateApi = {
     request<CandidateAttempt>(`/exam-attempts/${attemptId}/submit`, {
       method: "POST",
     }),
+  results: () => request<Array<Record<string, unknown>>>("/results"),
+  result: (resultId: string) =>
+    request<Record<string, unknown>>(`/results/${resultId}`),
 };

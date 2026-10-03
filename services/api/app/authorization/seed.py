@@ -58,6 +58,11 @@ PLATFORM_PERMISSIONS = (
     "exam.export",
     "exam_assignment.read",
     "exam_assignment.manage",
+    "scoring.run",
+    "result.read",
+    "result.review",
+    "result.release",
+    "result.manage",
 )
 TENANT_PERMISSIONS = (
     "organisation.read",
@@ -80,6 +85,11 @@ TENANT_PERMISSIONS = (
     "exam.export",
     "exam_assignment.read",
     "exam_assignment.manage",
+    "scoring.run",
+    "result.read",
+    "result.review",
+    "result.release",
+    "result.manage",
 )
 
 ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
@@ -146,6 +156,11 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "exam.export",
             "exam_assignment.read",
             "exam_assignment.manage",
+            "scoring.run",
+            "result.read",
+            "result.review",
+            "result.release",
+            "result.manage",
         ),
     ),
     "EXAM_AUTHOR": (

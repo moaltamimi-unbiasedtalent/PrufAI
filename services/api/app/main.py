@@ -17,6 +17,7 @@ from app.question_bank.api import router as question_bank_router
 from app.rules.api import router as rules_router
 from app.runtime.api import candidate_router
 from app.runtime.api import organisation_router as runtime_organisation_router
+from app.scoring.api import candidate_result_router, scoring_router
 from app.standard_packs.api import router as standard_packs_router
 
 app = FastAPI(title="PrüfAI API", version="0.1.0")
@@ -63,6 +64,8 @@ app.include_router(question_bank_router)
 app.include_router(exam_router)
 app.include_router(candidate_router)
 app.include_router(runtime_organisation_router)
+app.include_router(scoring_router)
+app.include_router(candidate_result_router)
 
 
 @app.get("/health")

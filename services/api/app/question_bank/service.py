@@ -83,14 +83,23 @@ def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
     content = dict(version.content)
     for protected_key in (
         "correct_option_ids",
+        "correct_option",
+        "correct_answer",
+        "answer",
         "answer_key",
         "solution",
         "scoring_key",
         "reviewer_notes",
         "ai_critique",
         "validation",
+        "internal_validation",
+        "rule_evaluation",
         "legal_notes",
+        "rights_notes",
+        "private_s3_url",
         "private_object_url",
+        "bucket_credential",
+        "presigned_url",
     ):
         content.pop(protected_key, None)
     return {

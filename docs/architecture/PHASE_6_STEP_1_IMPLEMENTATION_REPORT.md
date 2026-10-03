@@ -1,73 +1,118 @@
-# Phase 6 / Step 1 implementation report — Candidate Exam Runtime
+# Phase 6 / Step 1 final governance and integration closure
 
-## Executive Summary
+## Scope and source control
 
-Implemented the authenticated Candidate Exam Runtime foundation. Assignments,
-attempts, sessions, responses and revisions are PostgreSQL-backed and pinned to
-one exact published ExamVersion. Runtime content is derived only from the safe
-delivery projection; no correctness or scoring logic is present.
+This closure covers the Candidate Exam Runtime only. Scoring, correctness,
+results, certificates, proctoring, adaptive delivery and Phase 6 / Step 2 are
+not implemented.
 
-## Schema, assignments, attempts and sessions
+- Repository: `https://github.com/moaltamimi-unbiasedtalent/PrufAI.git`
+- Branch: `phase/6-candidate-runtime`
+- Starting commit: `65ae34e`
+- Migration: `0014_candidate_runtime` (revision length 22), after `0013_exam_studio`
+- Manual PR URL: `https://github.com/moaltamimi-unbiasedtalent/PrufAI/pull/new/phase/6-candidate-runtime`
 
-Migration `0014_candidate_runtime` adds `candidate_exam_assignments`,
-`candidate_exam_attempts`, `candidate_exam_sessions`, `candidate_responses` and
-`candidate_response_revisions`. Assignment ownership, organisation scope,
-availability and attempt limits are constrained. Attempt numbers and response
-bindings are unique; response operation IDs are unique per attempt; a partial
-PostgreSQL index protects one active attempt.
+## Database guarantees
 
-Assignment -> exact ExamVersion -> runtime plan checksum -> attempt is the only
-launch path. New versions require new assignments. Statuses are controlled and
-expiry is derived from server time, not status alone.
+Migration `0014_candidate_runtime` creates the five runtime tables and enforces
+the following in PostgreSQL: assignment foreign keys to organisation,
+candidate user and the exact `exam_version_id`; unique attempt number per
+assignment; a partial unique index allowing only one `READY`/`IN_PROGRESS`
+attempt per assignment; unique response per attempt and item binding; unique
+revision number per response; unique client operation ID per attempt; a unique
+attempt foreign key for the one-to-one session; candidate and organisation
+foreign keys on attempts and responses; and indexes for attempt status and
+deadline. The service locks the assignment row while counting attempts and
+creating a new attempt. This row lock plus `maximum_attempts` check and the
+database partial unique index are the concurrency defence. A live race test
+requires PostgreSQL and remains a remote-CI obligation.
 
-## Runtime plan, delivery and timing
+## Runtime governance
 
-`CandidateRuntimeService._safe_plan` materialises safe module/section/task/item
-structure from the pinned ExamVersion, checks active rights and supported
-response modes, and stores a deterministic checksum on the attempt. The admin
-manifest is not called by candidate runtime. Overall/module/section timing is
-snapshotted from existing Standard Pack metadata where available. Start,
-deadline, expiry, heartbeat and resume are server-authoritative.
+Availability is evaluated from controlled assignment status,
+`available_from`, `available_until`, and server time. The local unit gate covers
+before, during and after the window; client timestamps are not trusted. Only
+`PUBLISHED`/`ACTIVE` versions with publishable rights and active items can be
+launched. DRAFT, HUMAN_REVIEW, REJECTED, SUPERSEDED and RETIRED versions are
+not assignable through the runtime path. `OFFICIAL_CERTIFICATION` is explicitly
+blocked because no authorization domain exists.
 
-## Responses and lifecycle
+The call path is `CandidateRuntimeService._safe_plan` ->
+`question_bank.service.delivery_projection`. It reads the pinned ExamVersion
+hierarchy and the delivery-safe Question Bank projection; it does not consume
+the admin manifest and strip answer fields afterward. The plan is serialized,
+checksummed and pinned to the attempt. The safe projection excludes correct
+answers, answer keys, solutions, scoring keys, reviewer/AI/internal validation,
+rights notes and private object URLs. The synthetic JSON serialization test
+passes for these fields. Supported modes are `SELECT_ONE`, `SELECT_MULTIPLE`,
+`TEXT` and `LONG_TEXT`; unsupported modes are blocked with
+`RUNTIME.UNSUPPORTED_RESPONSE_MODE`.
 
-Typed `SELECT_ONE`, `SELECT_MULTIPLE`, `TEXT` and `LONG_TEXT` payloads are
-validated against safe option data with bounded text. Unsupported audio/oral,
-matching and ordering modes block launch. Autosave is idempotent by client
-operation ID and uses optimistic revision checks. Conflicting reuse and stale
-devices are rejected. Submission freezes responses; duplicate submission returns
-the existing state. A sweep hook supports background expiry, while every write
-also enforces request-time expiry.
+Server timestamps govern start, deadline, expiry, heartbeat and resume. The
+request-time expiry guard and `expire_overdue()` sweep hook enforce the
+post-deadline block; deployment of a periodic worker is still operational
+work. Submission is final, duplicate submission is idempotent, and writes are
+blocked after submission or expiry. Navigation rejects unknown bindings and
+backwards moves for linear/no-backtrack plans.
 
-## Ownership, RBAC and isolation
+## Ownership, responses and offline behaviour
 
-Institution users with `exam_assignment.manage/read` create, list and cancel
-assignments only inside their organisation. Candidate endpoints derive the
-authenticated user and organisation context and never trust a candidate ID from
-the request. Cross-candidate and cross-tenant access is rejected. Candidate
-enumeration of Exam Studio or Question Bank records is not exposed.
+Candidate routes derive candidate and organisation ownership from the
+authenticated principal. Cross-candidate and cross-tenant access is rejected;
+candidate routes do not enumerate Question Bank or Exam Studio records, and no
+admin impersonation path exists. Assignment management is organisation-scoped
+and protected by `exam_assignment.manage/read` permissions.
 
-## Offline, media, audit and telemetry
+Typed response validation is bounded and binding-scoped. Client operation IDs
+are unique per attempt, replay returns the existing result, conflicting reuse
+is deterministic, and stale revisions are rejected by optimistic concurrency.
+The IndexedDB outbox is bounded to 100 operations, 64 KiB per payload and
+24-hour queued retention. It stores no authentication token. The offline timer
+is not authoritative; the server deadline remains the source of truth.
 
-The Candidate App includes accessible status/timer controls and a bounded
-IndexedDB response outbox. It never stores auth tokens in localStorage. Opaque
-media references remain safe; private object URLs are not introduced. Audit
-events cover assignment/attempt lifecycle only; response payloads and answer
-text are not written to immutable audit. Operational telemetry boundaries are
-documented without adding sensitive candidate profile data.
+Candidate surfaces are `/candidate` and `/candidate/exams/[attemptId]`; API
+surfaces are under `/api/v1/candidate` plus organisation assignment routes.
+The screen has semantic controls and live status messaging, but accessibility
+closure is incomplete: there is no full timer/error association and no complete
+runtime integration UX. This is recorded as a blocking limitation, not as a
+claim of full accessibility certification.
 
-## Tests and integration
+Audit lifecycle events implemented are `exam_assignment.created`,
+`exam_assignment.cancelled`, `exam_attempt.created`, `exam_attempt.started`,
+`exam_attempt.expired` and `exam_attempt.submitted`. Response content and
+answer text are not written to immutable audit; no retention policy or
+proctoring telemetry has been invented.
 
-Unit tests cover typed validation, safe binding lookup, expiry, ownership,
-controlled statuses and runtime table registration. Existing Exam Studio tests
-remain green. A migration-backed PostgreSQL integration checks all five runtime
-tables, uniqueness constraints and the dynamic Alembic head. CI explicitly
-runs it with PostgreSQL/pgvector and fails if the required integration URL is
-missing; general test runs classify absent infrastructure as a skip.
+## Validation evidence
 
-## Known limitations and recommendation
+- API local suite: **84 passed, 10 skipped, 0 failed**.
+- Skip classification: **8 expected local PostgreSQL skips** and **2 expected
+  local Redis skips**; no unexpected skip.
+- Candidate Runtime PostgreSQL integration: configured in CI with
+  `PRUFAI_REQUIRE_POSTGRES_INTEGRATION=1` and `POSTGRES_INTEGRATION_URL`; it
+  fails rather than skips when the required URL is absent, and does not use
+  `Base.metadata.create_all`.
+- Alembic heads: `0014_candidate_runtime`; offline SQL generation passes.
+- API Ruff, format check and mypy: **PASS**.
+- AI service Ruff, format check, mypy and tests: **PASS** (7 tests).
+- Frontend lint, format check, typecheck, tests and production build: **PASS**.
+- Existing Phase 5 gates: **PASS locally** where infrastructure is available.
+- npm and Python dependency audits: **NOT AVAILABLE** in this environment
+  (npm registry DNS failure; `pip_audit` unavailable).
+- Remote GitHub CI, remote PostgreSQL execution and required-skip behaviour:
+  **NOT VERIFIED** from this environment.
 
-Scoring, result calculation, certificates, proctoring, audio/video, adaptive
-testing, accommodations, protected media resolution and formal retention are
-out of scope. Phase 6 / Step 2 should add governed scoring/result services
-without changing attempt immutability, timing authority or safe delivery.
+## Closure assessment
+
+Implementation-level governance gates are satisfied locally, but the overall
+technical DoD is **FAIL / not yet certifiable** until remote CI observes the
+Candidate Runtime PostgreSQL job and the candidate accessibility/runtime shell
+is completed. The branch was pushed; merge and deployment were not performed.
+
+Blocking issues:
+
+1. Remote GitHub CI and Candidate Runtime PostgreSQL integration have not been
+   observed.
+2. Local PostgreSQL/Redis are unavailable, leaving the ten expected skips.
+3. Candidate App accessibility and full runtime integration UX remain a
+   focused MVP shell.

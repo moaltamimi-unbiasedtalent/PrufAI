@@ -9,15 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationError
+from app.authorization import AuthorizationError, TenantContext
 from app.db import get_db_session
+from app.models import CandidateExamAssignment, CandidateExamAttempt
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
 
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-runtime"])
 organisation_router = APIRouter(prefix="/api/v1/organisations", tags=["candidate-assignments"])
 
 
-def _context(principal: Principal):
+def _context(principal: Principal) -> TenantContext:
     if principal.tenant_context is None:
         raise HTTPException(status_code=403, detail="organisation context required")
     return principal.tenant_context
@@ -42,7 +43,7 @@ class ResponseSave(BaseModel):
     client_observed_at: Optional[datetime] = None
 
 
-def _assignment_payload(assignment) -> dict[str, Any]:
+def _assignment_payload(assignment: CandidateExamAssignment) -> dict[str, Any]:
     return {
         "id": str(assignment.id),
         "status": assignment.status.value,
@@ -60,7 +61,7 @@ def _assignment_payload(assignment) -> dict[str, Any]:
     }
 
 
-def _attempt_payload(attempt) -> dict[str, Any]:
+def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
     return {
         "id": str(attempt.id),
         "status": attempt.status.value,

@@ -10,6 +10,8 @@ export type CandidateOutboxOperation = {
 const DATABASE = "prufai-candidate-runtime";
 const STORE = "response-outbox";
 const MAX_OPERATIONS = 100;
+const MAX_PAYLOAD_BYTES = 64 * 1024;
+const MAX_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export function openCandidateOutbox(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -24,6 +26,13 @@ export function openCandidateOutbox(): Promise<IDBDatabase> {
 export async function queueCandidateOperation(
   operation: CandidateOutboxOperation,
 ): Promise<void> {
+  const payloadBytes = new TextEncoder().encode(
+    JSON.stringify(operation.payload),
+  ).byteLength;
+  if (payloadBytes > MAX_PAYLOAD_BYTES)
+    throw new Error("candidate response payload is too large");
+  if (Date.now() - Date.parse(operation.queuedAt) > MAX_RETENTION_MS)
+    throw new Error("candidate response operation is expired");
   const database = await openCandidateOutbox();
   const transaction = database.transaction(STORE, "readwrite");
   const store = transaction.objectStore(STORE);
@@ -73,6 +82,10 @@ export async function syncCandidateOutbox(
   for (const operation of operations.sort((left, right) =>
     left.queuedAt.localeCompare(right.queuedAt),
   )) {
+    if (Date.now() - Date.parse(operation.queuedAt) > MAX_RETENTION_MS) {
+      removeCandidateOperation(database, operation.operationId);
+      continue;
+    }
     const result = await send(operation);
     if (result === "ack" || result === "expired") {
       removeCandidateOperation(database, operation.operationId);

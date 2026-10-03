@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -98,6 +99,26 @@ def test_expired_attempt_is_not_writable() -> None:
         raise RuntimeExpired("attempt is not writable")
 
 
+def test_assignment_window_uses_server_time_only() -> None:
+    from app.models import CandidateExamAssignment
+    from app.models.enums import CandidateAssignmentStatus
+
+    now = datetime.now(timezone.utc)
+    assignment = CandidateExamAssignment(
+        organisation_id=uuid.uuid4(),
+        candidate_user_id=uuid.uuid4(),
+        exam_version_id=uuid.uuid4(),
+        status=CandidateAssignmentStatus.ASSIGNED,
+        available_from=now + timedelta(minutes=1),
+        available_until=now + timedelta(minutes=2),
+        maximum_attempts=1,
+        created_at=now,
+    )
+    assert not CandidateRuntimeService._available(assignment, now)
+    assert CandidateRuntimeService._available(assignment, now + timedelta(minutes=1, seconds=1))
+    assert not CandidateRuntimeService._available(assignment, now + timedelta(minutes=3))
+
+
 def test_candidate_ownership_is_required() -> None:
     attempt = _attempt()
     with pytest.raises(RuntimeError, match="ownership"):
@@ -148,6 +169,16 @@ def test_runtime_plan_is_delivery_safe_and_rejects_unsupported_modes() -> None:
             "options": [{"option_id": "a", "display_text": "A"}],
             "correct_option_ids": ["a"],
             "solution": "hidden",
+            "correct_option": "a",
+            "correct_answer": "a",
+            "answer_key": {"a": 1},
+            "scoring_key": {"a": 1},
+            "reviewer_notes": "internal",
+            "ai_critique": "internal",
+            "internal_validation": {"status": "PASS"},
+            "rule_evaluation": {"status": "PASS"},
+            "rights_notes": "internal",
+            "private_s3_url": "https://s3.internal/object",
         },
     )
     module_id, section_id, task_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -205,10 +236,28 @@ def test_runtime_plan_is_delivery_safe_and_rejects_unsupported_modes() -> None:
             raise AssertionError(model)
 
     plan = CandidateRuntimeService._safe_plan(FakeSession(), version)
-    serialized = str(plan)
-    assert "correct_option_ids" not in serialized
-    assert "solution" not in serialized
+    serialized = json.dumps(plan)
+    for protected in (
+        "correct_option_ids",
+        "correct_option",
+        "correct_answer",
+        "answer_key",
+        "scoring_key",
+        "solution",
+        "reviewer_notes",
+        "ai_critique",
+        "internal_validation",
+        "rule_evaluation",
+        "rights_notes",
+        "private_s3_url",
+    ):
+        assert protected not in serialized
 
+    version.classification = SimpleNamespace(value="OFFICIAL_CERTIFICATION")
+    with pytest.raises(ValueError, match="official certification"):
+        CandidateRuntimeService._safe_plan(FakeSession(), version)
+
+    version.classification = SimpleNamespace(value="PRACTICE")
     spec.response_mode = PackResponseMode.LIVE_ORAL
     with pytest.raises(ValueError, match="RUNTIME.UNSUPPORTED_RESPONSE_MODE"):
         CandidateRuntimeService._safe_plan(FakeSession(), version)

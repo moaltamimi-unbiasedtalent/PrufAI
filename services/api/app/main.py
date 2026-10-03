@@ -12,6 +12,7 @@ from app.dependencies import settings_dependency
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
 from app.memory.api import router as memory_router
+from app.question_bank.api import router as question_bank_router
 from app.rules.api import router as rules_router
 from app.standard_packs.api import router as standard_packs_router
 
@@ -55,6 +56,7 @@ app.include_router(standard_packs_router)
 app.include_router(rules_router)
 app.include_router(ai_orchestration_router)
 app.include_router(memory_router)
+app.include_router(question_bank_router)
 
 
 @app.get("/health")

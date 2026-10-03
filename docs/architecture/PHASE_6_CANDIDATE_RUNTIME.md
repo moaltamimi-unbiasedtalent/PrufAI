@@ -79,6 +79,30 @@ response operations during a temporary interruption; it stores no auth tokens
 and is reconciled idempotently on reconnect. Conflicts, expiry and submission
 are surfaced rather than hidden.
 
+### Local accessibility and runtime UX closure
+
+The runtime screen uses native headings, labels, `fieldset`/`legend`, radio and
+checkbox controls, inputs and textareas. Each response control is associated
+with the question prompt and contextual help. Validation and conflict/expiry
+messages use explicit descriptions and alert semantics without exposing raw
+backend errors. Autosave distinguishes `Saving`, `Saved`, `Offline — queued`,
+`Conflict`, `Expired` and `Submitted`; routine saves are not live-announced.
+
+The timer is a stable labelled `time` presentation. It does not announce every
+tick or move focus. If the server supplies a deadline, only meaningful
+milestones (10, 5 and 1 minute) are announced politely. The server remains the
+authority for start, deadline, expiry and resume; the local timer never changes
+those semantics. Offline, conflict and connectivity state are rendered as
+text, not colour or icon alone. Expired and submitted states disable editing.
+
+Core controls are native and keyboard reachable. Autosave, heartbeat and timer
+updates never reset focus; only a future consequential transition may move
+focus deliberately. This is MVP runtime accessibility closure, not formal WCAG
+certification. Focused Vitest coverage checks timer labelling, non-flooding
+announcements, response labelling, textual states, conflict and expiry copy,
+and the rendered candidate flow. Full browser/API integration and external
+accessibility audit remain future gates.
+
 ## Authorization, audit, telemetry and privacy
 
 Candidate endpoints derive ownership from the authenticated principal. Tenant

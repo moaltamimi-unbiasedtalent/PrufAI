@@ -98,6 +98,9 @@ proctoring telemetry has been invented.
 - API Ruff, format check and mypy: **PASS**.
 - AI service Ruff, format check, mypy and tests: **PASS** (7 tests).
 - Frontend lint, format check, typecheck, tests and production build: **PASS**.
+- Frontend accessibility tests cover timer labelling/non-flooding announcements,
+  response labelling, textual connection/sync states, conflict and expiry
+  messaging, and the rendered candidate flow.
 - Existing Phase 5 gates: **PASS locally** where infrastructure is available.
 - npm and Python dependency audits: **NOT AVAILABLE** in this environment
   (npm registry DNS failure; `pip_audit` unavailable).

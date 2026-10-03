@@ -29,3 +29,21 @@ Local AI tests, API tests, lint and targeted mypy are available. PostgreSQL and 
 - Cancellation is terminal and idempotent. Review decisions and resume state are guarded against stale checksums and duplicate decisions.
 - HITL audit hooks cover review requested, approved, rejected, changes requested and cancelled; run telemetry remains in AIRun/AIRunStep rather than duplicating payloads in audit metadata.
 - API and AI currently communicate as separately executable boundaries; this step does not introduce an HTTP cross-service call. No caller-supplied tenant privilege is trusted by platform routes.
+
+## Audit lifecycle closure
+
+`AIRun`/`AIRunStep` remain technical execution provenance. `AuditService` records consequential lifecycle evidence using identifiers, statuses and checksums only. Actual lifecycle event names are:
+
+- `ai.run.created`
+- `ai.workflow.run.started`
+- `ai.workflow.run.completed`
+- `ai.workflow.run.failed`
+- `ai.workflow.run.cancelled`
+- `ai.workflow.resumed`
+- `ai.review.requested`
+- `ai.review.approved`
+- `ai.review.rejected`
+- `ai.review.changes_requested`
+- `ai.review.cancelled`
+
+Approval leaves a waiting run in a resumable domain state; only the authorized, checksum-validated resume transition emits `ai.workflow.resumed`, and terminal completion is emitted separately. Duplicate resume and review decisions are rejected. Audit metadata does not contain prompts, model outputs, source text, checkpoint blobs or secrets.

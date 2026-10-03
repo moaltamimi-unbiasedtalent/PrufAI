@@ -259,7 +259,36 @@ class AIOrchestrationService:
         session.add(item)
         session.flush()
         AIOrchestrationService._audit(session, context, "ai.run.created", item)
+        AIOrchestrationService._audit(session, context, "ai.workflow.run.started", item)
         return item
+
+    @staticmethod
+    def complete_run(
+        session: Session, run: AIRun, context: Optional[TenantContext] = None
+    ) -> AIRun:
+        if run.status is not AIRunStatus.RUNNING:
+            raise ValueError("run is not running")
+        run.status = AIRunStatus.SUCCEEDED
+        run.completed_at = datetime.now(timezone.utc)
+        session.flush()
+        AIOrchestrationService._audit(session, context, "ai.workflow.run.completed", run)
+        return run
+
+    @staticmethod
+    def fail_run(
+        session: Session,
+        run: AIRun,
+        failure_category: str,
+        context: Optional[TenantContext] = None,
+    ) -> AIRun:
+        if run.status in {AIRunStatus.SUCCEEDED, AIRunStatus.CANCELLED, AIRunStatus.REJECTED}:
+            raise ValueError("run is already terminal")
+        run.status = AIRunStatus.FAILED
+        run.failure_category = failure_category
+        run.completed_at = datetime.now(timezone.utc)
+        session.flush()
+        AIOrchestrationService._audit(session, context, "ai.workflow.run.failed", run)
+        return run
 
     @staticmethod
     def request_review(
@@ -316,7 +345,7 @@ class AIOrchestrationService:
             run = session.get(AIRun, review.ai_run_id)
             if run:
                 run.status = (
-                    AIRunStatus.SUCCEEDED
+                    AIRunStatus.WAITING_FOR_HUMAN
                     if decision is HumanReviewStatus.APPROVED
                     else AIRunStatus.REJECTED
                     if decision is HumanReviewStatus.REJECTED
@@ -331,6 +360,26 @@ class AIOrchestrationService:
         AIOrchestrationService._audit(session, context, events[decision], review)
         session.flush()
         return review
+
+    @staticmethod
+    def resume_run(
+        session: Session,
+        review: HumanReviewRequest,
+        *,
+        actor_id: uuid.UUID,
+        context: Optional[TenantContext] = None,
+    ) -> AIRun:
+        if review.status is not HumanReviewStatus.APPROVED:
+            raise ValueError("only approved reviews can resume")
+        if review.ai_run_id is None:
+            raise ValueError("review has no run")
+        run = session.get(AIRun, review.ai_run_id)
+        if run is None or run.status is not AIRunStatus.WAITING_FOR_HUMAN:
+            raise ValueError("run is not waiting for resume")
+        run.status = AIRunStatus.RUNNING
+        session.flush()
+        AIOrchestrationService._audit(session, context, "ai.workflow.resumed", run)
+        return run
 
     @staticmethod
     def cancel_run(session: Session, run: AIRun, context: Optional[TenantContext] = None) -> AIRun:

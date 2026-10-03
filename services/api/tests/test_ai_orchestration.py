@@ -5,7 +5,18 @@ import uuid
 import pytest
 
 from app.ai_orchestration.service import AIOrchestrationService
+from app.authorization import TenantContext
+from app.models import AuditEvent
 from app.models.enums import AIArtifactStatus, HumanReviewStatus
+
+
+def _platform_context() -> TenantContext:
+    return TenantContext(
+        user_id=uuid.uuid4(),
+        organisation_id=None,
+        membership_id=None,
+        platform_permissions=frozenset({"ai.run", "ai.review"}),
+    )
 
 
 def test_registries_pin_versions_and_review_is_domain_owned(session):
@@ -55,6 +66,8 @@ def test_registries_pin_versions_and_review_is_domain_owned(session):
     AIOrchestrationService.decide_review(
         session, review, decision=HumanReviewStatus.APPROVED, actor_id=uuid.uuid4(), checksum="abc"
     )
+    AIOrchestrationService.resume_run(session, review, actor_id=uuid.uuid4())
+    AIOrchestrationService.complete_run(session, run)
     assert run.status.value == "SUCCEEDED"
     with pytest.raises(ValueError, match="already decided"):
         AIOrchestrationService.decide_review(
@@ -139,5 +152,79 @@ def test_checkpoint_is_domain_state_not_approval_and_terminal_runs_cannot_resume
     AIOrchestrationService.decide_review(
         session, review, decision=HumanReviewStatus.APPROVED, actor_id=uuid.uuid4()
     )
+    AIOrchestrationService.resume_run(session, review, actor_id=uuid.uuid4())
+    AIOrchestrationService.complete_run(session, run)
     with pytest.raises(ValueError, match="terminal run"):
         AIOrchestrationService.load_checkpoint(session, run)
+
+
+def test_run_lifecycle_audit_events_are_safe_and_resume_is_idempotent(session):
+    context = _platform_context()
+    model = AIOrchestrationService.create_model(
+        session,
+        code="audit.model",
+        name="Test",
+        provider="TEST",
+        model_name="v1",
+        purpose="test",
+        context=context,
+    )
+    prompt = AIOrchestrationService.create_prompt(
+        session, code="audit.prompt", name="Prompt", purpose="test", context=context
+    )
+    prompt_version = AIOrchestrationService.create_prompt_version(
+        session, prompt, version_label="1", system_template="safe", context=context
+    )
+    agent = AIOrchestrationService.create_agent(
+        session, code="audit.agent", name="Agent", purpose="test", context=context
+    )
+    AIOrchestrationService.create_agent_version(
+        session,
+        agent,
+        version_label="1",
+        model_profile_id=model.id,
+        prompt_version_id=prompt_version.id,
+        tool_policy=[],
+        input_schema={},
+        output_schema={},
+        context=context,
+    )
+    workflow = AIOrchestrationService.create_workflow(
+        session, code="audit.workflow", name="Workflow", purpose="test", context=context
+    )
+    workflow_version = AIOrchestrationService.create_workflow_version(
+        session,
+        workflow,
+        version_label="1",
+        graph_definition={"nodes": [{"type": "HITL"}]},
+        context=context,
+    )
+    workflow_version.status = AIArtifactStatus.PUBLISHED
+    run = AIOrchestrationService.start_run(
+        session, workflow_version, request_id="audit-1", context=context
+    )
+    review = AIOrchestrationService.request_review(
+        session, run, entity_type="proposal", entity_id=uuid.uuid4(), context=context
+    )
+    AIOrchestrationService.decide_review(
+        session,
+        review,
+        decision=HumanReviewStatus.APPROVED,
+        actor_id=context.user_id,
+        context=context,
+    )
+    AIOrchestrationService.resume_run(session, review, actor_id=context.user_id, context=context)
+    with pytest.raises(ValueError, match="not waiting"):
+        AIOrchestrationService.resume_run(
+            session, review, actor_id=context.user_id, context=context
+        )
+    AIOrchestrationService.complete_run(session, run, context=context)
+    events = {event.event_type for event in session.query(AuditEvent).all()}
+    assert {
+        "ai.run.created",
+        "ai.workflow.run.started",
+        "ai.review.requested",
+        "ai.review.approved",
+        "ai.workflow.resumed",
+        "ai.workflow.run.completed",
+    } <= events

@@ -138,6 +138,7 @@ class GovernedMemoryService:
         review_after: datetime | None = None,
         proposed_by_ai_run_id: uuid.UUID | None = None,
         supersedes_version_id: uuid.UUID | None = None,
+        evidence_ids: tuple[str, ...] = (),
     ) -> LongTermMemoryVersion:
         AuthorizationService.require_permission(context, "memory.manage", memory.organisation_id)
         validate_content(content)
@@ -165,6 +166,7 @@ class GovernedMemoryService:
                 content,
                 scope=memory.scope_type.value,
                 category=memory.category.value,
+                evidence_ids=evidence_ids,
             ),
         )
         session.add(version)

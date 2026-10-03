@@ -202,6 +202,23 @@ class AssessmentClassification(str, Enum):
     OFFICIAL_CERTIFICATION = "OFFICIAL_CERTIFICATION"
 
 
+class ExamVersionStatus(str, Enum):
+    DRAFT = "DRAFT"
+    VALIDATION_REQUIRED = "VALIDATION_REQUIRED"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    APPROVED = "APPROVED"
+    PUBLISHED = "PUBLISHED"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class ExamOriginType(str, Enum):
+    HUMAN_AUTHORED = "HUMAN_AUTHORED"
+    AI_PROPOSED = "AI_PROPOSED"
+
+
 class PackValidationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"

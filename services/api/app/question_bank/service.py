@@ -81,7 +81,18 @@ def normalized_fingerprint(content: dict[str, Any]) -> str:
 def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
     """Candidate-safe shape; answer keys and internal governance are omitted."""
     content = dict(version.content)
-    content.pop("correct_option_ids", None)
+    for protected_key in (
+        "correct_option_ids",
+        "answer_key",
+        "solution",
+        "scoring_key",
+        "reviewer_notes",
+        "ai_critique",
+        "validation",
+        "legal_notes",
+        "private_object_url",
+    ):
+        content.pop(protected_key, None)
     return {
         "item_version_id": str(version.id),
         "version_label": version.version_label,

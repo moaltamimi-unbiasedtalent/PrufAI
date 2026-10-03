@@ -219,6 +219,24 @@ class ExamOriginType(str, Enum):
     AI_PROPOSED = "AI_PROPOSED"
 
 
+class CandidateAssignmentStatus(str, Enum):
+    ASSIGNED = "ASSIGNED"
+    AVAILABLE = "AVAILABLE"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
+class CandidateAttemptStatus(str, Enum):
+    CREATED = "CREATED"
+    READY = "READY"
+    IN_PROGRESS = "IN_PROGRESS"
+    SUBMITTED = "SUBMITTED"
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"
+    INVALIDATED = "INVALIDATED"
+
+
 class PackValidationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"

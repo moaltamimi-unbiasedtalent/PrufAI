@@ -1,16 +1,26 @@
-import Link from "next/link";
+"use client";
 
-const reviews = [
-  {
-    id: "review-001",
-    attempt: "Attempt ••••42",
-    task: "B1 Writing",
-    status: "REVIEW_REQUIRED",
-    age: "18 min",
-  },
-];
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { writingReviewApi, type WritingReviewSummary } from "./review-api";
 
 export default function WritingReviewQueuePage() {
+  const [reviews, setReviews] = useState<WritingReviewSummary[]>([]);
+  const [message, setMessage] = useState("Loading review queue…");
+  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  useEffect(() => {
+    if (!organisationId) {
+      setMessage("Organisation context is required.");
+      return;
+    }
+    writingReviewApi
+      .list(organisationId)
+      .then((items) => {
+        setReviews(items);
+        setMessage("");
+      })
+      .catch(() => setMessage("Review queue could not be loaded."));
+  }, [organisationId]);
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -18,18 +28,17 @@ export default function WritingReviewQueuePage() {
       </p>
       <h1>Writing review queue</h1>
       <p>
-        Review proposals are private to authorised institution reviewers.
-        Candidate writing is not shown in this list.
+        Authorised reviewers see safe assessment summaries. Candidate writing is
+        not returned in this list.
       </p>
+      {message && <p role="status">{message}</p>}
       <table>
         <caption className="sr-only">Pending writing assessments</caption>
         <thead>
           <tr>
             <th scope="col">Assessment</th>
             <th scope="col">Attempt</th>
-            <th scope="col">Task</th>
             <th scope="col">Status</th>
-            <th scope="col">Age</th>
           </tr>
         </thead>
         <tbody>
@@ -40,10 +49,8 @@ export default function WritingReviewQueuePage() {
                   {review.id}
                 </Link>
               </td>
-              <td>{review.attempt}</td>
-              <td>{review.task}</td>
+              <td>{review.attempt_id}</td>
               <td>{review.status}</td>
-              <td>{review.age}</td>
             </tr>
           ))}
         </tbody>

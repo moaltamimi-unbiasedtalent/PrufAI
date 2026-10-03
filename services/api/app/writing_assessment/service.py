@@ -340,6 +340,30 @@ class SubjectiveAssessmentService:
             raise RubricError("candidate cannot access internal writing assessment")
 
     @staticmethod
+    def mark_ai_started(
+        session: Session, context: TenantContext, version: SubjectiveAssessmentVersion
+    ) -> SubjectiveAssessmentVersion:
+        version.status = SubjectiveAssessmentStatus.AI_EVALUATION_RUNNING
+        SubjectiveAssessmentService._audit(
+            session, context, "subjective_assessment.ai_started", version
+        )
+        return version
+
+    @staticmethod
+    def mark_failed(
+        session: Session,
+        context: TenantContext,
+        version: SubjectiveAssessmentVersion,
+        failure_category: str = "INVALID_MODEL_OUTPUT",
+    ) -> SubjectiveAssessmentVersion:
+        version.status = SubjectiveAssessmentStatus.FAILED
+        version.provenance = {**version.provenance, "failure_category": failure_category}
+        SubjectiveAssessmentService._audit(
+            session, context, "subjective_assessment.failed", version
+        )
+        return version
+
+    @staticmethod
     def _audit(session: Session, context: TenantContext | None, event: str, entity: Any) -> None:
         if (
             context is not None

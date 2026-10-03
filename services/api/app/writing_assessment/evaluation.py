@@ -14,6 +14,17 @@ WRITING_WORKFLOW_STAGES = (
 )
 
 
+def bounded_structured_retry(adapter: Any, *, max_attempts: int = 2) -> tuple[Any, int]:
+    """Use the existing bounded structured-output retry contract."""
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return adapter(attempt), attempt
+        except (ValueError, TypeError) as exc:
+            last_error = exc
+    raise ValueError("INVALID_MODEL_OUTPUT after bounded retries") from last_error
+
+
 def validate_stage_output(
     *,
     criteria: list[dict[str, Any]],

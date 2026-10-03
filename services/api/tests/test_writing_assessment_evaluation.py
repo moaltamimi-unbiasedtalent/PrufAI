@@ -2,10 +2,26 @@ import pytest
 
 from app.writing_assessment.evaluation import (
     WRITING_WORKFLOW_STAGES,
+    bounded_structured_retry,
     compare_independent_proposals,
     evaluate_golden_dataset,
     validate_stage_output,
 )
+
+
+def test_bounded_retry_recovers_and_exhausts_without_coercion():
+    calls: list[int] = []
+
+    def recovers(attempt: int) -> dict[str, int]:
+        calls.append(attempt)
+        if attempt == 1:
+            raise ValueError("malformed")
+        return {"attempt": attempt}
+
+    assert bounded_structured_retry(recovers) == ({"attempt": 2}, 2)
+    assert calls == [1, 2]
+    with pytest.raises(ValueError, match="INVALID_MODEL_OUTPUT"):
+        bounded_structured_retry(lambda _attempt: (_ for _ in ()).throw(ValueError("bad")))
 
 
 def test_writing_workflow_has_bounded_stages_and_preserves_disagreement():

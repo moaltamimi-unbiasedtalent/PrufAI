@@ -75,3 +75,9 @@ included. Institution reviewer routes are `/institution/writing-reviews` and
 the workspace distinguishes `AI PROPOSAL` from `HUMAN APPROVED VALUE`, and
 candidate content is rendered as inert text. Speaking/audio assessment is
 reserved for Phase 7 / Step 2.
+
+The local safety suite exercises bounded structured-output retries, invalid
+output rejection, failure-category provenance helpers, and an organisation-
+scoped reviewer queue API. Candidate-owned internal assessment access remains
+separate from institution reviewer capability. The remote PostgreSQL gate is
+still pending.

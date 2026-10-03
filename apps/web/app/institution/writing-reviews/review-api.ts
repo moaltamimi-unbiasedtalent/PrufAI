@@ -11,6 +11,12 @@ export type WritingReview = {
   } | null;
   criteria: Array<Record<string, unknown>>;
 };
+export type WritingReviewSummary = {
+  id: string;
+  attempt_id: string;
+  status: string;
+  current_version_id: string | null;
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -23,6 +29,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const writingReviewApi = {
+  list: (organisationId: string) =>
+    request<WritingReviewSummary[]>(
+      `/api/v1/organisations/${organisationId}/subjective-assessments`,
+    ),
   detail: (organisationId: string, assessmentId: string) =>
     request<WritingReview>(
       `/api/v1/organisations/${organisationId}/subjective-assessments/${assessmentId}`,

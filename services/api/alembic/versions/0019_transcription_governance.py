@@ -39,9 +39,7 @@ def upgrade() -> None:
     op.add_column(
         "speech_transcription_versions", sa.Column("configuration_checksum", sa.String(64))
     )
-    op.add_column(
-        "speech_transcription_versions", sa.Column("failure_category", sa.String(80))
-    )
+    op.add_column("speech_transcription_versions", sa.Column("failure_category", sa.String(80)))
     op.add_column(
         "speech_transcription_versions",
         sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"),
@@ -63,8 +61,6 @@ def downgrade() -> None:
     op.drop_column("speech_transcription_versions", "status")
     op.drop_column("speech_transcriptions", "retry_count")
     op.drop_column("speech_transcriptions", "failure_category")
-    op.drop_constraint(
-        "uq_speech_transcription_operation", "speech_transcriptions", type_="unique"
-    )
+    op.drop_constraint("uq_speech_transcription_operation", "speech_transcriptions", type_="unique")
     op.drop_column("speech_transcriptions", "operation_id")
     op.drop_constraint("uq_speech_transcription_asset", "speech_transcriptions", type_="unique")

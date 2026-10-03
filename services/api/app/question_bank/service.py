@@ -554,10 +554,14 @@ class QuestionBankService:
         checksum: Optional[str] = None,
     ) -> QuestionBankItemVersion:
         item = session.get(QuestionBankItem, version.item_id)
-        if item is None or not AuthorizationService.has_permission(
-            context, "question_bank.review", item.organisation_id
-        ):
+        if item is None:
             raise ValueError("question bank review permission denied")
+        required_permission = (
+            "question_bank.publish"
+            if target is QuestionBankLifecycleStatus.PUBLISHED
+            else "question_bank.review"
+        )
+        AuthorizationService.require_permission(context, required_permission, item.organisation_id)
         if target not in _TRANSITIONS.get(version.status, set()):
             raise ValueError(
                 f"invalid item lifecycle transition: {version.status.value} -> {target.value}"

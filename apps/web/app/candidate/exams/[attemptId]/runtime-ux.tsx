@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { CandidateApiError, candidateApi } from "../../api";
 
 export type ResponseMode =
   | "SELECT_ONE"
   | "SELECT_MULTIPLE"
   | "TEXT"
-  | "LONG_TEXT";
+  | "LONG_TEXT"
+  | "AUDIO";
 export type RuntimeState =
   | "Saved"
   | "Saving"
@@ -103,6 +105,207 @@ export function RuntimeTimer({ deadlineAt }: { deadlineAt: number | null }) {
       <p>
         Timing is controlled by the server. This display is only a local
         estimate.
+      </p>
+    </section>
+  );
+}
+
+type AudioResponseControlProps = {
+  attemptId: string;
+  bindingId: string;
+  editable: boolean;
+  currentMediaAssetId?: string;
+  onSaved: (mediaAssetId: string) => Promise<void>;
+};
+
+export function AudioResponseControl({
+  attemptId,
+  bindingId,
+  editable,
+  currentMediaAssetId,
+  onSaved,
+}: AudioResponseControlProps) {
+  const [permission, setPermission] = useState<"unknown" | "ready" | "denied">(
+    "unknown",
+  );
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const recorderRef = React.useRef<MediaRecorder | null>(null);
+  const recordingSessionIdRef = React.useRef<string | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+
+  useEffect(() => {
+    if (deadlineAt === null) {
+      setRemaining(null);
+      return;
+    }
+    const update = () =>
+      setRemaining(Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [deadlineAt]);
+
+  useEffect(
+    () => () => streamRef.current?.getTracks().forEach((track) => track.stop()),
+    [],
+  );
+
+  async function preflight() {
+    setMessage(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      setPermission("ready");
+      setMessage(
+        "Microphone ready. Recording will not begin until you choose Start recording.",
+      );
+    } catch {
+      setPermission("denied");
+      setMessage(
+        "Microphone access is required for this response and was not granted.",
+      );
+    }
+  }
+
+  async function startRecording() {
+    if (!editable || permission !== "ready" || recording) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const session = await candidateApi.startAudioRecording(
+        attemptId,
+        bindingId,
+      );
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) =>
+        event.data.size && chunksRef.current.push(event.data);
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      };
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      recordingSessionIdRef.current = session.recording_session_id;
+      setDeadlineAt(Date.parse(session.recording_expires_at));
+      recorder.start();
+      setRecording(true);
+    } catch (cause) {
+      setMessage(
+        cause instanceof CandidateApiError
+          ? cause.message
+          : "Recording could not be started.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopRecording() {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    setBusy(true);
+    setRecording(false);
+    const sessionId = recordingSessionIdRef.current;
+    recorder.onstop = async () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (!sessionId) {
+        setMessage(
+          "Recording session metadata was unavailable; audio was not submitted.",
+        );
+        setBusy(false);
+        return;
+      }
+      try {
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        const asset = await candidateApi.finalizeAudioRecording(
+          sessionId,
+          blob,
+          "candidate-audio.webm",
+        );
+        await onSaved(asset.media_asset_id);
+        setMessage("Audio saved to this response.");
+      } catch (cause) {
+        setMessage(
+          cause instanceof CandidateApiError
+            ? cause.message
+            : "Audio could not be uploaded.",
+        );
+      } finally {
+        recorderRef.current = null;
+        recordingSessionIdRef.current = null;
+        setDeadlineAt(null);
+        setBusy(false);
+      }
+    };
+    recorder.stop();
+  }
+
+  return (
+    <section aria-labelledby="audio-response-heading">
+      <h3 id="audio-response-heading">Recorded response</h3>
+      <p id="audio-response-help">
+        Your microphone is checked first. Recording starts only after you choose
+        the button.
+      </p>
+      {currentMediaAssetId && (
+        <>
+          <p role="status">
+            An audio response is already saved. A new recording would be a new
+            governed attempt.
+          </p>
+          <audio
+            controls
+            preload="metadata"
+            src={`/api/v1/candidate/audio-assets/${encodeURIComponent(currentMediaAssetId)}/stream`}
+            aria-label="Saved recorded response"
+          />
+        </>
+      )}
+      <p role="status" aria-live="polite">
+        {message}
+      </p>
+      {remaining !== null && (
+        <p>Server recording time remaining: {formatRemaining(remaining)}</p>
+      )}
+      <button
+        type="button"
+        onClick={() => void preflight()}
+        disabled={!editable || busy || recording}
+        aria-describedby="audio-response-help"
+      >
+        Check microphone
+      </button>{" "}
+      <button
+        type="button"
+        onClick={() => void startRecording()}
+        disabled={!editable || busy || recording || permission !== "ready"}
+      >
+        Start recording
+      </button>{" "}
+      <button
+        type="button"
+        onClick={() => void stopRecording()}
+        disabled={!recording || busy}
+      >
+        Stop and save recording
+      </button>
+      <p>
+        Microphone status:{" "}
+        {permission === "ready"
+          ? "ready"
+          : permission === "denied"
+            ? "not granted"
+            : "not checked"}
       </p>
     </section>
   );

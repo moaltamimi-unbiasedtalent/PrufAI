@@ -18,7 +18,7 @@ from app.models import (
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
 )
-from app.models.enums import HumanReviewStatus
+from app.models.enums import HumanReviewStatus, QuestionBankSkill
 from app.writing_assessment.service import RubricError, RubricService, SubjectiveAssessmentService
 
 writing_router = APIRouter(prefix="/api/v1/organisations", tags=["writing-assessment"])
@@ -186,6 +186,7 @@ def create_rubric_version(
             ai_assessment_policy=payload.get("ai_assessment_policy", {"all_require_review": True}),
             human_review_policy=payload.get("human_review_policy", {"required": True}),
             evidence_bindings=payload.get("evidence_bindings", []),
+            skill=QuestionBankSkill(str(payload.get("skill", QuestionBankSkill.WRITING.value))),
             context=context,
         )
         session.commit()
@@ -212,6 +213,13 @@ def create_assessment(
             attempt_id=uuid.UUID(str(payload["attempt_id"])),
             binding_id=uuid.UUID(str(payload["exam_version_item_binding_id"])),
             rubric_version_id=uuid.UUID(str(payload["rubric_version_id"])),
+            skill=QuestionBankSkill(str(payload.get("skill", QuestionBankSkill.WRITING.value))),
+            media_asset_id=uuid.UUID(str(payload["media_asset_id"]))
+            if payload.get("media_asset_id")
+            else None,
+            transcription_version_id=uuid.UUID(str(payload["transcription_version_id"]))
+            if payload.get("transcription_version_id")
+            else None,
         )
         session.commit()
         return {"id": str(version.id), "status": version.status.value, "checksum": version.checksum}

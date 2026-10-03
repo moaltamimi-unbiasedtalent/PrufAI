@@ -58,11 +58,17 @@ def test_storage_key_and_s3_round_trip_with_fake_client() -> None:
             self.objects[str(kwargs["Key"])] = bytes(kwargs["Body"])  # type: ignore[arg-type]
 
         def get_object(self, **kwargs: object) -> dict[str, Body]:
-            return {"Body": Body(self.objects[str(kwargs["Key"])])}
+            content = self.objects[str(kwargs["Key"])]
+            range_header = kwargs.get("Range")
+            if isinstance(range_header, str):
+                start_text, end_text = range_header.removeprefix("bytes=").split("-", 1)
+                content = content[int(start_text) : int(end_text) + 1]
+            return {"Body": Body(content)}
 
-        def head_object(self, **kwargs: object) -> None:
+        def head_object(self, **kwargs: object) -> dict[str, int]:
             if str(kwargs["Key"]) not in self.objects:
                 raise KeyError(kwargs["Key"])
+            return {"ContentLength": len(self.objects[str(kwargs["Key"])])}
 
     source_id, version_id = uuid.uuid4(), uuid.uuid4()
     key = build_storage_key(source_id, version_id, "../../policy.pdf")
@@ -79,6 +85,8 @@ def test_storage_key_and_s3_round_trip_with_fake_client() -> None:
     storage.put(key, b"fixture", "text/plain")
     assert storage.exists(key)
     assert storage.get(key) == b"fixture"
+    assert storage.size(key) == 7
+    assert storage.read_range(key, 1, 3) == b"ixt"
     with pytest.raises(StorageError):
         storage.get("missing")
 

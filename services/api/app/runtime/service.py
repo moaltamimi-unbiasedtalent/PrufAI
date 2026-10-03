@@ -17,6 +17,7 @@ from app.models import (
     CandidateExamAssignment,
     CandidateExamAttempt,
     CandidateExamSession,
+    CandidateMediaAsset,
     CandidateResponse,
     CandidateResponseRevision,
     ExamVersion,
@@ -34,12 +35,14 @@ from app.models.enums import (
     QuestionBankRightsStatus,
 )
 from app.question_bank.service import delivery_projection
+from app.speaking_audio.service import SpeakingAudioService
 
 SUPPORTED_RESPONSE_MODES = {
     PackResponseMode.SELECT_ONE.value,
     PackResponseMode.SELECT_MULTIPLE.value,
     PackResponseMode.TEXT.value,
     PackResponseMode.LONG_TEXT.value,
+    PackResponseMode.AUDIO.value,
 }
 ACTIVE_ATTEMPT_STATUSES = {CandidateAttemptStatus.READY, CandidateAttemptStatus.IN_PROGRESS}
 PUBLISHABLE_RIGHTS = {
@@ -504,6 +507,10 @@ class CandidateRuntimeService:
                 or len(text) > (4000 if mode == PackResponseMode.TEXT.value else 20000)
             ):
                 raise ValueError("invalid text response")
+        elif mode == PackResponseMode.AUDIO.value:
+            asset_id = payload.get("media_asset_id")
+            if set(payload) != {"media_asset_id"} or not isinstance(asset_id, str):
+                raise ValueError("invalid AUDIO response")
 
     @staticmethod
     def save_response(
@@ -589,6 +596,12 @@ class CandidateRuntimeService:
                 if stored is not None:
                     return stored
             raise RuntimeConflict("RUNTIME.IDEMPOTENCY_KEY_REUSED") from exc
+        if mode == PackResponseMode.AUDIO.value:
+            asset = session.get(CandidateMediaAsset, uuid.UUID(str(payload["media_asset_id"])))
+            if asset is None or asset.status.value != "READY" or asset.attempt_id != attempt.id:
+                raise ValueError("audio media asset is not ready for this attempt")
+            SpeakingAudioService.bind_to_response_revision(session, revision=revision, asset=asset)
+            session.flush()
         return response
 
     @staticmethod

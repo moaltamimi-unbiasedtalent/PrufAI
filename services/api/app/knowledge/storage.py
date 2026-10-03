@@ -19,6 +19,10 @@ class ObjectStorage(Protocol):
 
     def get(self, key: str) -> bytes: ...
 
+    def size(self, key: str) -> int: ...
+
+    def read_range(self, key: str, start: int, end: int) -> bytes: ...
+
 
 class S3CompatibleObjectStorage:
     """Private S3/MinIO adapter; callers provide a fake client in unit tests."""
@@ -74,6 +78,26 @@ class S3CompatibleObjectStorage:
         except Exception as exc:
             raise StorageError("source file is unavailable") from exc
 
+    def size(self, key: str) -> int:
+        try:
+            response = self.client.head_object(Bucket=self.bucket, Key=key)
+            return int(response["ContentLength"])
+        except Exception as exc:
+            raise StorageError("source file is unavailable") from exc
+
+    def read_range(self, key: str, start: int, end: int) -> bytes:
+        if start < 0 or end < start:
+            raise StorageError("invalid byte range")
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+                Range=f"bytes={start}-{end}",
+            )
+            return bytes(response["Body"].read())
+        except Exception as exc:
+            raise StorageError("source file is unavailable") from exc
+
     def exists(self, key: str) -> bool:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
@@ -115,6 +139,14 @@ class InMemoryObjectStorage:
             return self.objects[key]
         except KeyError as exc:
             raise StorageError("source file is unavailable") from exc
+
+    def size(self, key: str) -> int:
+        return len(self.get(key))
+
+    def read_range(self, key: str, start: int, end: int) -> bytes:
+        if start < 0 or end < start:
+            raise StorageError("invalid byte range")
+        return self.get(key)[start : end + 1]
 
 
 def safe_filename(filename: str) -> str:

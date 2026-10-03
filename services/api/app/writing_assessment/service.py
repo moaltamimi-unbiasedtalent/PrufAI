@@ -17,12 +17,15 @@ from app.models import (
     AIRun,
     AssessmentRubric,
     CandidateExamAttempt,
+    CandidateMediaAsset,
     CandidateResponse,
+    CandidateResponseMediaBinding,
     HumanReviewRequest,
     KnowledgeDocumentVersion,
     QuestionBankItemVersion,
     RubricEvidenceBinding,
     RubricVersion,
+    SpeechTranscriptionVersion,
     StandardPackVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -103,8 +106,11 @@ def validate_rubric(
     _reject_executable(payload)
     if schema_version != "1":
         raise RubricError("unsupported rubric schema version")
-    if assessment_family is not AssessmentFamily.LANGUAGE or skill is not QuestionBankSkill.WRITING:
-        raise RubricError("writing rubric must be LANGUAGE / WRITING")
+    if assessment_family is not AssessmentFamily.LANGUAGE or skill not in {
+        QuestionBankSkill.WRITING,
+        QuestionBankSkill.SPEAKING,
+    }:
+        raise RubricError("rubric must be LANGUAGE / WRITING or SPEAKING")
     if language != "de":
         raise RubricError("MVP writing assessment requires German language metadata")
     if not standard_pack or not standard_pack.configuration_checksum:
@@ -120,6 +126,9 @@ def validate_rubric(
         if not code or code in codes:
             raise RubricError("criterion codes must be unique")
         codes.add(code)
+        mode = criterion.get("evidence_mode")
+        if mode is not None and str(mode) not in {"AUDIO", "TRANSCRIPT", "AUDIO_AND_TRANSCRIPT"}:
+            raise RubricError("unsupported evidence modality")
         maximum = _decimal(criterion.get("max_points"))
         if maximum < 0:
             raise RubricError("criterion max points must be non-negative")
@@ -233,6 +242,7 @@ class RubricService:
         ai_assessment_policy: dict[str, Any],
         human_review_policy: dict[str, Any],
         evidence_bindings: list[dict[str, Any]] | None = None,
+        skill: QuestionBankSkill = QuestionBankSkill.WRITING,
         context: TenantContext | None = None,
     ) -> RubricVersion:
         validate_rubric(
@@ -242,7 +252,7 @@ class RubricService:
             evidence_policy=evidence_policy,
             assessment_family=standard_pack.standard_pack.assessment_family,
             language=standard_pack.standard_pack.language,
-            skill=QuestionBankSkill.WRITING,
+            skill=skill,
             standard_pack=standard_pack,
             schema_version="1",
         )
@@ -391,6 +401,9 @@ class SubjectiveAssessmentService:
         attempt_id: uuid.UUID,
         binding_id: uuid.UUID,
         rubric_version_id: uuid.UUID,
+        skill: QuestionBankSkill = QuestionBankSkill.WRITING,
+        media_asset_id: uuid.UUID | None = None,
+        transcription_version_id: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         AuthorizationService.require_permission(
             context, "subjective.assess", context.organisation_id
@@ -404,6 +417,8 @@ class SubjectiveAssessmentService:
         if rubric is None:
             raise RubricError("rubric version not found")
         RubricService.assert_executable(rubric)
+        if rubric.skill is not skill:
+            raise RubricError("rubric skill is incompatible with subjective assessment")
         if str(attempt.runtime_plan.get("standard_pack_version_id")) != str(
             rubric.standard_pack_version_id
         ):
@@ -422,15 +437,12 @@ class SubjectiveAssessmentService:
         if item_data is None:
             raise RubricError("writing item binding is not in the submitted attempt")
         item = session.get(QuestionBankItemVersion, item_data.get("item_version_id"))
-        if item is None or item.response_mode not in {
-            PackResponseMode.TEXT,
-            PackResponseMode.LONG_TEXT,
-        }:
-            raise RubricError("only text writing responses are supported")
-        if (
-            item.assessment_family is not AssessmentFamily.LANGUAGE
-            or item.skill is not QuestionBankSkill.WRITING
-        ):
+        allowed_modes = {PackResponseMode.TEXT, PackResponseMode.LONG_TEXT}
+        if skill is QuestionBankSkill.SPEAKING:
+            allowed_modes = {PackResponseMode.AUDIO}
+        if item is None or item.response_mode not in allowed_modes:
+            raise RubricError("response mode is incompatible with subjective skill")
+        if item.assessment_family is not AssessmentFamily.LANGUAGE or item.skill is not skill:
             raise RubricError("writing rubric is incompatible with item taxonomy")
         if (
             item.language != rubric.language
@@ -444,8 +456,28 @@ class SubjectiveAssessmentService:
             )
         )
         if response is None or not response.revisions:
-            raise RubricError("submitted writing response revision is missing")
+            raise RubricError("submitted response revision is missing")
         revision = max(response.revisions, key=lambda row: row.revision_number)
+        asset = None
+        transcript = None
+        if skill is QuestionBankSkill.SPEAKING:
+            if media_asset_id is None:
+                raise RubricError("speaking assessment requires exact media asset")
+            asset = session.get(CandidateMediaAsset, media_asset_id)
+            if asset is None or asset.attempt_id != attempt.id or asset.status.value != "READY":
+                raise RubricError("speaking media asset is not READY for this attempt")
+            bound = session.scalar(
+                select(CandidateResponseMediaBinding).where(
+                    CandidateResponseMediaBinding.candidate_response_revision_id == revision.id,
+                    CandidateResponseMediaBinding.candidate_media_asset_id == asset.id,
+                )
+            )
+            if bound is None:
+                raise RubricError("speaking media is not bound to the exact response revision")
+            if transcription_version_id is not None:
+                transcript = session.get(SpeechTranscriptionVersion, transcription_version_id)
+                if transcript is None or transcript.candidate_media_asset_id != asset.id:
+                    raise RubricError("transcription version is not bound to the exact audio")
         existing = session.scalar(
             select(SubjectiveAssessment).where(
                 SubjectiveAssessment.attempt_id == attempt.id,
@@ -494,6 +526,19 @@ class SubjectiveAssessmentService:
             ),
             created_at=datetime.now(timezone.utc),
             supersedes_version_id=latest.id if latest else None,
+            candidate_media_asset_id=asset.id if asset else None,
+            audio_sha256=asset.sha256 if asset else None,
+            speech_transcription_version_id=transcript.id if transcript else None,
+            transcript_checksum=transcript.checksum if transcript else None,
+            evidence_mode_summary={
+                str(item.get("code")): str(item.get("evidence_mode", "TRANSCRIPT"))
+                for item in rubric.criteria
+            }
+            if skill is QuestionBankSkill.SPEAKING
+            else {},
+            ai_proposal={},
+            human_approved_values={},
+            consistency_summary={},
         )
         existing.versions.append(version)
         session.flush()
@@ -722,6 +767,13 @@ class SubjectiveAssessmentService:
             criterion.status = SubjectiveCriterionStatus.APPROVED
             values[criterion.criterion_code] = points
         version.approved_score = SubjectiveAssessmentService._aggregate(rubric, values)
+        version.human_approved_values = {
+            item.criterion_code: {
+                "level": item.approved_level,
+                "points": str(item.approved_points),
+            }
+            for item in version.criterion_assessments
+        }
         version.status = SubjectiveAssessmentStatus.APPROVED
         version.checksum = canonical_checksum(
             {
@@ -772,6 +824,14 @@ class SubjectiveAssessmentService:
             agent_version_id=source.agent_version_id,
             prompt_version_id=source.prompt_version_id,
             model_profile_id=source.model_profile_id,
+            candidate_media_asset_id=source.candidate_media_asset_id,
+            audio_sha256=source.audio_sha256,
+            speech_transcription_version_id=source.speech_transcription_version_id,
+            transcript_checksum=source.transcript_checksum,
+            evidence_mode_summary=dict(source.evidence_mode_summary),
+            ai_proposal=dict(source.ai_proposal),
+            human_approved_values={},
+            consistency_summary=dict(source.consistency_summary),
             ai_run_id=source.ai_run_id,
             proposed_score=source.proposed_score,
             confidence_summary=dict(source.confidence_summary),
@@ -817,6 +877,10 @@ class SubjectiveAssessmentService:
             )
             values[criterion.criterion_code] = points
         successor.approved_score = SubjectiveAssessmentService._aggregate(rubric, values)
+        successor.human_approved_values = {
+            code: {"level": corrections.get(code, {}).get("approved_level"), "points": str(points)}
+            for code, points in values.items()
+        }
         successor.checksum = canonical_checksum(
             {
                 "source_checksum": source.checksum,

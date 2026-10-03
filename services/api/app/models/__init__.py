@@ -89,6 +89,13 @@ from app.models.scoring import (
     ScoringResponseSnapshot,
     ScoringRun,
 )
+from app.models.speaking_audio import (
+    CandidateAudioRecordingSession,
+    CandidateMediaAsset,
+    CandidateResponseMediaBinding,
+    SpeechTranscription,
+    SpeechTranscriptionVersion,
+)
 from app.models.standard_pack import (
     StandardPack,
     StandardPackModule,
@@ -188,4 +195,9 @@ __all__ = [
     "SubjectiveAssessment",
     "SubjectiveAssessmentVersion",
     "SubjectiveCriterionAssessment",
+    "CandidateAudioRecordingSession",
+    "CandidateMediaAsset",
+    "CandidateResponseMediaBinding",
+    "SpeechTranscription",
+    "SpeechTranscriptionVersion",
 ]

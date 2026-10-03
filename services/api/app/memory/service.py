@@ -13,6 +13,8 @@ from app.models.enums import MemoryContextOrigin
 SHORT_TTL_SECONDS = 3600
 SHORT_MAX_ITEMS = 100
 SHORT_MAX_ITEM_BYTES = 16_384
+SHORT_MAX_READ_RESULTS = 50
+HITL_RETENTION_SECONDS = 86_400
 LONG_MAX_CONTEXT_ITEMS = 50
 
 
@@ -23,8 +25,8 @@ class MemoryBackendError(RuntimeError):
 class MemoryPrecedencePolicy:
     ORDER = (
         MemoryContextOrigin.AUTHORITATIVE_KNOWLEDGE,
-        MemoryContextOrigin.RULE,
-        MemoryContextOrigin.POLICY,
+        MemoryContextOrigin.RULES,
+        MemoryContextOrigin.APPROVED_POLICY,
         MemoryContextOrigin.APPROVED_LONG_TERM_MEMORY,
         MemoryContextOrigin.SHORT_TERM_MEMORY,
         MemoryContextOrigin.USER_INPUT,
@@ -89,6 +91,15 @@ class ShortTermMemoryBackend(Protocol):
         self, tenant_id: uuid.UUID | None, run_id: uuid.UUID, namespace: str, key: str
     ) -> None: ...
 
+    def renew(
+        self,
+        tenant_id: uuid.UUID | None,
+        run_id: uuid.UUID,
+        namespace: str,
+        key: str,
+        ttl_seconds: int = SHORT_TTL_SECONDS,
+    ) -> None: ...
+
 
 def _key(tenant_id: uuid.UUID | None, run_id: uuid.UUID, namespace: str, key: str) -> str:
     if not namespace or not key or any(part in namespace + key for part in ("/", "\\", "..")):
@@ -116,6 +127,10 @@ class InMemoryShortTermMemory:
     def __init__(self) -> None:
         self._values: dict[str, tuple[float, str]] = {}
 
+    def _count(self, tenant_id: uuid.UUID | None, run_id: uuid.UUID, namespace: str) -> int:
+        prefix = f"prufai:memory:short:{tenant_id or 'platform'}:{run_id}:{namespace}:"
+        return sum(key.startswith(prefix) for key in self._values)
+
     def put(
         self,
         tenant_id: uuid.UUID | None,
@@ -125,14 +140,14 @@ class InMemoryShortTermMemory:
         value: Any,
         ttl_seconds: int = SHORT_TTL_SECONDS,
     ) -> None:
+        item_key = _key(tenant_id, run_id, namespace, key)
         if (
-            len(self._values) >= SHORT_MAX_ITEMS
-            and _key(tenant_id, run_id, namespace, key) not in self._values
+            self._count(tenant_id, run_id, namespace) >= SHORT_MAX_ITEMS
+            and item_key not in self._values
         ):
             raise ValueError("short-term memory item count exceeded")
         if ttl_seconds <= 0:
             raise ValueError("ttl must be positive")
-        item_key = _key(tenant_id, run_id, namespace, key)
         self._values[item_key] = (time.monotonic() + ttl_seconds, _encoded(value))
 
     def get(
@@ -147,6 +162,42 @@ class InMemoryShortTermMemory:
             return None
         return json.loads(item[1])
 
+    def renew(
+        self,
+        tenant_id: uuid.UUID | None,
+        run_id: uuid.UUID,
+        namespace: str,
+        key: str,
+        ttl_seconds: int = SHORT_TTL_SECONDS,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("ttl must be positive")
+        item_key = _key(tenant_id, run_id, namespace, key)
+        if item_key not in self._values or self.get(tenant_id, run_id, namespace, key) is None:
+            raise MemoryBackendError("short-term memory item unavailable")
+        self._values[item_key] = (time.monotonic() + ttl_seconds, self._values[item_key][1])
+
+    def list(
+        self,
+        tenant_id: uuid.UUID | None,
+        run_id: uuid.UUID,
+        namespace: str,
+        limit: int = SHORT_MAX_READ_RESULTS,
+    ) -> list[Any]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        prefix = f"prufai:memory:short:{tenant_id or 'platform'}:{run_id}:{namespace}:"
+        values = []
+        for item_key in list(self._values):
+            if item_key.startswith(prefix):
+                key = item_key.rsplit(":", 1)[-1]
+                value = self.get(tenant_id, run_id, namespace, key)
+                if value is not None:
+                    values.append(value)
+                if len(values) >= min(limit, SHORT_MAX_READ_RESULTS):
+                    break
+        return values
+
     def delete(
         self, tenant_id: uuid.UUID | None, run_id: uuid.UUID, namespace: str, key: str
     ) -> None:
@@ -158,6 +209,24 @@ class RedisShortTermMemory:
 
     def __init__(self, client: Any) -> None:
         self.client = client
+
+    def renew(
+        self,
+        tenant_id: uuid.UUID | None,
+        run_id: uuid.UUID,
+        namespace: str,
+        key: str,
+        ttl_seconds: int = SHORT_TTL_SECONDS,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("ttl must be positive")
+        try:
+            if not self.client.expire(_key(tenant_id, run_id, namespace, key), ttl_seconds):
+                raise MemoryBackendError("short-term memory item unavailable")
+        except MemoryBackendError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MemoryBackendError("redis short-term memory unavailable") from exc
 
     def put(
         self,
@@ -199,3 +268,32 @@ def canonical_checksum(content: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     ).hexdigest()
+
+
+def memory_checksum(
+    content: dict[str, Any],
+    *,
+    scope: str,
+    category: str,
+    evidence_ids: tuple[str, ...] = (),
+) -> str:
+    """Checksum substantive memory identity; timestamps/audit fields are excluded."""
+    return canonical_checksum(
+        {
+            "category": category,
+            "content": content,
+            "evidence_ids": sorted(evidence_ids),
+            "scope": scope,
+        }
+    )
+
+
+def retain_for_human_review(
+    backend: ShortTermMemoryBackend,
+    tenant_id: uuid.UUID | None,
+    run_id: uuid.UUID,
+    namespace: str,
+    key: str,
+) -> None:
+    """Refresh required context while an AIRun is waiting for human review."""
+    backend.renew(tenant_id, run_id, namespace, key, HITL_RETENTION_SECONDS)

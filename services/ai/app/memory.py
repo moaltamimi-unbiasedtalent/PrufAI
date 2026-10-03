@@ -6,7 +6,39 @@ approval or activation capability in this module.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Protocol
+
+
+@dataclass(frozen=True)
+class MemoryPolicy:
+    """Explicit capability policy attached to an agent/workflow invocation."""
+
+    short_term_read: bool = False
+    short_term_write: bool = False
+    long_term_read: bool = False
+    long_term_propose: bool = False
+    allowed_categories: frozenset[str] = frozenset()
+    allowed_scope: str = "ORGANISATION_PRIVATE"
+    maximum_results: int = 20
+
+    def __post_init__(self) -> None:
+        if not 0 < self.maximum_results <= 50:
+            raise ValueError("maximum_results must be between 1 and 50")
+
+    def allows(self, capability: str) -> bool:
+        return {
+            SHORT_TERM_MEMORY_READ: self.short_term_read,
+            SHORT_TERM_MEMORY_WRITE: self.short_term_write,
+            LONG_TERM_MEMORY_READ: self.long_term_read,
+            LONG_TERM_MEMORY_PROPOSE: self.long_term_propose,
+        }.get(capability, False)
+
+
+SHORT_TERM_MEMORY_READ = "short_term_memory.read"
+SHORT_TERM_MEMORY_WRITE = "short_term_memory.write"
+LONG_TERM_MEMORY_READ = "long_term_memory.read"
+LONG_TERM_MEMORY_PROPOSE = "long_term_memory.propose"
 
 
 class MemoryReader(Protocol):
@@ -14,7 +46,7 @@ class MemoryReader(Protocol):
 
 
 class ShortTermMemoryTool:
-    name = "short_term_memory.read_write"
+    name = SHORT_TERM_MEMORY_WRITE
 
     def __init__(self, backend: Any, tenant_id: Any, run_id: Any) -> None:
         self.backend, self.tenant_id, self.run_id = backend, tenant_id, run_id
@@ -26,8 +58,15 @@ class ShortTermMemoryTool:
         return self.backend.get(self.tenant_id, self.run_id, namespace, key)
 
 
+class ShortTermMemoryReadTool(ShortTermMemoryTool):
+    name = SHORT_TERM_MEMORY_READ
+
+    def put(self, namespace: str, key: str, value: Any, ttl_seconds: int = 3600) -> None:
+        raise PermissionError("read-only short-term memory tool")
+
+
 class LongTermMemoryReadTool:
-    name = "long_term_memory.retrieve"
+    name = LONG_TERM_MEMORY_READ
 
     def __init__(self, reader: MemoryReader) -> None:
         self.reader = reader
@@ -37,7 +76,7 @@ class LongTermMemoryReadTool:
 
 
 class LongTermMemoryProposalTool:
-    name = "long_term_memory.propose"
+    name = LONG_TERM_MEMORY_PROPOSE
 
     def __init__(self, submit: Callable[[dict[str, Any]], str]) -> None:
         self.submit = submit

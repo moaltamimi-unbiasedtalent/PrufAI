@@ -2,6 +2,7 @@ import os
 import uuid
 
 import pytest
+import redis
 
 from app.memory.service import RedisShortTermMemory
 
@@ -12,7 +13,6 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_redis_memory_round_trip() -> None:
-    redis = pytest.importorskip("redis")
     client = redis.Redis.from_url(os.environ["REDIS_INTEGRATION_URL"])
     backend = RedisShortTermMemory(client)
     tenant, run = uuid.uuid4(), uuid.uuid4()

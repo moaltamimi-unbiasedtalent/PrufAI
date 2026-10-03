@@ -6,8 +6,10 @@ import pytest
 from app.memory.service import (
     ContextItem,
     InMemoryShortTermMemory,
+    MemoryBackendError,
     MemoryContextAssembler,
     MemoryPrecedencePolicy,
+    RedisShortTermMemory,
 )
 from app.models.enums import MemoryContextOrigin
 
@@ -15,17 +17,17 @@ from app.models.enums import MemoryContextOrigin
 def test_precedence_never_allows_short_term_to_win() -> None:
     items = [
         ContextItem(MemoryContextOrigin.SHORT_TERM_MEMORY, "policy", "unsafe"),
-        ContextItem(MemoryContextOrigin.RULE, "policy", "deterministic"),
+        ContextItem(MemoryContextOrigin.RULES, "policy", "deterministic"),
         ContextItem(MemoryContextOrigin.AUTHORITATIVE_KNOWLEDGE, "source", "normative"),
     ]
     assembled = MemoryContextAssembler().assemble(items)
     assert [item.origin for item in assembled] == [
         MemoryContextOrigin.AUTHORITATIVE_KNOWLEDGE,
-        MemoryContextOrigin.RULE,
+        MemoryContextOrigin.RULES,
         MemoryContextOrigin.SHORT_TERM_MEMORY,
     ]
     assert MemoryPrecedencePolicy.can_override(
-        MemoryContextOrigin.RULE, MemoryContextOrigin.SHORT_TERM_MEMORY
+        MemoryContextOrigin.RULES, MemoryContextOrigin.SHORT_TERM_MEMORY
     )
 
 
@@ -48,3 +50,12 @@ def test_context_drops_expired_values() -> None:
         expires_at=now - timedelta(seconds=1),
     )
     assert MemoryContextAssembler().assemble([item], now=now) == ()
+
+
+def test_redis_failure_is_controlled_and_never_falls_back() -> None:
+    class UnavailableRedis:
+        def setex(self, *_args: object) -> None:
+            raise OSError("down")
+
+    with pytest.raises(MemoryBackendError):
+        RedisShortTermMemory(UnavailableRedis()).put(uuid.uuid4(), uuid.uuid4(), "x", "y", {"z": 1})

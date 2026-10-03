@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import AuditService
 from app.authorization import AuthorizationService, TenantContext
-from app.memory.service import canonical_checksum
+from app.memory.service import canonical_checksum, memory_checksum
 from app.models import LongTermMemory, LongTermMemoryVersion
 from app.models.enums import (
     MemoryCategory,
@@ -47,6 +47,17 @@ def validate_content(content: dict[str, Any]) -> dict[str, Any]:
 
 
 class GovernedMemoryService:
+    @staticmethod
+    def diff(left: LongTermMemoryVersion, right: LongTermMemoryVersion) -> dict[str, bool]:
+        return {
+            "content": left.content != right.content,
+            "scope": left.memory.scope_type != right.memory.scope_type,
+            "category": left.memory.category != right.memory.category,
+            "evidence": left.checksum != right.checksum,
+            "effective_or_expiry": (left.effective_from, left.effective_until, left.expires_at)
+            != (right.effective_from, right.effective_until, right.expires_at),
+        }
+
     def create_memory(
         self,
         session: Session,
@@ -59,11 +70,15 @@ class GovernedMemoryService:
         organisation_id: uuid.UUID | None = None,
         description: str | None = None,
     ) -> LongTermMemory:
-        AuthorizationService.require_permission(context, "memory.manage", organisation_id)
         if scope_type is MemoryScopeType.PLATFORM_SHARED:
+            if not context.platform_scope:
+                raise ValueError("platform-shared memory requires platform authority")
+            AuthorizationService.require_permission(context, "memory.manage")
             organisation_id = None
         elif organisation_id != context.organisation_id:
             raise ValueError("organisation scope mismatch")
+        else:
+            AuthorizationService.require_permission(context, "memory.manage", organisation_id)
         memory = LongTermMemory(
             code=code,
             name=name,
@@ -122,7 +137,11 @@ class GovernedMemoryService:
             proposed_by_ai_run_id=proposed_by_ai_run_id,
             created_by_user_id=context.user_id,
             supersedes_version_id=supersedes_version_id,
-            checksum=canonical_checksum(content),
+            checksum=memory_checksum(
+                content,
+                scope=memory.scope_type.value,
+                category=memory.category.value,
+            ),
         )
         session.add(version)
         session.flush()
@@ -135,6 +154,16 @@ class GovernedMemoryService:
             organisation_id=memory.organisation_id,
             metadata={"checksum": version.checksum, "origin": origin_type.value},
         )
+        if origin_type is MemoryOriginType.AI_PROPOSED:
+            AuditService.record(
+                session,
+                context,
+                event_type="memory.proposed",
+                entity_type="long_term_memory_version",
+                entity_id=str(version.id),
+                organisation_id=memory.organisation_id,
+                metadata={"checksum": version.checksum},
+            )
         return version
 
     def transition(
@@ -174,9 +203,26 @@ class GovernedMemoryService:
             AuthorizationService.require_permission(
                 context, "memory.manage", memory.organisation_id
             )
+        elif target in {
+            MemoryLifecycleStatus.REJECTED,
+            MemoryLifecycleStatus.SUPERSEDED,
+            MemoryLifecycleStatus.EXPIRED,
+        }:
+            AuthorizationService.require_permission(
+                context, "memory.manage", memory.organisation_id
+            )
+            if (
+                target is MemoryLifecycleStatus.SUPERSEDED
+                and version.status is not MemoryLifecycleStatus.ACTIVE
+            ):
+                raise ValueError("only active memory can be superseded")
         else:
             raise ValueError("unsupported lifecycle transition")
-        if version.status in IMMUTABLE and target is not MemoryLifecycleStatus.RETIRED:
+        if version.status in IMMUTABLE and target not in {
+            MemoryLifecycleStatus.RETIRED,
+            MemoryLifecycleStatus.SUPERSEDED,
+            MemoryLifecycleStatus.EXPIRED,
+        }:
             raise ValueError("active memory is immutable")
         version.status = target
         session.flush()
@@ -211,6 +257,8 @@ class GovernedMemoryService:
                 | (LongTermMemoryVersion.effective_until > at),
                 (LongTermMemoryVersion.expires_at.is_(None))
                 | (LongTermMemoryVersion.expires_at > at),
+                (LongTermMemoryVersion.review_after.is_(None))
+                | (LongTermMemoryVersion.review_after > at),
                 (LongTermMemory.scope_type == MemoryScopeType.PLATFORM_SHARED)
                 | (LongTermMemory.organisation_id == context.organisation_id),
             )

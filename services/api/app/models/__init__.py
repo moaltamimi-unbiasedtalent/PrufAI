@@ -97,6 +97,14 @@ from app.models.standard_pack import (
     StandardPackTaskSpecification,
     StandardPackVersion,
 )
+from app.models.writing_assessment import (
+    AssessmentRubric,
+    RubricEvidenceBinding,
+    RubricVersion,
+    SubjectiveAssessment,
+    SubjectiveAssessmentVersion,
+    SubjectiveCriterionAssessment,
+)
 
 __all__ = [
     "AuditEvent",
@@ -174,4 +182,10 @@ __all__ = [
     "ScoringComponent",
     "AssessmentResult",
     "ResultVersion",
+    "AssessmentRubric",
+    "RubricVersion",
+    "RubricEvidenceBinding",
+    "SubjectiveAssessment",
+    "SubjectiveAssessmentVersion",
+    "SubjectiveCriterionAssessment",
 ]

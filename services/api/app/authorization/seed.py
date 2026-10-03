@@ -63,6 +63,11 @@ PLATFORM_PERMISSIONS = (
     "result.review",
     "result.release",
     "result.manage",
+    "subjective.assess",
+    "subjective.read",
+    "subjective.review",
+    "rubric.manage",
+    "rubric.read",
 )
 TENANT_PERMISSIONS = (
     "organisation.read",
@@ -90,6 +95,11 @@ TENANT_PERMISSIONS = (
     "result.review",
     "result.release",
     "result.manage",
+    "subjective.assess",
+    "subjective.read",
+    "subjective.review",
+    "rubric.manage",
+    "rubric.read",
 )
 
 ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
@@ -138,6 +148,11 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "exam.publish",
             "exam.activate",
             "exam.export",
+            "subjective.assess",
+            "subjective.read",
+            "subjective.review",
+            "rubric.manage",
+            "rubric.read",
         ),
     ),
     "PRUFAI_AI_ADMIN": (RoleScope.PLATFORM, ("platform.organisation.read", "platform.audit.read")),
@@ -161,6 +176,11 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "result.review",
             "result.release",
             "result.manage",
+            "subjective.assess",
+            "subjective.read",
+            "subjective.review",
+            "rubric.manage",
+            "rubric.read",
         ),
     ),
     "EXAM_AUTHOR": (

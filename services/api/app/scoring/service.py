@@ -25,6 +25,7 @@ from app.models import (
     ScoringResponseSnapshot,
     ScoringRun,
     StandardPackVersion,
+    SubjectiveAssessmentVersion,
 )
 from app.models.enums import (
     AssessmentClassification,
@@ -37,6 +38,7 @@ from app.models.enums import (
     RuleCategory,
     RuleEvaluationStatus,
     ScoringRunStatus,
+    SubjectiveAssessmentStatus,
 )
 from app.rules.engine import EvaluationContext, RulesEngine
 
@@ -277,6 +279,15 @@ class ScoringService:
                 )
             )
         }
+        subjective_versions = {
+            str(version.exam_version_item_binding_id): version
+            for version in session.scalars(
+                select(SubjectiveAssessmentVersion).where(
+                    SubjectiveAssessmentVersion.attempt_id == attempt.id,
+                    SubjectiveAssessmentVersion.status == SubjectiveAssessmentStatus.APPROVED,
+                )
+            )
+        }
         rule_refs = [
             {
                 "id": str(binding.rule_version_id),
@@ -303,6 +314,15 @@ class ScoringService:
                     "scoring_metadata": item_map[item_id].scoring_metadata,
                 }
                 for item_id in sorted(item_map)
+            ],
+            "approved_subjective_assessments": [
+                {
+                    "binding_id": binding_id,
+                    "assessment_version_id": str(version.id),
+                    "checksum": version.checksum,
+                    "approved_score": str(version.approved_score),
+                }
+                for binding_id, version in sorted(subjective_versions.items())
             ],
             "rule_versions": rule_refs,
         }
@@ -374,11 +394,16 @@ class ScoringService:
                 raise ScoringError("MISSING_ITEM_VERSION")
             maximum = item.max_points or _decimal(item.scoring_metadata.get("max_points"))
             policy = item.scoring_policy.value
+            subjective = subjective_versions.get(row["binding_id"])
             awarded: Decimal | None = None
             score_status = ItemScoreStatus.SCORED
             if policy != QuestionBankScoringPolicy.OBJECTIVE_KEYED.value:
-                score_status = ItemScoreStatus.PENDING_ASSESSMENT
-                pending += 1
+                if subjective is not None and subjective.approved_score is not None:
+                    score_status = ItemScoreStatus.SCORED
+                    awarded = Decimal(str(subjective.approved_score))
+                else:
+                    score_status = ItemScoreStatus.PENDING_ASSESSMENT
+                    pending += 1
             else:
                 score_status, awarded = objective_award(item, row["payload"])
             if awarded is not None:
@@ -411,7 +436,14 @@ class ScoringService:
                 awarded_points=awarded,
                 maximum_points=maximum,
                 response_checksum=row["payload_checksum"],
-                scoring_metadata={"engine": ENGINE_VERSION, "policy": item.scoring_metadata},
+                scoring_metadata={
+                    "engine": ENGINE_VERSION,
+                    "policy": item.scoring_metadata,
+                    "subjective_assessment_version_id": str(subjective.id)
+                    if policy != QuestionBankScoringPolicy.OBJECTIVE_KEYED.value
+                    and subjective is not None
+                    else None,
+                },
                 created_at=now,
             )
             session.add(score)

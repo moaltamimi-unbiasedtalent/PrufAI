@@ -196,6 +196,8 @@ class PackMediaRequirement(str, Enum):
 
 class CandidateMediaStatus(str, Enum):
     CREATED = "CREATED"
+    RECORDING = "RECORDING"
+    STOPPED = "STOPPED"
     UPLOADING = "UPLOADING"
     UPLOADED = "UPLOADED"
     VALIDATING = "VALIDATING"

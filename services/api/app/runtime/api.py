@@ -4,15 +4,23 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, TenantContext
+from app.config import get_settings
 from app.db import get_db_session
-from app.models import CandidateExamAssignment, CandidateExamAttempt
+from app.knowledge.storage import build_object_storage
+from app.models import (
+    CandidateAudioRecordingSession,
+    CandidateExamAssignment,
+    CandidateExamAttempt,
+    CandidateMediaAsset,
+)
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
+from app.speaking_audio.service import AudioValidationError, SpeakingAudioService
 
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-runtime"])
 organisation_router = APIRouter(prefix="/api/v1/organisations", tags=["candidate-assignments"])
@@ -84,6 +92,117 @@ def _runtime_error(exc: Exception) -> HTTPException:
     if isinstance(exc, RuntimeError):
         return HTTPException(status_code=403, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
+
+
+@candidate_router.post("/attempts/{attempt_id}/items/{binding_id}/audio-recordings")
+def start_audio_recording(
+    attempt_id: uuid.UUID,
+    binding_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    try:
+        recording = SpeakingAudioService.start_session(
+            session, _context(principal), attempt_id, binding_id
+        )
+        session.commit()
+        return {
+            "recording_session_id": str(recording.id),
+            "status": recording.status.value,
+            "recording_started_at": recording.recording_started_at,
+            "recording_expires_at": recording.recording_expires_at,
+            "attempt_number": recording.attempt_number,
+            "policy": recording.policy_snapshot,
+        }
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        if isinstance(exc, AudioValidationError):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _runtime_error(exc) from exc
+
+
+@candidate_router.post("/audio-recordings/{recording_id}/finalize")
+async def finalize_audio_recording(
+    recording_id: uuid.UUID,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    try:
+        context = _context(principal)
+        recording = session.get(CandidateAudioRecordingSession, recording_id)
+        if (
+            recording is None
+            or recording.candidate_user_id != context.user_id
+            or recording.organisation_id != context.organisation_id
+        ):
+            raise PermissionError("recording ownership required")
+        if (
+            recording.recording_expires_at
+            and datetime.now(recording.recording_expires_at.tzinfo) > recording.recording_expires_at
+        ):
+            raise RuntimeExpired("recording deadline expired")
+        from app.speaking_audio.service import SpeakingAudioService
+
+        content = await request.body()
+        asset = SpeakingAudioService.finalize(
+            session,
+            recording,
+            content=content,
+            content_type=request.headers.get("content-type", ""),
+            filename=request.headers.get("x-filename"),
+            storage=build_object_storage(get_settings()),
+        )
+        session.commit()
+        return {
+            "media_asset_id": str(asset.id),
+            "status": asset.status.value,
+            "sha256": asset.sha256,
+            "byte_size": asset.byte_size,
+        }
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _runtime_error(exc) from exc
+
+
+@candidate_router.get("/audio-assets/{asset_id}/stream")
+def stream_audio_asset(
+    asset_id: uuid.UUID,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    context = _context(principal)
+    asset = session.get(CandidateMediaAsset, asset_id)
+    if (
+        asset is None
+        or asset.status.value != "READY"
+        or asset.organisation_id != context.organisation_id
+        or asset.candidate_user_id != context.user_id
+    ):
+        raise HTTPException(status_code=404, detail="audio asset not found")
+    content = build_object_storage(get_settings()).get(asset.storage_key)
+    range_header = request.headers.get("range")
+    start, end = 0, len(content) - 1
+    if range_header:
+        try:
+            value = range_header.removeprefix("bytes=").split("-", 1)
+            start = int(value[0])
+            end = int(value[1]) if value[1] else end
+            if start < 0 or end < start or end >= len(content):
+                raise ValueError
+        except ValueError as exc:
+            raise HTTPException(status_code=416, detail="invalid byte range") from exc
+    body = content[start : end + 1]
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(len(body))}
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{len(content)}"
+    return Response(
+        content=body,
+        status_code=206 if range_header else 200,
+        media_type=asset.content_type,
+        headers=headers,
+    )
 
 
 @organisation_router.post(

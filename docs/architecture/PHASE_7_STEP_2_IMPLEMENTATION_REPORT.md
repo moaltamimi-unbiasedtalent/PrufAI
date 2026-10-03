@@ -2,9 +2,10 @@
 
 ## Executive summary
 
-Added the additive persistence and validation foundation for recorded
-speaking evidence: server-owned recording sessions, immutable private media
-assets with SHA-256 checksums, and versioned derived speech transcription.
+Implemented the candidate-audio primary evidence slice for Phase 7 / Step 2A:
+server-owned recording sessions, candidate microphone UX, private upload and
+validation, immutable media assets with SHA-256 checksums, exact response
+revision binding, and authenticated candidate playback.
 
 ## Scope and governance
 
@@ -18,9 +19,18 @@ authoritative from Step 1.
 
 Audio validation enforces bounded bytes, supported browser-compatible media
 types, detectable signatures, private generated storage keys, idempotent
-recording-session finalization, and immutable checksum identity. Production
-storage remains S3-compatible; the explicit in-memory backend is not allowed in
-production. No filename can influence an object path.
+recording-session finalization, and immutable checksum identity. Recording
+start is server-timed and policy-gated, including maximum recording attempts.
+Production storage remains S3-compatible; the explicit in-memory backend is not
+allowed in production. No filename can influence an object path. Candidate
+streaming is authenticated and supports a single byte range, but the current
+adapter reads the private object before slicing; bounded backend range reads
+remain a hardening item.
+
+The runtime accepts an AUDIO response only as `{ "media_asset_id": "..." }`.
+`CandidateResponseMediaBinding` in additive migration `0018_audio_response_binding`
+binds the finalized asset to the exact `CandidateResponseRevision`; cross-attempt
+assets and replacement after submission are rejected.
 
 ## Transcription
 
@@ -32,7 +42,15 @@ eligibility remain follow-up integration work.
 
 ## Migration and validation
 
-Migration `0017_speaking_audio` is additive and 22 characters. Unit tests cover
-audio signatures, rejection, checksum identity, and filename safety. No
-`Base.metadata.create_all()` is used. Remote PostgreSQL/object-storage gates
-remain pending. As-of resolution is intentionally deferred.
+Migration `0017_speaking_audio` remains unchanged. Additive migration
+`0018_audio_response_binding` is 23 characters. Unit tests cover audio
+signatures, rejection, checksum identity, filename safety, and AUDIO payload
+shape. No `Base.metadata.create_all()` is used. Remote PostgreSQL/object-storage
+gates remain pending. As-of resolution is intentionally deferred.
+
+The candidate control is intentionally online-only: permission preflight is
+explicit, recording never auto-starts, the server returns the recording
+deadline, and the finalized media ID is persisted through the existing
+revision-safe runtime save path. Reviewer playback, audit-event emission,
+refresh/resume recovery, and transcription/provider execution remain outside
+this substep.

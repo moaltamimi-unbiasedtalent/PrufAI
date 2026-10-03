@@ -53,6 +53,22 @@ export type RuntimeState = {
   }>;
 };
 
+export type AudioRecordingSession = {
+  recording_session_id: string;
+  status: string;
+  recording_started_at: string;
+  recording_expires_at: string;
+  attempt_number: number;
+  policy: Record<string, unknown>;
+};
+
+export type AudioMediaAsset = {
+  media_asset_id: string;
+  status: string;
+  sha256: string;
+  byte_size: number;
+};
+
 export class CandidateApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -84,6 +100,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function uploadAudio(
+  path: string,
+  content: Blob,
+  filename: string,
+): Promise<AudioMediaAsset> {
+  const response = await fetch(`/api/v1/candidate${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": (content.type || "application/octet-stream").split(";", 1)[0],
+      "X-Filename": filename,
+    },
+    body: content,
+  });
+  if (!response.ok) {
+    let code = `RUNTIME.HTTP_${response.status}`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      code = body.detail ?? code;
+    } catch {
+      // Preserve a normalized status when the response is not JSON.
+    }
+    throw new CandidateApiError(response.status, code);
+  }
+  return (await response.json()) as AudioMediaAsset;
+}
+
 export const candidateApi = {
   assignments: () => request<CandidateAssignment[]>("/exam-assignments"),
   attempt: (attemptId: string) =>
@@ -98,6 +141,21 @@ export const candidateApi = {
     request<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
       method: "POST",
     }),
+  startAudioRecording: (attemptId: string, bindingId: string) =>
+    request<AudioRecordingSession>(
+      `/attempts/${attemptId}/items/${bindingId}/audio-recordings`,
+      { method: "POST" },
+    ),
+  finalizeAudioRecording: (
+    recordingSessionId: string,
+    content: Blob,
+    filename: string,
+  ) =>
+    uploadAudio(
+      `/audio-recordings/${recordingSessionId}/finalize`,
+      content,
+      filename,
+    ),
   save: (
     attemptId: string,
     bindingId: string,

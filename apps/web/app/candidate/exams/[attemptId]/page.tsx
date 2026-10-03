@@ -8,6 +8,7 @@ import {
   type RuntimeState as RuntimeDto,
 } from "../../api";
 import {
+  AudioResponseControl,
   RuntimeTimer,
   runtimeStateMessage,
   type ResponseMode,
@@ -31,6 +32,7 @@ const modeLabels: Record<string, string> = {
   SELECT_MULTIPLE: "Select multiple",
   TEXT: "Short text",
   LONG_TEXT: "Long text",
+  AUDIO: "Recorded audio",
 };
 
 function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
@@ -381,6 +383,7 @@ export default function CandidateExamRuntimePage() {
   const mode = (currentItem?.response_mode ?? "LONG_TEXT") as ResponseMode;
   const selected = (response.option_ids as string[] | undefined) ?? [];
   const textValue = (response.text as string | undefined) ?? "";
+  const mediaAssetId = response.media_asset_id as string | undefined;
   const message = runtimeStateMessage(status);
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
@@ -479,6 +482,15 @@ export default function CandidateExamRuntimePage() {
               maxLength={20000}
             />
           </label>
+        )}
+        {mode === "AUDIO" && attemptId && currentItem && (
+          <AudioResponseControl
+            attemptId={attemptId}
+            bindingId={currentItem.binding_id}
+            editable={Boolean(editable)}
+            currentMediaAssetId={mediaAssetId}
+            onSaved={(assetId) => persist({ media_asset_id: assetId })}
+          />
         )}
       </section>
       <nav aria-label="Exam question navigation">

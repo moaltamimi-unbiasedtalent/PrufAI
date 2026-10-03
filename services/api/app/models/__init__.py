@@ -92,6 +92,7 @@ from app.models.scoring import (
 from app.models.speaking_audio import (
     CandidateAudioRecordingSession,
     CandidateMediaAsset,
+    CandidateResponseMediaBinding,
     SpeechTranscription,
     SpeechTranscriptionVersion,
 )
@@ -196,6 +197,7 @@ __all__ = [
     "SubjectiveCriterionAssessment",
     "CandidateAudioRecordingSession",
     "CandidateMediaAsset",
+    "CandidateResponseMediaBinding",
     "SpeechTranscription",
     "SpeechTranscriptionVersion",
 ]

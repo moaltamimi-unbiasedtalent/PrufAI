@@ -76,6 +76,25 @@ class CandidateMediaAsset(UUIDPrimaryKeyMixin, Base):
     )
 
 
+class CandidateResponseMediaBinding(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "candidate_response_media_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_response_revision_id",
+            "binding_role",
+            name="uq_response_media_binding_role",
+        ),
+    )
+    candidate_response_revision_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("candidate_response_revisions.id", ondelete="CASCADE"), nullable=False
+    )
+    candidate_media_asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("candidate_media_assets.id", ondelete="RESTRICT"), nullable=False
+    )
+    binding_role: Mapped[str] = mapped_column(String(40), nullable=False, default="PRIMARY_AUDIO")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SpeechTranscription(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "speech_transcriptions"
     asset_id: Mapped[uuid.UUID] = mapped_column(

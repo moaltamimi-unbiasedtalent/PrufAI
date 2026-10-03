@@ -1,8 +1,11 @@
 import pytest
 
+from app.models.enums import PackResponseMode
+from app.runtime.service import CandidateRuntimeService
 from app.speaking_audio.service import (
     AudioValidationError,
     SpeakingAudioService,
+    safe_audio_filename,
     validate_audio_bytes,
 )
 
@@ -25,6 +28,10 @@ def test_audio_validation_rejects_mismatch_and_oversize():
         validate_audio_bytes(b"not audio", "audio/webm")
     with pytest.raises(AudioValidationError):
         validate_audio_bytes(b"OggS" + b"x", "audio/flac")
+    with pytest.raises(AudioValidationError):
+        validate_audio_bytes(b"", "audio/ogg")
+    with pytest.raises(AudioValidationError):
+        validate_audio_bytes(b"OggS" + b"x" * (25 * 1024 * 1024), "audio/ogg")
 
 
 def test_audio_checksum_is_sha256_and_filename_is_not_a_storage_path():
@@ -33,3 +40,17 @@ def test_audio_checksum_is_sha256_and_filename_is_not_a_storage_path():
         SpeakingAudioService.checksum(content)
         == "750e9d06f1e582d4cc9bf209f0d6de140251bc8f5cf420e63927f5659724c7bb"
     )
+    assert safe_audio_filename("../../candidate voice.webm") == ".._.._candidate_voice.webm"
+
+
+def test_audio_runtime_payload_is_exact_media_asset_reference():
+    item = {"content": {}}
+    CandidateRuntimeService._validate_payload(
+        item, PackResponseMode.AUDIO.value, {"media_asset_id": "asset-1"}
+    )
+    with pytest.raises(ValueError, match="invalid AUDIO response"):
+        CandidateRuntimeService._validate_payload(
+            item,
+            PackResponseMode.AUDIO.value,
+            {"media_asset_id": "asset-1", "text": "unexpected"},
+        )

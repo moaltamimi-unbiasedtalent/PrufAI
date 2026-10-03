@@ -32,7 +32,10 @@ Phase 8 integration is migration-backed by Alembic revisions `0021_result_govern
 `0022_result_correction`, and `0023_objective_correction`; no
 `Base.metadata.create_all()` is used by production migration paths. Transcription
 corrections delegate to the existing `SpeechTranscriptionService` for a new
-version from the same immutable audio asset. Objective corrections require an
+version from the same immutable audio asset. When an existing speaking assessment
+used the historical transcript, correction creates a new review-required speaking
+version pinned to the new transcript; only after human approval does correction
+resume scoring. Objective corrections require an
 approved/published replacement version of the same stable question-bank item and
 persist that binding before deterministic rescoring; arbitrary numeric overrides
 are rejected. Existing object-storage and speaking evidence integrations remain

@@ -26,7 +26,9 @@ from app.models import (
     ResultModerationCase,
     ResultVersion,
     ScoringRun,
+    SubjectiveAssessment,
     SubjectiveAssessmentVersion,
+    SubjectiveCriterionAssessment,
 )
 from app.models.enums import (
     AppealDecision,
@@ -444,6 +446,23 @@ class ResultGovernanceService:
                     raise ResultGovernanceError("a governed transcription factory is required")
                 new_transcript = transcription_factory(session, context, appeal)
                 correction.new_transcription_version_id = new_transcript.id
+                source = cls._subjective_source(
+                    session, appeal, CorrectionType.SPEAKING_REASSESSMENT
+                )
+                if source is not None:
+                    successor, review = cls._pending_speaking_successor(
+                        session, context, source, new_transcript, correction.id
+                    )
+                    correction.new_component_version_id = successor.id
+                    correction.status = CorrectionStatus.AWAITING_COMPONENT_REVIEW
+                    correction.metadata_json = {
+                        **correction.metadata_json,
+                        "component_review_id": str(review.id),
+                    }
+                    cls._audit_correction(
+                        session, context, "result.correction_component_created", correction
+                    )
+                    return correction
                 cls._audit_correction(
                     session, context, "result.correction_component_created", correction
                 )
@@ -565,6 +584,141 @@ class ResultGovernanceService:
             (row for row in rows if bool(row.candidate_media_asset_id) is speaking),
             None,
         )
+
+    @staticmethod
+    def _pending_speaking_successor(
+        session: Session,
+        context: TenantContext,
+        source: SubjectiveAssessmentVersion,
+        transcript: Any,
+        correction_id: uuid.UUID,
+    ) -> tuple[SubjectiveAssessmentVersion, HumanReviewRequest]:
+        assessment = session.get(SubjectiveAssessment, source.subjective_assessment_id)
+        if assessment is None:
+            raise ResultGovernanceError("speaking assessment is unavailable")
+        latest = max(assessment.versions, key=lambda item: item.version_number)
+        successor = SubjectiveAssessmentVersion(
+            subjective_assessment_id=source.subjective_assessment_id,
+            version_number=latest.version_number + 1,
+            attempt_id=source.attempt_id,
+            exam_version_id=source.exam_version_id,
+            exam_version_item_binding_id=source.exam_version_item_binding_id,
+            question_bank_item_version_id=source.question_bank_item_version_id,
+            candidate_response_id=source.candidate_response_id,
+            candidate_response_revision_id=source.candidate_response_revision_id,
+            rubric_version_id=source.rubric_version_id,
+            standard_pack_version_id=source.standard_pack_version_id,
+            status=SubjectiveAssessmentStatus.AI_PROPOSED,
+            response_checksum=source.response_checksum,
+            rubric_checksum=source.rubric_checksum,
+            workflow_version_id=source.workflow_version_id,
+            agent_version_id=source.agent_version_id,
+            prompt_version_id=source.prompt_version_id,
+            model_profile_id=source.model_profile_id,
+            candidate_media_asset_id=source.candidate_media_asset_id,
+            audio_sha256=source.audio_sha256,
+            speech_transcription_version_id=transcript.id,
+            transcript_checksum=transcript.checksum,
+            evidence_mode_summary=dict(source.evidence_mode_summary),
+            ai_proposal=dict(source.ai_proposal),
+            human_approved_values={},
+            consistency_summary=dict(source.consistency_summary),
+            ai_run_id=source.ai_run_id,
+            proposed_score=source.proposed_score,
+            confidence_summary=dict(source.confidence_summary),
+            disagreement_summary=dict(source.disagreement_summary),
+            provenance={
+                **source.provenance,
+                "correction_id": str(correction_id),
+                "transcription_correction": True,
+                "human_review_required": True,
+            },
+            checksum=_checksum(
+                {
+                    "source": source.checksum,
+                    "transcript_version_id": str(transcript.id),
+                    "transcript_checksum": transcript.checksum,
+                    "correction_id": str(correction_id),
+                }
+            ),
+            created_at=_now(),
+            supersedes_version_id=source.id,
+        )
+        session.add(successor)
+        session.flush()
+        for criterion in source.criterion_assessments:
+            session.add(
+                SubjectiveCriterionAssessment(
+                    subjective_assessment_version_id=successor.id,
+                    criterion_code=criterion.criterion_code,
+                    proposed_level=criterion.proposed_level,
+                    proposed_points=criterion.proposed_points,
+                    confidence=criterion.confidence,
+                    evidence=list(criterion.evidence),
+                    rationale=criterion.rationale,
+                    uncertainties=list(criterion.uncertainties),
+                    disagreement=dict(criterion.disagreement),
+                    status=criterion.status,
+                )
+            )
+        review = HumanReviewRequest(
+            review_type="RESULT_CORRECTION",
+            entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
+            entity_id=successor.id,
+            status=HumanReviewStatus.PENDING,
+            requested_by=context.user_id,
+            requested_at=_now(),
+            reviewed_checksum=successor.checksum,
+        )
+        session.add(review)
+        session.flush()
+        return successor, review
+
+    @classmethod
+    def resume_correction(
+        cls,
+        session: Session,
+        context: TenantContext,
+        *,
+        correction_id: uuid.UUID,
+        component_checksum: str,
+    ) -> ResultCorrection:
+        """Resume a transcription correction only after its human component approval."""
+        AuthorizationService.require_permission(context, "appeal.correct", context.organisation_id)
+        correction = session.scalar(
+            select(ResultCorrection).where(ResultCorrection.id == correction_id).with_for_update()
+        )
+        if correction is None or correction.organisation_id != context.organisation_id:
+            raise ResultGovernanceError("correction not found")
+        if correction.status is CorrectionStatus.RESCORED:
+            return correction
+        if correction.status is not CorrectionStatus.AWAITING_COMPONENT_REVIEW:
+            raise ResultGovernanceError("correction is not awaiting component review")
+        component = session.get(SubjectiveAssessmentVersion, correction.new_component_version_id)
+        if (
+            component is None
+            or component.status is not SubjectiveAssessmentStatus.APPROVED
+            or component.checksum != component_checksum
+            or component.speech_transcription_version_id != correction.new_transcription_version_id
+        ):
+            raise ResultGovernanceError("stale or unapproved correction component")
+        appeal = session.get(ResultAppeal, correction.appeal_id)
+        if appeal is None:
+            raise ResultGovernanceError("appeal not found")
+        run = ScoringService.score(session, context, appeal.attempt_id)
+        correction.new_scoring_run_id = run.id
+        result = session.get(AssessmentResult, appeal.result_id)
+        if result is None:
+            raise ResultGovernanceError("assessment result not found")
+        correction.new_result_version_id = max(
+            result.versions, key=lambda item: item.version_number
+        ).id
+        correction.status = CorrectionStatus.RESCORED
+        correction.completed_at = _now()
+        correction.updated_at = _now()
+        cls._audit_correction(session, context, "result.correction_rescored", correction)
+        cls._audit_correction(session, context, "result.correction_completed", correction)
+        return correction
 
     @staticmethod
     def _audit_correction(

@@ -48,6 +48,10 @@ class CorrectionRequest(BaseModel):
     objective_bindings: list[dict[str, str]] = Field(default_factory=list)
 
 
+class CorrectionResumeRequest(BaseModel):
+    component_checksum: str = Field(min_length=64, max_length=64)
+
+
 class ModerationRequest(BaseModel):
     result_version_id: uuid.UUID
     reason: str = Field(min_length=1, max_length=120)
@@ -457,6 +461,39 @@ def initiate_correction(
             operation_id=payload.operation_id,
             corrections=payload.corrections,
             objective_bindings=payload.objective_bindings,
+        )
+        session.commit()
+        return {
+            "id": str(correction.id),
+            "status": correction.status.value,
+            "new_scoring_run_id": str(correction.new_scoring_run_id)
+            if correction.new_scoring_run_id
+            else None,
+            "new_result_version_id": str(correction.new_result_version_id)
+            if correction.new_result_version_id
+            else None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _error(exc) from exc
+
+
+@institution_router.post("/{organisation_id}/corrections/{correction_id}/resume")
+def resume_correction(
+    organisation_id: uuid.UUID,
+    correction_id: uuid.UUID,
+    payload: CorrectionResumeRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    if _context(principal).organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        correction = ResultGovernanceService.resume_correction(
+            session,
+            _context(principal),
+            correction_id=correction_id,
+            component_checksum=payload.component_checksum,
         )
         session.commit()
         return {

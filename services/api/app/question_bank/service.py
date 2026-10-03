@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import Select, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -1108,7 +1108,7 @@ class QuestionBankService:
         AuthorizationService.require_permission(
             context, "question_bank.read", context.organisation_id
         )
-        query: Select[tuple[QuestionBankItemVersion]] = (
+        query = (
             select(QuestionBankItemVersion)
             .join(QuestionBankItem)
             .where(

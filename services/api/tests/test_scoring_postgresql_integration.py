@@ -50,6 +50,35 @@ def test_scoring_results_schema_is_migration_backed() -> None:
             "uq_result_attempt",
             "uq_result_version_number",
         } <= constraints
+        numeric_columns = {
+            (row[0], row[1], row[2])
+            for row in connection.execute(
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name IN
+                ('item_scores', 'scoring_components', 'result_versions')
+                AND column_name IN
+                ('awarded_points', 'maximum_points', 'raw_awarded_points',
+                 'raw_maximum_points', 'transformed_value')
+                """
+            )
+        }
+        assert numeric_columns
+        assert all(data_type == "numeric" for _, _, data_type in numeric_columns)
+        columns = {
+            (row[0], row[1])
+            for row in connection.execute(
+                """
+                SELECT table_name, column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name IN
+                ('scoring_runs', 'assessment_results', 'result_versions')
+                """
+            )
+        }
+        assert ("scoring_runs", "organisation_id") in columns
+        assert ("assessment_results", "organisation_id") in columns
+        assert ("result_versions", "supersedes_version_id") in columns
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
             == repository_alembic_head()

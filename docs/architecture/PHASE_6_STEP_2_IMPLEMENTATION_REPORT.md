@@ -27,14 +27,21 @@ identity is `prufai_objective_scoring@1.0`; configuration and scoring-run
 checksums include exact pack/rule/item references.
 
 `SELECT_ONE` is exact option-ID matching. `SELECT_MULTIPLE` is exact set
-matching unless an explicit versioned `DECLARED_TABLE` policy exists. No
-partial-credit formula is inferred. Decimal arithmetic is used for item,
+matching unless an explicit versioned `DECLARED_TABLE` policy exists. The
+declared table is bounded Decimal data: malformed, negative, over-maximum,
+unknown-option, impossible, or unmapped combinations fail deterministically.
+No partial-credit formula or executable expression is inferred. Decimal arithmetic is used for item,
 component and exam raw points. Raw and transformed concepts remain separate;
 no provider transformation is implemented.
 
 ## Item and result lifecycle
 
-Objective unanswered items are `UNANSWERED` with governed zero points.
+Objective unanswered items are `UNANSWERED` only when exact immutable item
+metadata declares `unanswered_policy: {type: ZERO, points: "0"}`. There is no
+universal engine default; missing or invalid policy raises a deterministic
+configuration error rather than silently awarding zero. Item checksum,
+scoring metadata and exact rule references are included in the configuration
+checksum.
 Constructed/RUBRIC_REQUIRED/MANUAL_REVIEW items are `PENDING_ASSESSMENT` or
 `NOT_SCORABLE`, never fabricated zero scores. Mixed results are `INCOMPLETE`.
 Objective-only runs create `REVIEW_REQUIRED` ResultVersions.
@@ -49,7 +56,9 @@ through narrow score/result facts. No governed outcome rule means
 `UNDETERMINED`; rule failure/error blocks release. Official certification
 remains blocked. HumanReviewRequest binds the ResultVersion checksum; review
 approval is required for release, stale reviews fail, and humans cannot mutate
-ItemScore values. Corrections create new runs/versions.
+ItemScore values. Corrections create new runs/versions. Configuration failures
+transition running runs to `FAILED` and emit `scoring.run.failed` with only
+identifiers, category and engine version; failed runs cannot release results.
 
 ## API and security
 
@@ -59,17 +68,25 @@ only released results owned by the authenticated candidate in the active
 organisation. Capabilities are `scoring.run`, `result.read`, `result.review`,
 `result.release` and `result.manage`. Candidate-safe projections contain no
 response payloads, answer keys, rule DSL, reviewer notes or private URLs.
-Audit covers consequential scoring/result lifecycle events; candidate response
-text is not audit metadata. Retention duration remains intentionally undefined.
+Audit covers consequential scoring/result lifecycle events, including
+`scoring.run.failed` and `result.created`; candidate response text and raw
+tracebacks are not audit metadata. Retention duration remains intentionally
+undefined.
 
 ## Tests, CI and known limitations
 
-Local API validation covers objective exact scoring, declared partial credit,
-Decimal arithmetic, unanswered/constructed handling, checksums, mutable-attempt
-blocking and table registration. PostgreSQL CI explicitly forces the new
-schema integration and dynamically checks the Alembic head without
-`Base.metadata.create_all`.
+Local API validation covers objective exact scoring, explicit unanswered policy,
+declared-table bounds, Decimal arithmetic, unanswered/constructed handling,
+failure audit behavior, checksums, mutable-attempt blocking and table
+registration. PostgreSQL CI explicitly forces the new schema integration,
+checks Numeric columns, ownership/supersession columns and constraints, and
+dynamically checks the Alembic head without `Base.metadata.create_all`.
 
 The frontend adds a released-results candidate surface; no scoring logic is
 implemented in the browser. AI/subjective assessment, formal certification,
 result retention policy, worker scheduling and remote CI remain future gates.
+The local suite has 11 expected infrastructure skips: 8 PostgreSQL, 2 Redis,
+and 1 AI integration infrastructure skip; no unexpected skip was observed. The
+latest local `npm audit --omit=dev` reported one high and one moderate
+carried-forward Next/PostCSS advisory; production security certification is
+not available locally. `pip_audit` is not installed in this environment.

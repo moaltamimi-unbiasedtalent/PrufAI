@@ -129,17 +129,54 @@ def _snapshot(attempt: CandidateExamAttempt) -> tuple[dict[str, Any], str]:
     return data, checksum(data)
 
 
+def _unanswered_award(item: QuestionBankItemVersion) -> Decimal:
+    policy = item.scoring_metadata.get("unanswered_policy")
+    if not isinstance(policy, dict) or policy.get("type") != "ZERO" or "points" not in policy:
+        raise ScoringError(
+            "SCORING_CONFIGURATION_UNSUPPORTED: unanswered policy is not explicitly defined"
+        )
+    value = _decimal(policy.get("points"))
+    if value != Decimal("0"):
+        raise ScoringError("SCORING_CONFIGURATION_UNSUPPORTED: unanswered ZERO policy must award 0")
+    return value
+
+
 def _configured_partial(
     item: QuestionBankItemVersion, selected: set[str], correct: set[str], maximum: Decimal
 ) -> Decimal | None:
     policy = item.scoring_metadata.get("partial_credit_policy")
+    if policy is None:
+        return None
     if not isinstance(policy, dict) or policy.get("type") != "DECLARED_TABLE":
-        return None
+        raise ScoringError("SCORING_CONFIGURATION_UNSUPPORTED: invalid partial-credit policy")
+    known_options = {
+        str(option.get("option_id"))
+        for option in item.content.get("options", [])
+        if isinstance(option, dict) and option.get("option_id") is not None
+    }
+    if known_options and not selected <= known_options:
+        raise ScoringError("SCORING_CONFIGURATION_INVALID: response contains unknown option")
     table = policy.get("points_by_correct_count")
-    if not isinstance(table, dict) or selected - correct:
-        return None
-    value = table.get(str(len(selected & correct)))
-    return _decimal(value) if value is not None else None
+    if not isinstance(table, dict) or not table:
+        raise ScoringError("SCORING_CONFIGURATION_INVALID: declared table is empty")
+    for key, raw_value in table.items():
+        try:
+            count = int(key)
+            value = _decimal(raw_value)
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise ScoringError("SCORING_CONFIGURATION_INVALID: malformed declared table") from exc
+        if count < 0 or value < 0 or value > maximum:
+            raise ScoringError(
+                "SCORING_CONFIGURATION_INVALID: declared table value is out of bounds"
+            )
+    if selected - correct:
+        raise ScoringError("SCORING_CONFIGURATION_INVALID: response contains an impossible option")
+    mapped_value = table.get(str(len(selected & correct)))
+    if mapped_value is None:
+        raise ScoringError(
+            "SCORING_CONFIGURATION_UNSUPPORTED: response has no declared table mapping"
+        )
+    return _decimal(mapped_value)
 
 
 def objective_award(
@@ -148,7 +185,7 @@ def objective_award(
     """Apply only exact keys or explicitly declared bounded partial credit."""
     maximum = item.max_points or _decimal(item.scoring_metadata.get("max_points"))
     if payload is None:
-        return ItemScoreStatus.UNANSWERED, Decimal("0")
+        return ItemScoreStatus.UNANSWERED, _unanswered_award(item)
     correct = {str(value) for value in item.content.get("correct_option_ids", [])}
     if item.response_mode.value == "SELECT_ONE":
         return ItemScoreStatus.SCORED, maximum if payload.get("option_id") in correct and len(
@@ -165,17 +202,51 @@ def objective_award(
 
 class ScoringService:
     @staticmethod
-    def fail_run(session: Session, run: ScoringRun, category: str) -> ScoringRun:
+    def fail_run(
+        session: Session,
+        run: ScoringRun,
+        category: str,
+        context: TenantContext | None = None,
+    ) -> ScoringRun:
         if run.status in {ScoringRunStatus.COMPLETED, ScoringRunStatus.CANCELLED}:
             raise ScoringError("scoring run is already terminal")
         run.status = ScoringRunStatus.FAILED
         run.failure_category = category
         run.failed_at = _now()
         session.flush()
+        if context is not None:
+            _audit(
+                session,
+                context,
+                "scoring.run.failed",
+                run,
+                {
+                    "scoring_run_id": str(run.id),
+                    "attempt_id": str(run.attempt_id),
+                    "failure_category": category,
+                    "engine": f"{run.scoring_engine_name}@{run.scoring_engine_version}",
+                },
+            )
         return run
 
     @staticmethod
     def score(session: Session, context: TenantContext, attempt_id: uuid.UUID) -> ScoringRun:
+        try:
+            return ScoringService._score(session, context, attempt_id)
+        except ScoringError:
+            run = session.scalar(
+                select(ScoringRun).where(
+                    ScoringRun.attempt_id == attempt_id,
+                    ScoringRun.status == ScoringRunStatus.RUNNING,
+                )
+            )
+            if run is not None:
+                ScoringService.fail_run(session, run, "SCORING_CONFIGURATION_INCOMPLETE", context)
+                session.commit()
+            raise
+
+    @staticmethod
+    def _score(session: Session, context: TenantContext, attempt_id: uuid.UUID) -> ScoringRun:
         if context.organisation_id is None:
             raise ScoringError("organisation context required")
         AuthorizationService.require_permission(context, "scoring.run", context.organisation_id)
@@ -192,6 +263,20 @@ class ScoringService:
         )
         if pack is None:
             raise ScoringError("SCORING_CONFIGURATION_INCOMPLETE: StandardPackVersion missing")
+        item_map = {
+            str(item.id): item
+            for item in session.scalars(
+                select(QuestionBankItemVersion).where(
+                    QuestionBankItemVersion.id.in_(
+                        [
+                            row["question_bank_item_version_id"]
+                            for row in snapshot_json["items"]
+                            if row["question_bank_item_version_id"]
+                        ]
+                    )
+                )
+            )
+        }
         rule_refs = [
             {
                 "id": str(binding.rule_version_id),
@@ -206,6 +291,18 @@ class ScoringService:
             "configuration_checksum": pack.configuration_checksum,
             "item_versions": [
                 item["question_bank_item_version_id"] for item in snapshot_json["items"]
+            ],
+            "item_scoring_configuration": [
+                {
+                    "item_version_id": item_id,
+                    "checksum": item_map[item_id].checksum,
+                    "scoring_policy": item_map[item_id].scoring_policy.value,
+                    "max_points": str(item_map[item_id].max_points)
+                    if item_map[item_id].max_points is not None
+                    else None,
+                    "scoring_metadata": item_map[item_id].scoring_metadata,
+                }
+                for item_id in sorted(item_map)
             ],
             "rule_versions": rule_refs,
         }
@@ -267,20 +364,6 @@ class ScoringService:
             snapshot_json=snapshot_json,
             created_at=now,
         )
-        item_map = {
-            str(item.id): item
-            for item in session.scalars(
-                select(QuestionBankItemVersion).where(
-                    QuestionBankItemVersion.id.in_(
-                        [
-                            row["question_bank_item_version_id"]
-                            for row in snapshot_json["items"]
-                            if row["question_bank_item_version_id"]
-                        ]
-                    )
-                )
-            )
-        }
         raw_total = Decimal("0")
         max_total = Decimal("0")
         pending = 0
@@ -416,6 +499,7 @@ class ScoringService:
             )
             session.add(result)
             session.flush()
+            _audit(session, context, "result.created", result)
         previous = max(result.versions, key=lambda row: row.version_number, default=None)
         if previous and previous.status is ResultVersionStatus.RELEASED:
             previous.status = ResultVersionStatus.SUPERSEDED

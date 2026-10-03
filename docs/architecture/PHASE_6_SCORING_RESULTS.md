@@ -47,7 +47,17 @@ policy is explicitly present in item metadata. No partial-credit formula is
 inferred. All consequential points and aggregates use PostgreSQL `NUMERIC` and
 Python `Decimal`.
 
-Objective unanswered items are `UNANSWERED` with governed zero points.
+Objective unanswered items are `UNANSWERED` only when the exact immutable item
+metadata declares `unanswered_policy: {type: ZERO, points: "0"}`. The scoring
+engine has no universal unanswered default: missing, malformed, negative, or
+non-zero unanswered policy is a deterministic configuration failure. The item
+scoring metadata, item checksum and exact Rule/Pack references are included in
+the scoring configuration checksum, so changing the policy cannot replay as
+the same run.
+`DECLARED_TABLE` partial credit is a bounded Decimal lookup: malformed
+Decimals, negative or over-maximum values, unknown options, impossible
+responses, and missing mappings fail deterministically. It has no executable
+expression or dynamic import path.
 `RUBRIC_REQUIRED`, `MANUAL_REVIEW`, constructed text and unsupported modes are
 `PENDING_ASSESSMENT`/`NOT_SCORABLE`, never silently zeroed. Mixed exams retain
 objective raw components but create an `INCOMPLETE` result while required
@@ -77,6 +87,10 @@ edit deterministic ItemScores; corrections require a new scoring run and
 ResultVersion. Incomplete or rule-blocked versions cannot release. Released
 historical versions remain immutable and queryable; deterministic result diffs
 compare score, outcome, completeness, rule provenance and scoring run.
+Configuration failures transition a running `ScoringRun` to `FAILED` and emit
+`scoring.run.failed` with only run/attempt identifiers, failure category and
+engine version. Candidate response payloads, answer keys and tracebacks are
+never audit metadata; a failed run creates no releasable result.
 
 ## API, security and privacy
 

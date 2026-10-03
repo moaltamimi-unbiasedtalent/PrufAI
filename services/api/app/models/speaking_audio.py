@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
 from app.models.enums import CandidateMediaStatus, TranscriptionStatus
@@ -97,13 +97,17 @@ class CandidateResponseMediaBinding(UUIDPrimaryKeyMixin, Base):
 
 class SpeechTranscription(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "speech_transcriptions"
+    __table_args__ = (UniqueConstraint("asset_id", name="uq_speech_transcription_asset"),)
     asset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("candidate_media_assets.id", ondelete="CASCADE"), nullable=False
     )
+    operation_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True, unique=True)
     language: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[TranscriptionStatus] = mapped_column(
         enum_type(TranscriptionStatus), nullable=False
     )
+    failure_category: Mapped[Optional[str]] = mapped_column(String(80))
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     versions: Mapped[list[SpeechTranscriptionVersion]] = relationship(
         back_populates="transcription", cascade="all, delete-orphan"
     )
@@ -129,8 +133,59 @@ class SpeechTranscriptionVersion(UUIDPrimaryKeyMixin, Base):
     transcript: Mapped[str] = mapped_column(Text, nullable=False)
     segments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[TranscriptionStatus] = mapped_column(
+        enum_type(TranscriptionStatus), nullable=False, default=TranscriptionStatus.READY
+    )
+    provider: Mapped[Optional[str]] = mapped_column(String(120))
+    model_name: Mapped[Optional[str]] = mapped_column(String(160))
+    adapter_version: Mapped[Optional[str]] = mapped_column(String(80))
+    language: Mapped[Optional[str]] = mapped_column(String(20))
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    configuration_checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    failure_category: Mapped[Optional[str]] = mapped_column(String(80))
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     supersedes_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("speech_transcription_versions.id", ondelete="SET NULL")
     )
     transcription: Mapped[SpeechTranscription] = relationship(back_populates="versions")
+
+
+@event.listens_for(SpeechTranscriptionVersion, "before_update")
+def _prevent_completed_transcription_mutation(
+    _mapper: Mapper[SpeechTranscriptionVersion],
+    _connection: Any,
+    target: SpeechTranscriptionVersion,
+) -> None:
+    """Completed versions are immutable; corrections are new versions."""
+    from sqlalchemy import inspect
+
+    state = inspect(target)
+    status_history = state.attrs["status"].history
+    previous_status = status_history.deleted[0] if status_history.deleted else target.status
+    if target.status not in (
+        TranscriptionStatus.READY,
+        TranscriptionStatus.SUPERSEDED,
+    ) and previous_status not in (
+        TranscriptionStatus.READY,
+        TranscriptionStatus.SUPERSEDED,
+    ):
+        return
+    protected = {
+        "transcription_id",
+        "version_number",
+        "candidate_media_asset_id",
+        "audio_sha256",
+        "profile_id",
+        "transcript",
+        "segments",
+        "checksum",
+        "provider",
+        "model_name",
+        "adapter_version",
+        "configuration",
+        "configuration_checksum",
+        "language",
+    }
+    if any(state.attrs[name].history.has_changes() for name in protected if name in state.attrs):
+        raise ValueError("completed transcription versions are immutable")

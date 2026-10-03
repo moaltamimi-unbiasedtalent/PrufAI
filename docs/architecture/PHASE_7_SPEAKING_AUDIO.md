@@ -34,6 +34,45 @@ another attempt; each replacement creates new immutable media and revision
 history. Submitted attempts are read-only. Unfinalized browser audio is never
 treated as server-persisted.
 
-Remaining merge-gate work: transcription/provider execution, speaking AI,
-speaking scoring, mixed Writing+Speaking rescoring, and remote PostgreSQL and
-object-storage execution proof.
+## SUBSTEP 7.2B — Versioned speech transcription
+
+`SpeechTranscription` is the stable identity for one exact READY
+`CandidateMediaAsset`. Each immutable `SpeechTranscriptionVersion` pins the
+asset ID, authoritative audio SHA-256, language, explicit
+`SPEECH_TRANSCRIPTION` model profile, provider/model provenance, configuration
+checksum, normalized transcript, validated segment structure, and a
+deterministic version checksum. A later approved retranscription creates a new
+version and marks the previous version `SUPERSEDED`; historical versions and
+evidence references remain addressable by exact ID.
+
+Transcription is an institution/system workflow action guarded by an explicit
+capability and organisation context. Only READY media bound to a response
+revision is eligible. The service retrieves private audio through the existing
+storage abstraction, verifies the stored bytes against the authoritative
+checksum, applies bounded retries, and never falls back from a configured
+provider to a deterministic adapter. CI uses only the deterministic adapter;
+production provider selection is explicit and purpose-governed.
+
+Provider output is conservatively Unicode-normalized and whitespace-normalized
+without grammar, spelling, translation, or pronunciation correction. Segment
+IDs, timing, ordering, text size, total transcript size, and optional supplied
+confidence are validated; invalid, empty, or oversized output fails safely.
+Unknown duration is not fabricated. Transcription failure leaves the primary
+audio and response revision valid and cannot create a speaking score, zero
+score, review request, or released result.
+
+`AudioEvidenceReference` pins an exact media asset and time bounds.
+`TranscriptEvidenceReference` pins an exact transcription version and segment
+with optional text offsets. Audio is primary evidence; transcript is derived
+evidence and never silently resolves to the current version. Audit events carry
+only IDs, checksums, status, and failure categories—never transcript text,
+audio bytes, storage keys, provider payloads, or credentials. Candidate-facing
+transcript visibility is not enabled. Speaking scoring and human speaking
+review remain Step 2C work.
+
+CI runs PostgreSQL-backed migration tests, the real private object-storage
+path, deterministic transcription fixtures, and the pinned source-MinIO
+process. External paid STT services are not used in CI.
+
+Remaining merge-gate work: speaking AI, speaking scoring, mixed
+Writing+Speaking rescoring, and Step 2C review/result integration.

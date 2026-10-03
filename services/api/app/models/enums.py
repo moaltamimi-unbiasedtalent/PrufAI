@@ -212,6 +212,7 @@ class TranscriptionStatus(str, Enum):
     RUNNING = "RUNNING"
     READY = "READY"
     FAILED = "FAILED"
+    SUPERSEDED = "SUPERSEDED"
 
 
 class AssessmentClassification(str, Enum):

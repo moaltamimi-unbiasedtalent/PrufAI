@@ -32,13 +32,30 @@ The runtime accepts an AUDIO response only as `{ "media_asset_id": "..." }`.
 binds the finalized asset to the exact `CandidateResponseRevision`; cross-attempt
 assets and replacement after submission are rejected.
 
-## Transcription
+## Substep 7.2B — versioned transcription
 
-`SpeechTranscription` groups immutable `SpeechTranscriptionVersion` records.
-Each version pins source asset and audio checksum, profile, transcript,
-segments, checksum, and supersession. Provider execution, bounded retries,
-segment-duration validation, and explicit `SPEECH_TRANSCRIPTION` model-purpose
-eligibility remain follow-up integration work.
+`SpeechTranscription` is reused as the stable one-asset root. Additive
+migration `0019_transcription_governance` adds idempotent operation identity,
+version lifecycle, provider/model and adapter provenance, configuration
+checksum, failure category, and retry count without rewriting migrations 0017
+or 0018. Completed versions are immutable; explicit retranscription creates a
+new numbered version, links `supersedes_version_id`, and resolves current
+versus historical versions deterministically.
+
+The service enforces READY media, response binding, organisation/capability
+authorization, exact source checksum verification, active explicit
+`SPEECH_TRANSCRIPTION` profile eligibility, bounded retries, deterministic
+normalization, segment/size validation, and constrained failure categories.
+The private storage adapter supplies source bytes. CI uses a deterministic
+fixture provider; production has no silent test-provider, model, or local
+fallback. Empty or malformed output fails without invalidating audio or the
+candidate response and cannot create any speaking score or result.
+
+Audio and transcript evidence references pin exact asset/version coordinates.
+Safe transcription audit events contain identifiers and checksums only. No
+transcript text, provider payload, storage key, credential, protected-trait
+inference, candidate-facing transcript, Speaking HumanReviewRequest, or
+speaking scoring was added.
 
 ## Migration and validation
 

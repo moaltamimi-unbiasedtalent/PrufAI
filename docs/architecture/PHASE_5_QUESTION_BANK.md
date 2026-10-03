@@ -66,7 +66,10 @@ object keys and never expose storage URLs.
 Structural validation is deterministic and returns PASS/FAIL issues with stable
 codes. It checks typed content, taxonomy, CEFR/LiD rules, answer keys, scoring,
 rights and exact pack task compatibility. Rules-as-Code remains the blocking
-authority where integrated by the consuming workflow.
+authority: the service loads exact persisted StandardPackVersion bindings,
+builds a narrow item fact adapter, and executes the existing RulesEngine. Rule
+IDs/checksums and engine reports remain tied to that exact pack version; a later
+RuleVersion is never selected implicitly.
 
 Checksums are deterministic SHA-256 over canonical substantive content,
 taxonomy, scoring, rights, CEFR, evidence and pack references; timestamps and
@@ -79,6 +82,14 @@ Search is paginated and query-level scope filtered. Filters do not widen CEFR,
 family or provider-aligned content. Only explicitly requested statuses are
 returned; future Exam Studio must request `ACTIVE` versions and pin exact IDs,
 never `latest`.
+
+The eligible-bank service requires an exact `standard_pack_version_id`, optional
+exact task specification, ACTIVE/effective/rights-compatible status, passing
+pack compatibility, and a non-blocking exact-rule evaluation. Current and
+as-of-date resolution use effective windows and lifecycle state rather than
+creation timestamps. Review requests reuse `HumanReviewRequest` with
+`QUESTION_BANK_ITEM_VERSION` and the substantive checksum; changed content is
+stale and cannot be approved.
 
 Administrative export is bounded and machine-readable. It contains content,
 metadata, rights, checksums and references, but no private object URLs, secrets,

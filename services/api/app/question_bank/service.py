@@ -14,13 +14,17 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.models import (
+    HumanReviewRequest,
     QuestionBankItem,
     QuestionBankItemCefrLevel,
     QuestionBankItemVersion,
     QuestionBankStandardPackBinding,
+    StandardPackTaskSpecification,
+    StandardPackVersion,
 )
 from app.models.enums import (
     AssessmentFamily,
+    HumanReviewStatus,
     PackMediaRequirement,
     PackResponseMode,
     QuestionBankLifecycleStatus,
@@ -31,6 +35,7 @@ from app.models.enums import (
     QuestionBankTaskType,
 )
 from app.question_bank.schemas import parse_item_content
+from app.rules.engine import EvaluationContext, RulesEngine
 
 MAX_TAGS = 30
 MAX_EVIDENCE_BINDINGS = 50
@@ -86,6 +91,26 @@ def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
         "response_mode": version.response_mode.value,
         "content": content,
         "media_requirement": version.media_requirement.value,
+    }
+
+
+def item_rule_facts(version: QuestionBankItemVersion, cefr_levels: list[str]) -> dict[str, Any]:
+    """Narrow, typed facts exposed to RulesEngine; no ORM reflection."""
+    return {
+        "item": {
+            "assessment_family": version.assessment_family.value,
+            "exam_family": version.exam_family,
+            "language": version.language,
+            "cefr_levels": list(cefr_levels),
+            "task_type": version.task_type.value,
+            "response_mode": version.response_mode.value,
+            "media_requirement": version.media_requirement.value,
+            "scoring_policy": version.scoring_policy.value,
+            "max_points": str(version.max_points) if version.max_points is not None else None,
+            "option_count": len(version.content.get("options", [])),
+            "answer_count": len(version.content.get("correct_option_ids", [])),
+            "rights_status": version.rights_status.value,
+        }
     }
 
 
@@ -459,6 +484,70 @@ class QuestionBankService:
         return session.scalar(query.limit(1))
 
     @staticmethod
+    def resolve_current(
+        session: Session,
+        context: TenantContext,
+        item_id: uuid.UUID,
+        now: Optional[datetime] = None,
+    ) -> Optional[QuestionBankItemVersion]:
+        return QuestionBankService.resolve_as_of(
+            session, context, item_id, now or datetime.now(timezone.utc)
+        )
+
+    @staticmethod
+    def eligible_bank(
+        session: Session,
+        context: TenantContext,
+        *,
+        standard_pack_version_id: uuid.UUID,
+        task_spec_id: Optional[uuid.UUID] = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[QuestionBankItemVersion]:
+        """Future Exam Studio contract: exact pack version, never latest."""
+        candidates = QuestionBankService.search(
+            session,
+            context,
+            status=QuestionBankLifecycleStatus.ACTIVE,
+            offset=offset,
+            limit=min(limit, 100),
+        )
+        eligible: list[QuestionBankItemVersion] = []
+        now = datetime.now(timezone.utc)
+        for version in candidates:
+            if version.effective_from and version.effective_from > now:
+                continue
+            if version.effective_until and version.effective_until <= now:
+                continue
+            if version.rights_status not in PUBLISHABLE_RIGHTS:
+                continue
+            bound = session.scalar(
+                select(QuestionBankStandardPackBinding).where(
+                    QuestionBankStandardPackBinding.item_version_id == version.id,
+                    QuestionBankStandardPackBinding.standard_pack_version_id
+                    == standard_pack_version_id,
+                    QuestionBankStandardPackBinding.task_spec_id == task_spec_id,
+                    QuestionBankStandardPackBinding.validation_status == "PASS",
+                )
+            )
+            if bound is None:
+                continue
+            if (
+                QuestionBankService.validate_pack_compatibility(
+                    session, version, standard_pack_version_id, task_spec_id
+                ).status
+                != "PASS"
+            ):
+                continue
+            report = QuestionBankService.evaluate_bound_rules(
+                session, version, standard_pack_version_id
+            )
+            if report.overall_status.value in {"FAIL", "ERROR"}:
+                continue
+            eligible.append(version)
+        return eligible[: min(limit, 100)]
+
+    @staticmethod
     def duplicate_inspection(
         session: Session, context: TenantContext, version: QuestionBankItemVersion
     ) -> int:
@@ -478,6 +567,148 @@ class QuestionBankService:
         return len(list(session.scalars(query.limit(100))))
 
     @staticmethod
+    def validate_pack_compatibility(
+        session: Session,
+        version: QuestionBankItemVersion,
+        standard_pack_version_id: uuid.UUID,
+        task_spec_id: Optional[uuid.UUID] = None,
+    ) -> ValidationResult:
+        pack_version = session.get(StandardPackVersion, standard_pack_version_id)
+        if pack_version is None:
+            raise ValueError("standard pack version not found")
+        pack = pack_version.standard_pack
+        levels = list(
+            session.scalars(
+                select(QuestionBankItemCefrLevel.cefr_level).where(
+                    QuestionBankItemCefrLevel.item_version_id == version.id
+                )
+            )
+        )
+        issues: list[ValidationIssue] = []
+        if pack.assessment_family is not version.assessment_family:
+            issues.append(
+                ValidationIssue(
+                    "ITEM.PACK.ASSESSMENT_FAMILY_MISMATCH",
+                    "FAIL",
+                    "PACK_COMPATIBILITY",
+                    "assessment_family",
+                    "item and pack families differ",
+                )
+            )
+        if pack.exam_family and version.exam_family and pack.exam_family != version.exam_family:
+            issues.append(
+                ValidationIssue(
+                    "ITEM.PACK.EXAM_FAMILY_MISMATCH",
+                    "FAIL",
+                    "PACK_COMPATIBILITY",
+                    "exam_family",
+                    "item and pack exam families differ",
+                )
+            )
+        if pack.language and version.language != pack.language:
+            issues.append(
+                ValidationIssue(
+                    "ITEM.PACK.LANGUAGE_MISMATCH",
+                    "FAIL",
+                    "PACK_COMPATIBILITY",
+                    "language",
+                    "item language differs from pack language",
+                )
+            )
+        if (
+            pack_version.supported_levels
+            and levels
+            and not set(levels).intersection(pack_version.supported_levels)
+        ):
+            issues.append(
+                ValidationIssue(
+                    "ITEM.PACK.CEFR_MISMATCH",
+                    "FAIL",
+                    "PACK_COMPATIBILITY",
+                    "cefr_levels",
+                    "item CEFR levels are not supported by the pack",
+                )
+            )
+        task = session.get(StandardPackTaskSpecification, task_spec_id) if task_spec_id else None
+        if task_spec_id and (
+            task is None or task.section.module.pack_version.id != pack_version.id
+        ):
+            issues.append(
+                ValidationIssue(
+                    "ITEM.PACK.TASK_SPEC_NOT_IN_VERSION",
+                    "FAIL",
+                    "PACK_COMPATIBILITY",
+                    "task_spec_id",
+                    "task specification is not owned by the bound pack version",
+                )
+            )
+        if task is not None and task.section.module.pack_version.id == pack_version.id:
+            if task.task_type != version.task_type.value:
+                issues.append(
+                    ValidationIssue(
+                        "ITEM.PACK.TASK_TYPE_MISMATCH",
+                        "FAIL",
+                        "PACK_COMPATIBILITY",
+                        "task_type",
+                        "task type differs from task specification",
+                    )
+                )
+            if task.response_mode is not version.response_mode:
+                issues.append(
+                    ValidationIssue(
+                        "ITEM.PACK.RESPONSE_MODE_MISMATCH",
+                        "FAIL",
+                        "PACK_COMPATIBILITY",
+                        "response_mode",
+                        "response mode differs from task specification",
+                    )
+                )
+            if task.media_requirement is not version.media_requirement:
+                issues.append(
+                    ValidationIssue(
+                        "ITEM.PACK.MEDIA_MISMATCH",
+                        "FAIL",
+                        "PACK_COMPATIBILITY",
+                        "media_requirement",
+                        "media requirement differs from task specification",
+                    )
+                )
+        return ValidationResult("FAIL" if issues else "PASS", tuple(issues), version.checksum)
+
+    @staticmethod
+    def evaluate_bound_rules(
+        session: Session, version: QuestionBankItemVersion, standard_pack_version_id: uuid.UUID
+    ) -> Any:
+        pack_version = session.get(StandardPackVersion, standard_pack_version_id)
+        if pack_version is None:
+            raise ValueError("standard pack version not found")
+        levels = list(
+            session.scalars(
+                select(QuestionBankItemCefrLevel.cefr_level).where(
+                    QuestionBankItemCefrLevel.item_version_id == version.id
+                )
+            )
+        )
+        facts = item_rule_facts(version, levels)
+        facts["pack"] = {
+            "assessment_family": pack_version.standard_pack.assessment_family.value,
+            "version_id": str(pack_version.id),
+        }
+        rules = [
+            (binding.rule_version.definition, binding.rule_version)
+            for binding in pack_version.rule_bindings
+            if binding.required
+        ]
+        return RulesEngine().evaluate(
+            rules,
+            EvaluationContext(
+                facts=facts,
+                standard_pack_version_id=str(pack_version.id),
+                standard_pack_checksum=pack_version.configuration_checksum,
+            ),
+        )
+
+    @staticmethod
     def bind_pack(
         session: Session,
         context: TenantContext,
@@ -489,7 +720,10 @@ class QuestionBankService:
         AuthorizationService.require_permission(
             context, "question_bank.manage", version.item.organisation_id
         )
-        if validation_status != "PASS":
+        compatibility = QuestionBankService.validate_pack_compatibility(
+            session, version, standard_pack_version_id, task_spec_id
+        )
+        if compatibility.status != "PASS" or validation_status != "PASS":
             raise ValueError("only passing pack compatibility may be bound")
         binding = QuestionBankStandardPackBinding(
             item_version_id=version.id,
@@ -677,6 +911,39 @@ class QuestionBankService:
                 raise ValueError("passing deterministic validation is required")
             if version.rights_status not in PUBLISHABLE_RIGHTS:
                 raise ValueError("item rights are not publishable")
+            if target is QuestionBankLifecycleStatus.APPROVED:
+                review = session.scalar(
+                    select(HumanReviewRequest).where(
+                        HumanReviewRequest.entity_type == "QUESTION_BANK_ITEM_VERSION",
+                        HumanReviewRequest.entity_id == version.id,
+                        HumanReviewRequest.status.in_(
+                            {HumanReviewStatus.PENDING, HumanReviewStatus.IN_REVIEW}
+                        ),
+                    )
+                )
+                if review is None or review.reviewed_checksum != version.checksum:
+                    raise ValueError("a current HumanReviewRequest checksum is required")
+            if target is QuestionBankLifecycleStatus.PUBLISHED:
+                bindings = list(
+                    session.scalars(
+                        select(QuestionBankStandardPackBinding).where(
+                            QuestionBankStandardPackBinding.item_version_id == version.id
+                        )
+                    )
+                )
+                if not bindings:
+                    raise ValueError("published item requires an exact Standard Pack binding")
+                for binding in bindings:
+                    pack_result = QuestionBankService.validate_pack_compatibility(
+                        session, version, binding.standard_pack_version_id, binding.task_spec_id
+                    )
+                    if pack_result.status != "PASS":
+                        raise ValueError("pack compatibility blocks publication")
+                    report = QuestionBankService.evaluate_bound_rules(
+                        session, version, binding.standard_pack_version_id
+                    )
+                    if report.overall_status.value in {"FAIL", "ERROR"}:
+                        raise ValueError("bound RulesEngine result blocks publication")
         if (
             target is QuestionBankLifecycleStatus.ACTIVE
             and version.status is not QuestionBankLifecycleStatus.PUBLISHED
@@ -703,6 +970,127 @@ class QuestionBankService:
             metadata={"checksum": version.checksum},
         )
         return version
+
+    @staticmethod
+    def request_review(
+        session: Session,
+        context: TenantContext,
+        version: QuestionBankItemVersion,
+    ) -> HumanReviewRequest:
+        item = session.get(QuestionBankItem, version.item_id)
+        if item is None:
+            raise ValueError("item not found")
+        AuthorizationService.require_permission(
+            context, "question_bank.review", item.organisation_id
+        )
+        if version.status not in {
+            QuestionBankLifecycleStatus.DRAFT,
+            QuestionBankLifecycleStatus.VALIDATION_REQUIRED,
+        }:
+            raise ValueError("item version is not reviewable")
+        version.status = QuestionBankLifecycleStatus.HUMAN_REVIEW
+        review = HumanReviewRequest(
+            review_type="QUESTION_BANK_ITEM",
+            entity_type="QUESTION_BANK_ITEM_VERSION",
+            entity_id=version.id,
+            status=HumanReviewStatus.PENDING,
+            requested_by=context.user_id,
+            requested_at=datetime.now(timezone.utc),
+            reviewed_checksum=version.checksum,
+        )
+        session.add(review)
+        session.flush()
+        AuditService.record(
+            session,
+            context,
+            event_type="question_bank.item.review_requested",
+            entity_type="question_bank_item_version",
+            entity_id=str(version.id),
+            organisation_id=item.organisation_id,
+            metadata={"review_id": str(review.id), "checksum": version.checksum},
+        )
+        return review
+
+    @staticmethod
+    def decide_review(
+        session: Session,
+        context: TenantContext,
+        review: HumanReviewRequest,
+        decision: HumanReviewStatus,
+    ) -> QuestionBankItemVersion:
+        if review.entity_type != "QUESTION_BANK_ITEM_VERSION":
+            raise ValueError("review is not a Question Bank review")
+        version = session.get(QuestionBankItemVersion, review.entity_id)
+        if version is None:
+            raise ValueError("item version not found")
+        item = session.get(QuestionBankItem, version.item_id)
+        if item is None:
+            raise ValueError("item not found")
+        AuthorizationService.require_permission(
+            context, "question_bank.review", item.organisation_id
+        )
+        if review.status not in {HumanReviewStatus.PENDING, HumanReviewStatus.IN_REVIEW}:
+            raise ValueError("review already decided")
+        if review.reviewed_checksum != version.checksum:
+            raise ValueError("stale review artifact")
+        if decision is HumanReviewStatus.APPROVED:
+            raise ValueError(
+                "approval requires a passing validation snapshot and explicit transition"
+            )
+        review.status = decision
+        review.decided_by = context.user_id
+        review.decided_at = datetime.now(timezone.utc)
+        review.decision = decision.value
+        version.status = (
+            QuestionBankLifecycleStatus.REJECTED
+            if decision is HumanReviewStatus.REJECTED
+            else QuestionBankLifecycleStatus.DRAFT
+        )
+        session.flush()
+        AuditService.record(
+            session,
+            context,
+            event_type="question_bank.item.rejected"
+            if decision is HumanReviewStatus.REJECTED
+            else "question_bank.item.changes_requested",
+            entity_type="question_bank_item_version",
+            entity_id=str(version.id),
+            organisation_id=item.organisation_id,
+            metadata={"checksum": version.checksum},
+        )
+        return version
+
+    @staticmethod
+    def approve_review(
+        session: Session,
+        context: TenantContext,
+        review: HumanReviewRequest,
+        validation: ValidationResult,
+    ) -> QuestionBankItemVersion:
+        if review.entity_type != "QUESTION_BANK_ITEM_VERSION":
+            raise ValueError("review is not a Question Bank review")
+        version = session.get(QuestionBankItemVersion, review.entity_id)
+        if version is None or review.status not in {
+            HumanReviewStatus.PENDING,
+            HumanReviewStatus.IN_REVIEW,
+        }:
+            raise ValueError("review is not approvable")
+        if review.reviewed_checksum != version.checksum:
+            raise ValueError("stale review artifact")
+        approved = QuestionBankService.transition(
+            session,
+            context,
+            version,
+            QuestionBankLifecycleStatus.APPROVED,
+            validation,
+            review.reviewed_checksum,
+        )
+        review.status = HumanReviewStatus.APPROVED
+        review.decided_by = context.user_id
+        review.decided_at = datetime.now(timezone.utc)
+        review.decision = HumanReviewStatus.APPROVED.value
+        session.flush()
+        return approved
 
     @staticmethod
     def search(

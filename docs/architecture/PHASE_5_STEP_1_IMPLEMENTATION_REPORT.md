@@ -43,7 +43,7 @@ bounded and contains no private storage URLs or linked Knowledge bodies.
 
 ## Verification
 
-Local API validation: 63 passed, 8 expected infrastructure skips. The skips
+Local API validation: 65 passed, 8 expected infrastructure skips. The skips
 are `test_ai_orchestration_postgresql_integration.py`,
 `test_memory_postgresql_integration.py`, `test_memory_redis_integration.py`,
 `test_postgresql_integration.py`, `test_postgresql_retrieval_integration.py`,
@@ -52,7 +52,7 @@ and `test_rules_postgresql_integration.py`; all are expected local service
 availability skips.
 AI validation: 7 passed. Frontend lint, typecheck, tests and build passed.
 Ruff, mypy and Alembic offline/head validation passed; migration `0012_question_bank`
-is linear from `0011_governed_memory` and is 19 characters.
+is linear from `0011_governed_memory` and has one head.
 
 The PostgreSQL integration test is explicitly invoked in CI after
 `alembic upgrade head` and checks the migration head and Question Bank tables.
@@ -61,3 +61,25 @@ live database execution, and npm audit remain unverified from this environment.
 
 All fixtures are original synthetic material marked `TEST FIXTURE — NOT
 OFFICIAL MATERIAL`. No Exam Studio or Phase 5 / Step 2 work is included.
+
+## Functional closure additions
+
+Pack validation now loads the persisted exact `StandardPackVersion` and optional
+owned task specification, checking family, exam family, language, explicit CEFR,
+task type, response mode and media requirement. The Question Bank fact adapter
+exposes only bounded item facts to the existing `RulesEngine`; exact bound rule
+reports remain attached to the exact pack version.
+
+Question Bank review requests reuse `HumanReviewRequest` with entity type
+`QUESTION_BANK_ITEM_VERSION` and the item checksum. Approval requires a current
+pending review, unchanged checksum, passing validation and explicit review
+permission. The eligible-bank service requires an exact pack-version ID,
+optional exact task-spec ID, ACTIVE/effective/rights-compatible state, passing
+pack validation and a non-blocking RulesEngine report. Current and as-of-date
+resolution are separate from created-at ordering.
+
+The delivery projection remains answer-key safe. The deterministic validation,
+fact adapter and delivery-safety paths have local unit coverage. Persistence-backed
+review, exact-pack eligibility, and live RulesEngine binding execution remain
+explicit CI-only checks in this environment; their local database execution was
+not available.

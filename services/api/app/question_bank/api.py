@@ -12,9 +12,15 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import TenantContext
 from app.db import get_db_session
-from app.models import QuestionBankItem, QuestionBankItemCefrLevel, QuestionBankItemVersion
+from app.models import (
+    HumanReviewRequest,
+    QuestionBankItem,
+    QuestionBankItemCefrLevel,
+    QuestionBankItemVersion,
+)
 from app.models.enums import (
     AssessmentFamily,
+    HumanReviewStatus,
     PackMediaRequirement,
     PackResponseMode,
     QuestionBankLifecycleStatus,
@@ -241,13 +247,20 @@ def request_review(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, str]:
-    return _transition(
-        version_id,
-        QuestionBankLifecycleStatus.HUMAN_REVIEW,
-        TransitionRequest(),
-        principal,
-        session,
-    )
+    version = session.get(QuestionBankItemVersion, version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        review = service.request_review(session, _context(principal), version)
+        session.commit()
+        return {
+            "id": str(review.id),
+            "status": review.status.value,
+            "checksum": review.reviewed_checksum or "",
+        }
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/item-versions/{version_id}/publish")
@@ -260,6 +273,71 @@ def publish(
     return _transition(
         version_id, QuestionBankLifecycleStatus.PUBLISHED, payload, principal, session
     )
+
+
+@router.post("/reviews/{review_id}/reject")
+def reject_review(
+    review_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    review = session.get(HumanReviewRequest, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="review not found")
+    try:
+        version = service.decide_review(
+            session, _context(principal), review, HumanReviewStatus.REJECTED
+        )
+        session.commit()
+        return {"id": str(version.id), "status": version.status.value}
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/reviews/{review_id}/approve")
+def approve_review(
+    review_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    review = session.get(HumanReviewRequest, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="review not found")
+    version = session.get(QuestionBankItemVersion, review.entity_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="version not found")
+    levels = list(
+        session.scalars(
+            select(QuestionBankItemCefrLevel.cefr_level).where(
+                QuestionBankItemCefrLevel.item_version_id == version.id
+            )
+        )
+    )
+    result = validate_item_payload(
+        assessment_family=version.assessment_family,
+        exam_family=version.exam_family,
+        language=version.language,
+        cefr_levels=levels,
+        skill=version.skill,
+        task_type=version.task_type,
+        response_mode=version.response_mode,
+        media_requirement=version.media_requirement,
+        content=version.content,
+        scoring_policy=version.scoring_policy,
+        max_points=version.max_points,
+        scoring_metadata=version.scoring_metadata,
+        rights_status=version.rights_status,
+        licence_reference=version.licence_reference,
+        rubric_reference=version.rubric_reference,
+    )
+    try:
+        approved = service.approve_review(session, _context(principal), review, result)
+        session.commit()
+        return {"id": str(approved.id), "status": approved.status.value}
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _transition(

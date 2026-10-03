@@ -14,6 +14,7 @@ from app.question_bank.schemas import parse_item_content
 from app.question_bank.service import (
     delivery_projection,
     item_checksum,
+    item_rule_facts,
     parse_safe_import,
     validate_item_payload,
 )
@@ -135,3 +136,58 @@ def test_delivery_projection_strips_answer_key_and_internal_fields() -> None:
     serialized = str(projection)
     assert "correct_option_ids" not in serialized
     assert projection["content"]["options"]
+
+
+def test_rule_fact_adapter_is_narrow_and_typed() -> None:
+    from types import SimpleNamespace
+
+    version = SimpleNamespace(
+        assessment_family=AssessmentFamily.LANGUAGE,
+        exam_family=None,
+        language="de",
+        task_type=QuestionBankTaskType.MULTIPLE_CHOICE,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        scoring_policy=QuestionBankScoringPolicy.OBJECTIVE_KEYED,
+        max_points=Decimal("1.25"),
+        rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        content=_mc(),
+    )
+    facts = item_rule_facts(version, ["B1"])
+    assert facts["item"]["cefr_levels"] == ["B1"]
+    assert "__dict__" not in facts
+
+
+def test_existing_rules_engine_can_block_question_bank_facts() -> None:
+    from types import SimpleNamespace
+
+    from app.models.enums import RuleCategory, RuleSeverity
+    from app.rules.engine import EvaluationContext, RulesEngine
+
+    version = SimpleNamespace(
+        assessment_family=AssessmentFamily.LANGUAGE,
+        exam_family=None,
+        language="de",
+        task_type=QuestionBankTaskType.MULTIPLE_CHOICE,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        scoring_policy=QuestionBankScoringPolicy.OBJECTIVE_KEYED,
+        max_points=Decimal("1"),
+        rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        content=_mc(),
+    )
+    definition = SimpleNamespace(id="d1", code="ITEM.BLOCK", category=RuleCategory.STRUCTURE)
+    rule = SimpleNamespace(
+        id="r1",
+        version_label="1",
+        expression={"op": "EQ", "left": {"fact": "item.language"}, "right": {"value": "fr"}},
+        checksum="a" * 64,
+        severity=RuleSeverity.BLOCKING,
+        failure_code="ITEM.BLOCKED",
+        failure_message_template="blocked",
+        evidence_bindings=[],
+    )
+    report = RulesEngine().evaluate(
+        [(definition, rule)], EvaluationContext(item_rule_facts(version, ["B1"]))
+    )
+    assert report.overall_status.value == "FAIL"

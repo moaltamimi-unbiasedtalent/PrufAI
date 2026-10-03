@@ -363,6 +363,10 @@ class SubjectiveAssessmentService:
         if rubric is None:
             raise RubricError("rubric version not found")
         RubricService.assert_executable(rubric)
+        if str(attempt.runtime_plan.get("standard_pack_version_id")) != str(
+            rubric.standard_pack_version_id
+        ):
+            raise RubricError("rubric StandardPackVersion is incompatible with attempt")
         item_data = next(
             (
                 item

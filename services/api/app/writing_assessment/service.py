@@ -39,6 +39,7 @@ from app.models.enums import (
     SubjectiveConfidence,
     SubjectiveCriterionStatus,
 )
+from app.writing_assessment.evaluation import WRITING_WORKFLOW_STAGES, validate_stage_output
 
 
 class RubricError(ValueError):
@@ -322,6 +323,13 @@ class RubricService:
 
 
 class SubjectiveAssessmentService:
+    WRITING_ASSESSMENT_PURPOSE = "WRITING_ASSESSMENT"
+
+    @classmethod
+    def assert_model_profile_eligible(cls, profile: Any) -> None:
+        if profile is None or getattr(profile, "purpose", None) != cls.WRITING_ASSESSMENT_PURPOSE:
+            raise RubricError("AI model profile is not eligible for writing assessment")
+
     @staticmethod
     def _audit(session: Session, context: TenantContext | None, event: str, entity: Any) -> None:
         if (
@@ -539,6 +547,7 @@ class SubjectiveAssessmentService:
         version.disagreement_summary = disagreement
         version.provenance = {
             "candidate_text_untrusted": True,
+            "workflow_stages": list(WRITING_WORKFLOW_STAGES),
             "ai_run_id": str(ai_run_id) if ai_run_id else None,
             "tool_allowlist": [
                 "KNOWLEDGE_RETRIEVAL",
@@ -560,11 +569,21 @@ class SubjectiveAssessmentService:
             agent = session.get(AgentVersion, ai_run.agent_version_id)
             if agent is None:
                 raise RubricError("AI run agent provenance is missing")
+            SubjectiveAssessmentService.assert_model_profile_eligible(agent.model_profile)
             version.workflow_version_id = ai_run.workflow_version_id
             version.agent_version_id = agent.id
             version.prompt_version_id = agent.prompt_version_id
             version.model_profile_id = agent.model_profile_id
         version.status = SubjectiveAssessmentStatus.AI_PROPOSED
+        try:
+            validate_stage_output(
+                criteria=entries,
+                rubric_criteria=rubric.criteria,
+                performance_levels=rubric.performance_levels,
+                response_text=str(version.provenance.get("candidate_text", "")),
+            )
+        except ValueError as exc:
+            raise RubricError(str(exc)) from exc
         for entry in entries:
             session.add(
                 SubjectiveCriterionAssessment(
@@ -648,6 +667,10 @@ class SubjectiveAssessmentService:
         )
         if rubric is None or review is None or review.reviewed_checksum != version.checksum:
             raise RubricError("stale subjective assessment review")
+        if corrections:
+            return SubjectiveAssessmentService.correct(
+                session, context, version, corrections, review
+            )
         values: dict[str, Decimal] = {}
         for criterion in version.criterion_assessments:
             correction = (corrections or {}).get(criterion.criterion_code, {})
@@ -683,6 +706,152 @@ class SubjectiveAssessmentService:
             session, context, "subjective_assessment.approved", version
         )
         return version
+
+    @staticmethod
+    def correct(
+        session: Session,
+        context: TenantContext,
+        source: SubjectiveAssessmentVersion,
+        corrections: dict[str, dict[str, Any]],
+        review: HumanReviewRequest,
+    ) -> SubjectiveAssessmentVersion:
+        """Create an approved successor; never overwrite AI proposal values."""
+        rubric = session.get(RubricVersion, source.rubric_version_id)
+        assessment = session.get(SubjectiveAssessment, source.subjective_assessment_id)
+        if rubric is None or assessment is None:
+            raise RubricError("assessment correction references unavailable data")
+        latest = max(assessment.versions, key=lambda item: item.version_number)
+        successor = SubjectiveAssessmentVersion(
+            subjective_assessment_id=source.subjective_assessment_id,
+            version_number=latest.version_number + 1,
+            attempt_id=source.attempt_id,
+            exam_version_id=source.exam_version_id,
+            exam_version_item_binding_id=source.exam_version_item_binding_id,
+            question_bank_item_version_id=source.question_bank_item_version_id,
+            candidate_response_id=source.candidate_response_id,
+            candidate_response_revision_id=source.candidate_response_revision_id,
+            rubric_version_id=source.rubric_version_id,
+            standard_pack_version_id=source.standard_pack_version_id,
+            status=SubjectiveAssessmentStatus.APPROVED,
+            response_checksum=source.response_checksum,
+            rubric_checksum=source.rubric_checksum,
+            workflow_version_id=source.workflow_version_id,
+            agent_version_id=source.agent_version_id,
+            prompt_version_id=source.prompt_version_id,
+            model_profile_id=source.model_profile_id,
+            ai_run_id=source.ai_run_id,
+            proposed_score=source.proposed_score,
+            confidence_summary=dict(source.confidence_summary),
+            disagreement_summary=dict(source.disagreement_summary),
+            provenance={
+                **source.provenance,
+                "human_correction": True,
+                "reviewed_by": str(context.user_id),
+            },
+            checksum="",
+            created_at=datetime.now(timezone.utc),
+            supersedes_version_id=source.id,
+        )
+        session.add(successor)
+        session.flush()
+        values: dict[str, Decimal] = {}
+        for criterion in source.criterion_assessments:
+            correction = corrections.get(criterion.criterion_code, {})
+            points = _decimal(correction.get("approved_points", criterion.proposed_points))
+            rubric_criterion = next(
+                item for item in rubric.criteria if item["code"] == criterion.criterion_code
+            )
+            if points < 0 or points > _decimal(rubric_criterion["max_points"]):
+                raise RubricError("human correction exceeds rubric bounds")
+            level = str(correction.get("approved_level", criterion.proposed_level))
+            if level not in {str(item.get("code")) for item in rubric.performance_levels}:
+                raise RubricError("human correction uses unknown performance level")
+            session.add(
+                SubjectiveCriterionAssessment(
+                    subjective_assessment_version_id=successor.id,
+                    criterion_code=criterion.criterion_code,
+                    proposed_level=criterion.proposed_level,
+                    proposed_points=criterion.proposed_points,
+                    approved_level=level,
+                    approved_points=points,
+                    confidence=criterion.confidence,
+                    evidence=list(criterion.evidence),
+                    rationale=criterion.rationale,
+                    uncertainties=list(criterion.uncertainties),
+                    disagreement=dict(criterion.disagreement),
+                    status=SubjectiveCriterionStatus.APPROVED,
+                )
+            )
+            values[criterion.criterion_code] = points
+        successor.approved_score = SubjectiveAssessmentService._aggregate(rubric, values)
+        successor.checksum = canonical_checksum(
+            {
+                "source_checksum": source.checksum,
+                "approved_score": str(successor.approved_score),
+                "corrections": corrections,
+                "supersedes_version_id": str(source.id),
+            }
+        )
+        source.status = SubjectiveAssessmentStatus.SUPERSEDED
+        review.status = HumanReviewStatus.APPROVED
+        review.decided_by = context.user_id
+        review.decided_at = datetime.now(timezone.utc)
+        review.decision = "APPROVED"
+        session.flush()
+        SubjectiveAssessmentService._audit(
+            session, context, "subjective_assessment.superseded", source
+        )
+        SubjectiveAssessmentService._audit(
+            session, context, "subjective_assessment.approved", successor
+        )
+        return successor
+
+    @staticmethod
+    def current_version(assessment: SubjectiveAssessment) -> SubjectiveAssessmentVersion | None:
+        candidates = [
+            item
+            for item in assessment.versions
+            if item.status is not SubjectiveAssessmentStatus.SUPERSEDED
+        ]
+        return max(candidates, key=lambda item: item.version_number, default=None)
+
+    @staticmethod
+    def historical_versions(assessment: SubjectiveAssessment) -> list[SubjectiveAssessmentVersion]:
+        return sorted(assessment.versions, key=lambda item: item.version_number)
+
+    @staticmethod
+    def diff(
+        left: SubjectiveAssessmentVersion, right: SubjectiveAssessmentVersion
+    ) -> dict[str, bool]:
+        return {
+            "response_changed": left.response_checksum != right.response_checksum,
+            "rubric_changed": left.rubric_version_id != right.rubric_version_id
+            or left.rubric_checksum != right.rubric_checksum,
+            "criterion_proposal_changed": [
+                (c.criterion_code, str(c.proposed_points), c.proposed_level)
+                for c in left.criterion_assessments
+            ]
+            != [
+                (c.criterion_code, str(c.proposed_points), c.proposed_level)
+                for c in right.criterion_assessments
+            ],
+            "evidence_changed": [c.evidence for c in left.criterion_assessments]
+            != [c.evidence for c in right.criterion_assessments],
+            "human_values_changed": [
+                (c.criterion_code, str(c.approved_points), c.approved_level)
+                for c in left.criterion_assessments
+            ]
+            != [
+                (c.criterion_code, str(c.approved_points), c.approved_level)
+                for c in right.criterion_assessments
+            ],
+            "aggregate_changed": left.approved_score != right.approved_score
+            or left.proposed_score != right.proposed_score,
+            "model_changed": left.model_profile_id != right.model_profile_id,
+            "prompt_changed": left.prompt_version_id != right.prompt_version_id,
+            "agent_changed": left.agent_version_id != right.agent_version_id,
+            "workflow_changed": left.workflow_version_id != right.workflow_version_id,
+        }
 
     @staticmethod
     def decide(

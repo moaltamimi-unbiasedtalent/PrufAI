@@ -190,3 +190,74 @@ def decide_assessment(
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _error(exc) from exc
+
+
+@writing_router.get("/{organisation_id}/subjective-assessments/{assessment_id}/versions")
+def list_assessment_versions(
+    organisation_id: uuid.UUID,
+    assessment_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+        from app.models import SubjectiveAssessment
+
+        assessment = session.get(SubjectiveAssessment, assessment_id)
+        if assessment is None or assessment.organisation_id != organisation_id:
+            raise HTTPException(status_code=404, detail="assessment not found")
+        current = SubjectiveAssessmentService.current_version(assessment)
+        return {
+            "current_version_id": str(current.id) if current else None,
+            "versions": [
+                {
+                    "id": str(item.id),
+                    "version_number": item.version_number,
+                    "status": item.status.value,
+                    "checksum": item.checksum,
+                }
+                for item in SubjectiveAssessmentService.historical_versions(assessment)
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _error(exc) from exc
+
+
+@writing_router.get(
+    "/{organisation_id}/subjective-assessments/versions/{version_id}/diff/{other_version_id}"
+)
+def diff_assessment_versions(
+    organisation_id: uuid.UUID,
+    version_id: uuid.UUID,
+    other_version_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, bool]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+        from app.models import SubjectiveAssessment, SubjectiveAssessmentVersion
+
+        left = session.get(SubjectiveAssessmentVersion, version_id)
+        right = session.get(SubjectiveAssessmentVersion, other_version_id)
+        if left is None or right is None:
+            raise HTTPException(status_code=404, detail="assessment version not found")
+        parent = session.get(SubjectiveAssessment, left.subjective_assessment_id)
+        if (
+            parent is None
+            or parent.organisation_id != organisation_id
+            or right.subjective_assessment_id != parent.id
+        ):
+            raise HTTPException(status_code=404, detail="assessment version not found")
+        return SubjectiveAssessmentService.diff(left, right)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _error(exc) from exc

@@ -13,7 +13,9 @@ Submitted ResponseRevision + exact Item/Exam/Pack
                   RubricVersion
                          │ exact evidence
                          ▼
-        Evidence → Criterion proposals → Consistency flags
+        prepare_input → evidence_analysis → criterion_evaluation
+          → consistency_review → deterministic_validation
+          → review_routing → human_review_request
                          │ structured AI provenance
                          ▼
                 deterministic Decimal aggregation
@@ -56,7 +58,11 @@ cannot override rubric, rules, or Standard Pack policy.
 Every proposal requires `HumanReviewRequest`. Human corrections are retained
 alongside AI proposals and constrained by criterion levels, points, aggregation,
 Rules, and certification guards. No private chain-of-thought is requested or
-stored.
+stored. Independent criterion proposals retain their spread and are never
+majority-voted. A model profile must carry the explicit
+`WRITING_ASSESSMENT` purpose. Corrections create successor assessment
+versions; current, historical, and deterministic diff endpoints are available
+to authorised institution reviewers.
 
 ## Scoring integration
 
@@ -71,3 +77,8 @@ Synthetic fixtures exercise schema validity, criterion coverage, evidence
 validity, disagreement, score bounds, and prompt-injection resistance. Metrics
 are engineering signals, not examiner-equivalence claims. Candidate text is
 never written to AuditService and candidate APIs expose no internal assessment.
+
+Institution reviewer routes are `/institution/writing-reviews` and
+`/institution/writing-reviews/[assessmentId]`. The queue omits full writing;
+the workspace distinguishes `AI PROPOSAL` from `HUMAN APPROVED VALUE` and
+renders candidate content as inert text.

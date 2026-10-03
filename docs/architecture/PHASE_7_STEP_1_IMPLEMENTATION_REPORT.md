@@ -40,11 +40,14 @@ uncertainty. Disagreement is preserved rather than averaged away.
 
 The implementation reuses existing AI orchestration identifiers and its
 allow-listed tool vocabulary, adding `RUBRIC_READ` to the writing assessment
-provenance. The MVP proposal path requires `HumanReviewRequest`; AI cannot
-approve or release. Human corrections preserve proposed values and remain
-within rubric bounds. Review checksums block stale approvals. Audit records
-assessment creation, proposal, review request, approval and future correction
-events without candidate response text.
+provenance. Bounded stages are `prepare_input`, `evidence_analysis`,
+`criterion_evaluation`, `consistency_review`, `deterministic_validation`,
+`review_routing`, and `human_review_request`. Independent proposals retain
+their spread and are never majority-voted. The MVP proposal path requires
+`HumanReviewRequest`; AI cannot approve or release. Human corrections create a
+new assessment version, preserving AI proposals and storing human values
+separately. Review checksums block stale approvals. Audit records lifecycle
+transitions without candidate response text.
 
 ## Scoring/result integration
 
@@ -57,12 +60,18 @@ official-certification guards remain authoritative.
 
 ## Evaluation, CI and limitations
 
-Synthetic golden fixtures report schema validity, criterion coverage, evidence
-validity, mean absolute score distance, and an explicit non-equivalence claim.
+Synthetic engineering fixtures report schema validity, criterion coverage,
+evidence validity, exact and within-one-level agreement, review-trigger
+coverage, adversarial-policy pass rate, mean absolute score distance, and an
+explicit non-equivalence claim.
 Adversarial candidate prompt text is treated as untrusted content. Tests cover
 rubric validation, executable-policy rejection, Decimal aggregation, checksum
 sensitivity, and bounded structure. PostgreSQL CI forces
 `PRUFAI_REQUIRE_POSTGRES_INTEGRATION=1`, runs the writing schema integration,
 and compares the database revision with the repository Alembic head. No
 candidate writing, provider rubric dump, credential, or paid model API is
-included. Speaking/audio assessment is reserved for Phase 7 / Step 2.
+included. Institution reviewer routes are `/institution/writing-reviews` and
+`/institution/writing-reviews/[assessmentId]`; the queue omits full writing,
+the workspace distinguishes `AI PROPOSAL` from `HUMAN APPROVED VALUE`, and
+candidate content is rendered as inert text. Speaking/audio assessment is
+reserved for Phase 7 / Step 2.

@@ -18,9 +18,11 @@ from app.models import (
     AppealInformationEntry,
     AssessmentResult,
     HumanReviewRequest,
+    QuestionBankItemVersion,
     ResultAppeal,
     ResultAppealVersion,
     ResultCorrection,
+    ResultCorrectionObjectiveBinding,
     ResultModerationCase,
     ResultVersion,
     ScoringRun,
@@ -33,6 +35,7 @@ from app.models.enums import (
     CorrectionType,
     HumanReviewStatus,
     ModerationStatus,
+    QuestionBankLifecycleStatus,
     ResultVersionStatus,
     SubjectiveAssessmentStatus,
 )
@@ -377,6 +380,7 @@ class ResultGovernanceService:
         operation_id: str,
         corrections: dict[str, dict[str, Any]] | None = None,
         transcription_factory: Any = None,
+        objective_bindings: list[dict[str, str]] | None = None,
     ) -> ResultCorrection:
         """Execute a governed component correction and rescore, without score editing."""
         AuthorizationService.require_permission(context, "appeal.correct", context.organisation_id)
@@ -469,14 +473,60 @@ class ResultGovernanceService:
                     session, context, "result.correction_component_created", correction
                 )
             elif correction_type is CorrectionType.OBJECTIVE_RESCORING:
-                raise ResultGovernanceError(
-                    "objective correction requires a new governed source version"
-                )
+                bindings = objective_bindings or []
+                if not bindings:
+                    raise ResultGovernanceError(
+                        "objective correction requires governed replacements"
+                    )
+                objective_map: dict[str, str] = {}
+                for binding in bindings:
+                    original = session.get(
+                        QuestionBankItemVersion, uuid.UUID(binding["original_item_version_id"])
+                    )
+                    replacement = session.get(
+                        QuestionBankItemVersion, uuid.UUID(binding["replacement_item_version_id"])
+                    )
+                    if original is None or replacement is None:
+                        raise ResultGovernanceError("objective replacement version not found")
+                    if original.item_id != replacement.item_id:
+                        raise ResultGovernanceError("objective replacement must retain stable item")
+                    if original.response_mode != replacement.response_mode:
+                        raise ResultGovernanceError("objective replacement response mode mismatch")
+                    if replacement.status not in {
+                        QuestionBankLifecycleStatus.APPROVED,
+                        QuestionBankLifecycleStatus.PUBLISHED,
+                        QuestionBankLifecycleStatus.ACTIVE,
+                    }:
+                        raise ResultGovernanceError("objective replacement is not eligible")
+                    session.add(
+                        ResultCorrectionObjectiveBinding(
+                            result_correction_id=correction.id,
+                            original_item_version_id=original.id,
+                            replacement_item_version_id=replacement.id,
+                            original_item_checksum=original.checksum,
+                            replacement_item_checksum=replacement.checksum,
+                            created_at=now,
+                        )
+                    )
+                    objective_map[str(original.id)] = str(replacement.id)
+                correction.metadata_json = {
+                    **correction.metadata_json,
+                    "objective_bindings": objective_map,
+                }
             else:
                 raise ResultGovernanceError("unsupported correction type")
             correction.status = CorrectionStatus.READY_FOR_RESCORING
             session.flush()
-            run = ScoringService.score(session, context, appeal.attempt_id)
+            run = ScoringService.score(
+                session,
+                context,
+                appeal.attempt_id,
+                objective_item_overrides=(
+                    correction.metadata_json.get("objective_bindings", {})
+                    if correction_type is CorrectionType.OBJECTIVE_RESCORING
+                    else None
+                ),
+            )
             correction.new_scoring_run_id = run.id
             result = session.get(AssessmentResult, appeal.result_id)
             if result is None:

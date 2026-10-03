@@ -45,6 +45,7 @@ class CorrectionRequest(BaseModel):
     correction_type: CorrectionType
     operation_id: str = Field(min_length=1, max_length=120)
     corrections: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    objective_bindings: list[dict[str, str]] = Field(default_factory=list)
 
 
 class ModerationRequest(BaseModel):
@@ -455,6 +456,7 @@ def initiate_correction(
             correction_type=payload.correction_type,
             operation_id=payload.operation_id,
             corrections=payload.corrections,
+            objective_bindings=payload.objective_bindings,
         )
         session.commit()
         return {

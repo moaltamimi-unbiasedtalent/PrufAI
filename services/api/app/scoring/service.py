@@ -232,9 +232,16 @@ class ScoringService:
         return run
 
     @staticmethod
-    def score(session: Session, context: TenantContext, attempt_id: uuid.UUID) -> ScoringRun:
+    def score(
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        objective_item_overrides: dict[str, str] | None = None,
+    ) -> ScoringRun:
         try:
-            return ScoringService._score(session, context, attempt_id)
+            return ScoringService._score(
+                session, context, attempt_id, objective_item_overrides=objective_item_overrides
+            )
         except ScoringError:
             run = session.scalar(
                 select(ScoringRun).where(
@@ -248,7 +255,13 @@ class ScoringService:
             raise
 
     @staticmethod
-    def _score(session: Session, context: TenantContext, attempt_id: uuid.UUID) -> ScoringRun:
+    def _score(
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        *,
+        objective_item_overrides: dict[str, str] | None = None,
+    ) -> ScoringRun:
         if context.organisation_id is None:
             raise ScoringError("organisation context required")
         AuthorizationService.require_permission(context, "scoring.run", context.organisation_id)
@@ -279,6 +292,20 @@ class ScoringService:
                 )
             )
         }
+        if objective_item_overrides:
+            replacement_ids = set(objective_item_overrides.values())
+            replacements = {
+                str(item.id): item
+                for item in session.scalars(
+                    select(QuestionBankItemVersion).where(
+                        QuestionBankItemVersion.id.in_(replacement_ids)
+                    )
+                )
+            }
+            for original_id, replacement_id in objective_item_overrides.items():
+                if original_id not in item_map or replacement_id not in replacements:
+                    raise ScoringError("OBJECTIVE_CORRECTION_SOURCE_MISSING")
+                item_map[original_id] = replacements[replacement_id]
         subjective_versions = {
             str(version.exam_version_item_binding_id): version
             for version in session.scalars(
@@ -303,6 +330,7 @@ class ScoringService:
             "item_versions": [
                 item["question_bank_item_version_id"] for item in snapshot_json["items"]
             ],
+            "objective_item_overrides": objective_item_overrides or {},
             "item_scoring_configuration": [
                 {
                     "item_version_id": item_id,

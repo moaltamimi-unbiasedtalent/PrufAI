@@ -196,3 +196,30 @@ class ResultCorrection(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ResultCorrectionObjectiveBinding(UUIDPrimaryKeyMixin, Base):
+    """Immutable governed replacement source for objective rescoring."""
+
+    __tablename__ = "result_correction_objective_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "result_correction_id",
+            "original_item_version_id",
+            name="uq_result_correction_objective_source",
+        ),
+        Index("ix_result_correction_objective_correction", "result_correction_id"),
+    )
+
+    result_correction_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("result_corrections.id", ondelete="CASCADE"), nullable=False
+    )
+    original_item_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("question_bank_item_versions.id"), nullable=False
+    )
+    replacement_item_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("question_bank_item_versions.id"), nullable=False
+    )
+    original_item_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    replacement_item_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

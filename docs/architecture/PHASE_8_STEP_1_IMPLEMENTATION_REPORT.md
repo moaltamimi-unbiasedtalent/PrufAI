@@ -6,7 +6,12 @@ PrüfAI now has an additive, versioned result-governance boundary for moderation
 
 ## Schema and lifecycle
 
-Revisions `0021_result_governance` and `0022_result_correction` add the appeal/moderation tables and a narrow `result_corrections` linkage. The appeal lifecycle is explicit: submitted, under review, information required, adjudicated (upheld/partially upheld/rejected), withdrawn, and closed. Stable `AssessmentResult` and immutable `ResultVersion` identities are preserved.
+Revisions `0021_result_governance`, `0022_result_correction`, and
+`0023_objective_correction` add the appeal/moderation tables, durable correction
+linkage, and immutable objective replacement bindings. The appeal lifecycle is
+explicit: submitted, under review, information required, adjudicated
+(upheld/partially upheld/rejected), withdrawn, and closed. Stable
+`AssessmentResult` and immutable `ResultVersion` identities are preserved.
 
 ## Evidence and adjudication
 
@@ -16,7 +21,7 @@ The appeal row is locked during adjudication. The current version/checksum and e
 
 ## Corrections, release, and certification
 
-`ResultCorrection` is the durable correction boundary. Human authorization is required. Writing and speaking correction calls the existing `SubjectiveAssessmentService.correct` path and then `ScoringService.score`, producing new immutable component/scoring/result versions. Transcription correction accepts only an explicit governed factory, and objective correction fails closed until a new governed objective source version exists. No historical score is edited and no corrected result is auto-released. Appeal outcome and result outcome remain separate, and the existing official-certification guard remains authoritative.
+`ResultCorrection` is the durable correction boundary. Human authorization is required. Writing and speaking correction calls the existing `SubjectiveAssessmentService.correct` path and then `ScoringService.score`, producing new immutable component/scoring/result versions. Transcription correction delegates to an explicit factory over the existing transcription service and preserves the historical transcript and source audio. Objective correction requires a same-stable-item approved replacement binding and reuses the deterministic scorer; arbitrary score overrides fail closed. No historical score is edited and no corrected result is auto-released. Appeal outcome and result outcome remain separate, and the existing official-certification guard remains authoritative.
 
 ## UX, security, privacy, and CI
 
@@ -24,4 +29,4 @@ Candidate and institution routes are live-backend surfaces with semantic forms a
 
 ## Known limitations and Step 2 recommendation
 
-Notification delivery, formal assignment scheduling, optional nonbinding AI summaries, and provider-backed transcription factory wiring remain intentionally out of scope. Step 2 must not add live speaking or autonomous adjudication.
+Notification delivery, formal assignment scheduling, optional nonbinding AI summaries, and fixture-level correction-chain execution on CI services remain limitations. Step 2 must not add live speaking or autonomous adjudication.

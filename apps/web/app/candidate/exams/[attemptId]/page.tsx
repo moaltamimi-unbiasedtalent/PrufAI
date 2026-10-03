@@ -1,19 +1,171 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+
+type ResponseMode = "SELECT_ONE" | "SELECT_MULTIPLE" | "TEXT" | "LONG_TEXT";
+type RuntimeState =
+  | "Saved"
+  | "Saving"
+  | "Offline — queued"
+  | "Conflict"
+  | "Expired"
+  | "Submitted";
+
+const options = [
+  { id: "a", label: "Option A" },
+  { id: "b", label: "Option B" },
+  { id: "c", label: "Option C" },
+];
+
+const visuallyHidden: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
+function formatRemaining(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return [hours, minutes, remainder]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+}
+
+function RuntimeTimer({ deadlineAt }: { deadlineAt: number | null }) {
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [milestone, setMilestone] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (deadlineAt === null) {
+      setRemainingSeconds(null);
+      return;
+    }
+    const update = () =>
+      setRemainingSeconds(
+        Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)),
+      );
+    update();
+    const interval = window.setInterval(update, 1000);
+    return () => window.clearInterval(interval);
+  }, [deadlineAt]);
+
+  useEffect(() => {
+    if (remainingSeconds === null) return;
+    const thresholds: Record<number, string> = {
+      600: "10 minutes remaining",
+      300: "5 minutes remaining",
+      60: "1 minute remaining",
+    };
+    const threshold = Object.keys(thresholds)
+      .map(Number)
+      .find((value) => remainingSeconds === value);
+    if (threshold !== undefined) setMilestone(thresholds[threshold]);
+  }, [remainingSeconds]);
+
+  const label =
+    remainingSeconds === null
+      ? "Remaining time: waiting for the server deadline"
+      : `Remaining time: ${formatRemaining(remainingSeconds)}`;
+
+  return (
+    <section aria-labelledby="time-heading">
+      <h2 id="time-heading">Time remaining</h2>
+      <p>
+        <time
+          aria-label={label}
+          dateTime={
+            remainingSeconds === null ? undefined : `PT${remainingSeconds}S`
+          }
+        >
+          {remainingSeconds === null
+            ? "Waiting for server deadline"
+            : formatRemaining(remainingSeconds)}
+        </time>
+      </p>
+      <p style={visuallyHidden} aria-live="polite">
+        {milestone}
+      </p>
+      <p>
+        Timing is controlled by the server. This display is only a local
+        estimate.
+      </p>
+    </section>
+  );
+}
 
 export default function CandidateExamRuntimePage() {
   const params = useParams<{ attemptId: string }>();
-  const [response, setResponse] = useState("");
-  const [status, setStatus] = useState("Saved");
+  const promptId = useId();
+  const responseHelpId = `${promptId}-help`;
+  const errorId = `${promptId}-error`;
+  const [mode, setMode] = useState<ResponseMode>("LONG_TEXT");
+  const [response, setResponse] = useState<string | string[]>("");
+  const [status, setStatus] = useState<RuntimeState>("Saved");
+  const [online, setOnline] = useState(true);
+  const [serverDeadlineAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    const updateConnection = () => setOnline(navigator.onLine);
+    updateConnection();
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
+    return () => {
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+    };
+  }, []);
+
+  const editable = status !== "Expired" && status !== "Submitted";
+  const importantStatus = [
+    "Offline — queued",
+    "Conflict",
+    "Expired",
+    "Submitted",
+  ].includes(status);
+  const errorMessage =
+    status === "Conflict"
+      ? "A newer response exists on the server. Your change was not applied. Reload the latest response before continuing."
+      : status === "Expired"
+        ? "This attempt is no longer writable. Any unsynced local response was not accepted by the server."
+        : null;
+
+  const selectedOptions = useMemo(
+    () => (Array.isArray(response) ? response : response ? [response] : []),
+    [response],
+  );
 
   function saveResponse() {
-    setStatus(navigator.onLine ? "Saving" : "Offline — queued");
-    window.setTimeout(
-      () => setStatus(navigator.onLine ? "Saved" : "Offline — queued"),
-      250,
-    );
+    if (!editable) return;
+    setStatus(online ? "Saving" : "Offline — queued");
+    if (online) {
+      window.setTimeout(() => setStatus("Saved"), 250);
+    }
+  }
+
+  function submitAttempt() {
+    if (editable) setStatus("Submitted");
+  }
+
+  function updateChoice(choice: string, multiple: boolean) {
+    if (!editable) return;
+    if (!multiple) {
+      setResponse(choice);
+      return;
+    }
+    setResponse((current) => {
+      const values = Array.isArray(current) ? current : [];
+      return values.includes(choice)
+        ? values.filter((value) => value !== choice)
+        : [...values, choice];
+    });
   }
 
   return (
@@ -23,23 +175,135 @@ export default function CandidateExamRuntimePage() {
       </p>
       <h1>Runtime</h1>
       <p>Attempt {params.attemptId} · Server time controls the deadline.</p>
-      <p role="status" aria-live="polite">
-        Autosave: {status}
-      </p>
-      <label htmlFor="candidate-response">Response</label>
-      <textarea
-        id="candidate-response"
-        value={response}
-        onChange={(event) => setResponse(event.target.value)}
-        rows={8}
-        maxLength={20000}
-        style={{ display: "block", width: "100%", marginTop: "0.5rem" }}
-      />
+
+      <RuntimeTimer deadlineAt={serverDeadlineAt} />
+
+      <section aria-labelledby="connection-heading">
+        <h2 id="connection-heading">Connection</h2>
+        <p>
+          {online
+            ? "Online — responses can sync with the server."
+            : "Offline — responses are queued locally until reconnection."}
+        </p>
+      </section>
+
+      <section aria-labelledby="sync-heading">
+        <h2 id="sync-heading">Response sync</h2>
+        <p
+          role={importantStatus ? "alert" : "status"}
+          aria-live={importantStatus ? "polite" : "off"}
+        >
+          Autosave: {status}
+        </p>
+        {errorMessage && (
+          <p id={errorId} role="alert">
+            {errorMessage}
+          </p>
+        )}
+      </section>
+
+      <section aria-labelledby="question-heading">
+        <h2 id="question-heading">Question</h2>
+        <p id={promptId}>Which response best answers this question?</p>
+        <p id={responseHelpId}>
+          Choose one response mode and provide your answer.
+        </p>
+        <label htmlFor="response-mode">Response mode</label>
+        <select
+          id="response-mode"
+          value={mode}
+          onChange={(event) => {
+            setMode(event.target.value as ResponseMode);
+            setResponse("");
+          }}
+          disabled={!editable}
+        >
+          <option value="SELECT_ONE">Select one</option>
+          <option value="SELECT_MULTIPLE">Select multiple</option>
+          <option value="TEXT">Short text</option>
+          <option value="LONG_TEXT">Long text</option>
+        </select>
+
+        {(mode === "SELECT_ONE" || mode === "SELECT_MULTIPLE") && (
+          <fieldset
+            aria-describedby={`${promptId} ${responseHelpId}${errorMessage ? ` ${errorId}` : ""}`}
+          >
+            <legend>
+              {mode === "SELECT_ONE"
+                ? "Select one answer"
+                : "Select all answers that apply"}
+            </legend>
+            {options.map((option) => (
+              <label
+                key={option.id}
+                style={{ display: "block", marginTop: "0.5rem" }}
+              >
+                <input
+                  type={mode === "SELECT_ONE" ? "radio" : "checkbox"}
+                  name="candidate-response"
+                  value={option.id}
+                  checked={selectedOptions.includes(option.id)}
+                  onChange={() =>
+                    updateChoice(option.id, mode === "SELECT_MULTIPLE")
+                  }
+                  disabled={!editable}
+                />{" "}
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+        )}
+
+        {mode === "TEXT" && (
+          <label htmlFor="candidate-short-response">
+            Short response
+            <input
+              id="candidate-short-response"
+              value={
+                typeof response === "string" ? response : response.join(", ")
+              }
+              onChange={(event) => setResponse(event.target.value)}
+              aria-describedby={`${promptId} ${responseHelpId}${errorMessage ? ` ${errorId}` : ""}`}
+              aria-invalid={status === "Conflict"}
+              disabled={!editable}
+              maxLength={4000}
+              style={{ display: "block", width: "100%", marginTop: "0.5rem" }}
+            />
+          </label>
+        )}
+
+        {mode === "LONG_TEXT" && (
+          <label htmlFor="candidate-long-response">
+            Long response
+            <textarea
+              id="candidate-long-response"
+              value={
+                typeof response === "string" ? response : response.join(", ")
+              }
+              onChange={(event) => setResponse(event.target.value)}
+              aria-describedby={`${promptId} ${responseHelpId}${errorMessage ? ` ${errorId}` : ""}`}
+              aria-invalid={status === "Conflict"}
+              disabled={!editable}
+              rows={8}
+              maxLength={20000}
+              style={{ display: "block", width: "100%", marginTop: "0.5rem" }}
+            />
+          </label>
+        )}
+      </section>
+
       <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
-        <button type="button" onClick={saveResponse}>
+        <button type="button" onClick={saveResponse} disabled={!editable}>
           Save response
         </button>
-        <button type="button">Submit attempt</button>
+        <button type="button" onClick={submitAttempt} disabled={!editable}>
+          Submit attempt
+        </button>
+        {status === "Conflict" && (
+          <button type="button" onClick={() => setStatus("Saved")}>
+            Reload latest response
+          </button>
+        )}
       </div>
     </main>
   );

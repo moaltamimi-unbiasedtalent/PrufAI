@@ -72,10 +72,12 @@ is not authoritative; the server deadline remains the source of truth.
 
 Candidate surfaces are `/candidate` and `/candidate/exams/[attemptId]`; API
 surfaces are under `/api/v1/candidate` plus organisation assignment routes.
-The screen has semantic controls and live status messaging, but accessibility
-closure is incomplete: there is no full timer/error association and no complete
-runtime integration UX. This is recorded as a blocking limitation, not as a
-claim of full accessibility certification.
+The local runtime screen now has a stable accessible timer presentation,
+milestone-only announcements, explicit labels for all four supported response
+modes, prompt/error associations, textual connection and autosave states,
+keyboard-reachable conflict recovery, and disabled controls after expiry or
+submission. The timer remains presentation-only and waits for the
+server-provided deadline; it does not become a client authority.
 
 Audit lifecycle events implemented are `exam_assignment.created`,
 `exam_assignment.cancelled`, `exam_attempt.created`, `exam_attempt.started`,
@@ -104,15 +106,15 @@ proctoring telemetry has been invented.
 
 ## Closure assessment
 
-Implementation-level governance gates are satisfied locally, but the overall
-technical DoD is **FAIL / not yet certifiable** until remote CI observes the
-Candidate Runtime PostgreSQL job and the candidate accessibility/runtime shell
-is completed. The branch was pushed; merge and deployment were not performed.
+Implementation-level governance and local accessibility gates are satisfied,
+but the overall technical DoD is **FAIL / not yet certifiable** until remote CI
+observes the Candidate Runtime PostgreSQL job. The branch was pushed; merge and
+deployment were not performed.
 
 Blocking issues:
 
 1. Remote GitHub CI and Candidate Runtime PostgreSQL integration have not been
    observed.
 2. Local PostgreSQL/Redis are unavailable, leaving the ten expected skips.
-3. Candidate App accessibility and full runtime integration UX remain a
-   focused MVP shell.
+3. The runtime screen remains an MVP shell pending live API wiring; remote CI
+   and end-to-end browser verification remain separate gates.

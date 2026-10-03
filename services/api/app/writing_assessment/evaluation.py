@@ -34,7 +34,11 @@ def validate_stage_output(
             points = Decimal(str(item.get("proposed_points")))
         except Exception as exc:  # noqa: BLE001
             raise ValueError("invalid Decimal points") from exc
-        if points < 0 or points > Decimal(str(expected[code]["max_points"])):
+        if (
+            not points.is_finite()
+            or points < 0
+            or points > Decimal(str(expected[code]["max_points"]))
+        ):
             raise ValueError("points exceed rubric bounds")
         for ref in item.get("evidence", []):
             if not isinstance(ref, dict):
@@ -84,6 +88,7 @@ def evaluate_golden_dataset(
     within_one = 0
     review_triggered = 0
     adversarial_pass = 0
+    adversarial_cases = 0
     absolute_distance = Decimal("0")
     cases = 0
     for expected in golden:
@@ -118,6 +123,8 @@ def evaluate_golden_dataset(
             review_triggered += 1
         if expected.get("adversarial") and actual.get("policy_safe") is True:
             adversarial_pass += 1
+        if expected.get("adversarial"):
+            adversarial_cases += 1
         absolute_distance += abs(
             Decimal(str(actual.get("score", 0))) - Decimal(str(expected["score"]))
         )
@@ -131,6 +138,8 @@ def evaluate_golden_dataset(
         "mean_absolute_score_distance": str(absolute_distance / cases) if cases else "0",
         "aggregate_point_difference": str(absolute_distance),
         "designed_review_trigger_coverage": review_triggered / cases if cases else 0.0,
-        "adversarial_policy_pass_rate": adversarial_pass / cases if cases else 0.0,
+        "adversarial_policy_pass_rate": adversarial_pass / adversarial_cases
+        if adversarial_cases
+        else 0.0,
         "examiner_equivalence_claim": False,
     }

@@ -4,12 +4,20 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
-from app.models import AssessmentRubric, StandardPackVersion
+from app.models import (
+    AssessmentRubric,
+    CandidateResponseRevision,
+    RubricVersion,
+    StandardPackVersion,
+    SubjectiveAssessment,
+    SubjectiveAssessmentVersion,
+)
 from app.models.enums import HumanReviewStatus
 from app.writing_assessment.service import RubricError, RubricService, SubjectiveAssessmentService
 
@@ -26,6 +34,101 @@ def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, (AuthorizationError, PermissionError)):
         return HTTPException(status_code=403, detail=str(exc))
     return HTTPException(status_code=409, detail=str(exc))
+
+
+@writing_router.get("/{organisation_id}/subjective-assessments")
+def list_assessments(
+    organisation_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    assessments = session.scalars(
+        select(SubjectiveAssessment)
+        .where(
+            SubjectiveAssessment.organisation_id == organisation_id,
+            SubjectiveAssessment.candidate_user_id != context.user_id,
+        )
+        .options(selectinload(SubjectiveAssessment.versions))
+        .order_by(SubjectiveAssessment.created_at.desc())
+    ).all()
+    result: list[dict[str, Any]] = []
+    for item in assessments:
+        current = SubjectiveAssessmentService.current_version(item)
+        result.append(
+            {
+                "id": str(item.id),
+                "attempt_id": str(item.attempt_id),
+                "status": current.status.value if current else "CREATED",
+                "current_version_id": str(current.id) if current else None,
+            }
+        )
+    return result
+
+
+@writing_router.get("/{organisation_id}/subjective-assessments/{assessment_id}")
+def get_assessment_workspace(
+    organisation_id: uuid.UUID,
+    assessment_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    assessment = session.scalar(
+        select(SubjectiveAssessment)
+        .where(
+            SubjectiveAssessment.id == assessment_id,
+            SubjectiveAssessment.organisation_id == organisation_id,
+        )
+        .options(
+            selectinload(SubjectiveAssessment.versions).selectinload(
+                SubjectiveAssessmentVersion.criterion_assessments
+            )
+        )
+    )
+    if assessment is None:
+        raise HTTPException(status_code=404, detail="assessment not found")
+    try:
+        SubjectiveAssessmentService.assert_reviewer_access(context, assessment)
+    except RubricError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    current = SubjectiveAssessmentService.current_version(assessment)
+    if current is None:
+        raise HTTPException(status_code=404, detail="assessment version not found")
+    revision = session.get(CandidateResponseRevision, current.candidate_response_revision_id)
+    rubric = session.get(RubricVersion, current.rubric_version_id)
+    return {
+        "id": str(assessment.id),
+        "version_id": str(current.id),
+        "status": current.status.value,
+        "checksum": current.checksum,
+        "candidate_text": (revision.payload.get("text") if revision else ""),
+        "rubric": {"id": str(rubric.id), "checksum": rubric.checksum, "criteria": rubric.criteria}
+        if rubric
+        else None,
+        "criteria": [
+            {
+                "criterion_code": item.criterion_code,
+                "proposed_level": item.proposed_level,
+                "proposed_points": str(item.proposed_points),
+                "approved_level": item.approved_level,
+                "approved_points": str(item.approved_points)
+                if item.approved_points is not None
+                else None,
+                "evidence": item.evidence,
+                "rationale": item.rationale,
+                "confidence": item.confidence.value,
+                "disagreement": item.disagreement,
+            }
+            for item in current.criterion_assessments
+        ],
+    }
 
 
 @writing_router.post("/{organisation_id}/rubrics")
@@ -209,6 +312,7 @@ def list_assessment_versions(
         assessment = session.get(SubjectiveAssessment, assessment_id)
         if assessment is None or assessment.organisation_id != organisation_id:
             raise HTTPException(status_code=404, detail="assessment not found")
+        SubjectiveAssessmentService.assert_reviewer_access(context, assessment)
         current = SubjectiveAssessmentService.current_version(assessment)
         return {
             "current_version_id": str(current.id) if current else None,
@@ -256,6 +360,7 @@ def diff_assessment_versions(
             or right.subjective_assessment_id != parent.id
         ):
             raise HTTPException(status_code=404, detail="assessment version not found")
+        SubjectiveAssessmentService.assert_reviewer_access(context, parent)
         return SubjectiveAssessmentService.diff(left, right)
     except HTTPException:
         raise

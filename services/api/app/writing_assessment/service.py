@@ -331,6 +331,15 @@ class SubjectiveAssessmentService:
             raise RubricError("AI model profile is not eligible for writing assessment")
 
     @staticmethod
+    def assert_reviewer_access(context: TenantContext, assessment: SubjectiveAssessment) -> None:
+        """Keep candidate ownership separate from institution review capability."""
+        AuthorizationService.require_permission(
+            context, "subjective.read", assessment.organisation_id
+        )
+        if context.user_id == assessment.candidate_user_id:
+            raise RubricError("candidate cannot access internal writing assessment")
+
+    @staticmethod
     def _audit(session: Session, context: TenantContext | None, event: str, entity: Any) -> None:
         if (
             context is not None

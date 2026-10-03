@@ -42,6 +42,125 @@ def test_stage_output_rejects_unknown_and_out_of_bounds_values():
         )
 
 
+def test_engineering_golden_gates_cover_adversarial_and_boundary_cases():
+    cases = [
+        {"id": "strong", "criterion_codes": ["C1"], "score": "4", "labels": {"C1": "LEVEL_4"}},
+        {"id": "weak", "criterion_codes": ["C1"], "score": "1", "labels": {"C1": "LEVEL_1"}},
+        {
+            "id": "off-topic",
+            "criterion_codes": ["C1"],
+            "score": "0",
+            "labels": {"C1": "LEVEL_0"},
+            "review_required": True,
+        },
+        {
+            "id": "very-short",
+            "criterion_codes": ["C1"],
+            "score": "0",
+            "labels": {"C1": "LEVEL_0"},
+            "review_required": True,
+        },
+        {
+            "id": "mixed-quality",
+            "criterion_codes": ["C1"],
+            "score": "2",
+            "labels": {"C1": "LEVEL_2"},
+        },
+        {
+            "id": "borderline",
+            "criterion_codes": ["C1"],
+            "score": "2",
+            "labels": {"C1": "LEVEL_2"},
+            "review_required": True,
+        },
+        {
+            "id": "injection",
+            "criterion_codes": ["C1"],
+            "score": "1",
+            "labels": {"C1": "LEVEL_1"},
+            "adversarial": True,
+            "policy_safe": True,
+            "review_required": True,
+        },
+        {
+            "id": "invalid-evidence",
+            "criterion_codes": ["C1"],
+            "score": "1",
+            "labels": {"C1": "LEVEL_1"},
+            "review_required": True,
+        },
+        {
+            "id": "malformed",
+            "criterion_codes": ["C1"],
+            "score": "1",
+            "labels": {"C1": "LEVEL_1"},
+            "review_required": True,
+        },
+    ]
+    predictions = [
+        {
+            "id": item["id"],
+            "criteria": [
+                {"criterion_code": "C1", "proposed_level": item["labels"]["C1"], "evidence": []}
+            ],
+            "score": item["score"],
+            "review_required": item.get("review_required", False),
+            "policy_safe": item.get("policy_safe", True),
+        }
+        for item in cases
+    ]
+    metrics = evaluate_golden_dataset(cases, predictions)
+    assert metrics["schema_valid_rate"] == 1.0
+    assert metrics["criterion_coverage_rate"] == 1.0
+    assert metrics["evidence_validity_rate"] == 1.0
+    assert metrics["adversarial_policy_pass_rate"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {
+            "criterion_code": "C1",
+            "proposed_level": "LEVEL_1",
+            "proposed_points": "NaN",
+            "evidence": [],
+        },
+        {
+            "criterion_code": "C1",
+            "proposed_level": "UNKNOWN",
+            "proposed_points": "1",
+            "evidence": [],
+        },
+        {
+            "criterion_code": "C1",
+            "proposed_level": "LEVEL_1",
+            "proposed_points": "5",
+            "evidence": [],
+        },
+        {
+            "criterion_code": "C9",
+            "proposed_level": "LEVEL_1",
+            "proposed_points": "1",
+            "evidence": [],
+        },
+        {
+            "criterion_code": "C1",
+            "proposed_level": "LEVEL_1",
+            "proposed_points": "1",
+            "evidence": [{"start": 4, "end": 2}],
+        },
+    ],
+)
+def test_invalid_model_output_matrix_is_rejected(entry):
+    with pytest.raises(ValueError):
+        validate_stage_output(
+            criteria=[entry],
+            rubric_criteria=[{"code": "C1", "max_points": "4"}],
+            performance_levels=[{"code": "LEVEL_1"}],
+            response_text="abc",
+        )
+
+
 def test_synthetic_golden_metrics_are_schema_bounded_and_non_claiming():
     metrics = evaluate_golden_dataset(
         [{"id": "synthetic-1", "criterion_codes": ["TASK"], "score": "2"}],

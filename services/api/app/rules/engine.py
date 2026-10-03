@@ -12,7 +12,9 @@ from app.models.enums import RuleEvaluationStatus
 ENGINE_NAME = "prufai_rules_engine"
 ENGINE_VERSION = "1.0"
 _MISSING = object()
-_FACT_PATH = re.compile(r"^(pack|module|section|task|exam|score|result)(?:\.[a-z][a-z0-9_]*)*$")
+_FACT_PATH = re.compile(
+    r"^(pack|module|section|task|exam|score|result|item)(?:\.[a-z][a-z0-9_]*)*$"
+)
 _OPERATORS = {
     "ALL",
     "ANY",

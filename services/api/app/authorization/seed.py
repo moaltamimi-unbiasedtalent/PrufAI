@@ -44,6 +44,12 @@ PLATFORM_PERMISSIONS = (
     "memory.review",
     "memory.activate",
     "memory.evaluate",
+    "question_bank.read",
+    "question_bank.manage",
+    "question_bank.review",
+    "question_bank.publish",
+    "question_bank.export",
+    "question_bank.import",
 )
 TENANT_PERMISSIONS = (
     "organisation.read",
@@ -54,6 +60,10 @@ TENANT_PERMISSIONS = (
     "membership.manage",
     "user.read",
     "audit.read",
+    "question_bank.read",
+    "question_bank.manage",
+    "question_bank.review",
+    "question_bank.export",
 )
 
 ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
@@ -90,13 +100,35 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "memory.review",
             "memory.activate",
             "memory.evaluate",
+            "question_bank.read",
+            "question_bank.manage",
+            "question_bank.review",
+            "question_bank.publish",
+            "question_bank.export",
+            "question_bank.import",
         ),
     ),
     "PRUFAI_AI_ADMIN": (RoleScope.PLATFORM, ("platform.organisation.read", "platform.audit.read")),
     "INSTITUTION_ADMIN": (RoleScope.TENANT, TENANT_PERMISSIONS),
-    "EXAM_MANAGER": (RoleScope.TENANT, ("organisation.read", "site.read", "membership.read")),
-    "EXAM_AUTHOR": (RoleScope.TENANT, ("organisation.read",)),
-    "REVIEWER": (RoleScope.TENANT, ("organisation.read",)),
+    "EXAM_MANAGER": (
+        RoleScope.TENANT,
+        (
+            "organisation.read",
+            "site.read",
+            "membership.read",
+            "question_bank.read",
+            "question_bank.manage",
+            "question_bank.export",
+        ),
+    ),
+    "EXAM_AUTHOR": (
+        RoleScope.TENANT,
+        ("organisation.read", "question_bank.read", "question_bank.manage"),
+    ),
+    "REVIEWER": (
+        RoleScope.TENANT,
+        ("organisation.read", "question_bank.read", "question_bank.review"),
+    ),
     "EXAMINER": (RoleScope.TENANT, ("organisation.read",)),
     "INVIGILATOR": (RoleScope.TENANT, ("site.read",)),
     "TEACHER": (RoleScope.TENANT, ("site.read",)),

@@ -44,6 +44,14 @@ from app.models.memory import (
     LongTermMemoryVersion,
     MemoryEvidenceBinding,
 )
+from app.models.question_bank import (
+    QuestionBankItem,
+    QuestionBankItemCefrLevel,
+    QuestionBankItemEvidenceBinding,
+    QuestionBankItemVersion,
+    QuestionBankMediaAsset,
+    QuestionBankStandardPackBinding,
+)
 from app.models.retrieval import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -120,4 +128,10 @@ __all__ = [
     "LongTermMemoryVersion",
     "MemoryEvidenceBinding",
     "AIRunMemoryReference",
+    "QuestionBankItem",
+    "QuestionBankItemVersion",
+    "QuestionBankItemCefrLevel",
+    "QuestionBankItemEvidenceBinding",
+    "QuestionBankStandardPackBinding",
+    "QuestionBankMediaAsset",
 ]

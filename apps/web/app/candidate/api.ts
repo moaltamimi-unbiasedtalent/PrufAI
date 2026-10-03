@@ -109,7 +109,10 @@ async function uploadAudio(
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": (content.type || "application/octet-stream").split(";", 1)[0],
+      "Content-Type": (content.type || "application/octet-stream").split(
+        ";",
+        1,
+      )[0],
       "X-Filename": filename,
     },
     body: content,

@@ -1,6 +1,11 @@
+from types import SimpleNamespace
+
 import pytest
+from fastapi import HTTPException
+from starlette.requests import Request
 
 from app.models.enums import PackResponseMode
+from app.runtime.api import _audio_response, _parse_audio_range
 from app.runtime.service import CandidateRuntimeService
 from app.speaking_audio.service import (
     AudioValidationError,
@@ -54,3 +59,45 @@ def test_audio_runtime_payload_is_exact_media_asset_reference():
             PackResponseMode.AUDIO.value,
             {"media_asset_id": "asset-1", "text": "unexpected"},
         )
+
+
+def _request_with_range(value: str | None) -> Request:
+    headers = [] if value is None else [(b"range", value.encode())]
+    return Request({"type": "http", "headers": headers})
+
+
+def test_audio_range_parser_supports_open_ended_and_suffix_ranges():
+    assert _parse_audio_range("bytes=100-", 500) == (100, 499, True)
+    assert _parse_audio_range("bytes=-100", 500) == (400, 499, True)
+    with pytest.raises(HTTPException):
+        _parse_audio_range("bytes=500-", 500)
+
+
+def test_audio_range_response_uses_bounded_storage_read():
+    class RangeStorage:
+        def __init__(self) -> None:
+            self.full_reads = 0
+            self.range_reads: list[tuple[int, int]] = []
+
+        def size(self, key: str) -> int:
+            assert key == "audio/key"
+            return 1000
+
+        def get(self, key: str) -> bytes:
+            self.full_reads += 1
+            return b"x" * 1000
+
+        def read_range(self, key: str, start: int, end: int) -> bytes:
+            self.range_reads.append((start, end))
+            return b"x" * (end - start + 1)
+
+    storage = RangeStorage()
+    response = _audio_response(
+        asset=SimpleNamespace(storage_key="audio/key", content_type="audio/webm"),
+        request=_request_with_range("bytes=100-199"),
+        storage=storage,
+    )
+    assert response.status_code == 206
+    assert response.headers["content-range"] == "bytes 100-199/1000"
+    assert storage.range_reads == [(100, 199)]
+    assert storage.full_reads == 0

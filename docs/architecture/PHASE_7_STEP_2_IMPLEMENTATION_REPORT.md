@@ -23,9 +23,9 @@ recording-session finalization, and immutable checksum identity. Recording
 start is server-timed and policy-gated, including maximum recording attempts.
 Production storage remains S3-compatible; the explicit in-memory backend is not
 allowed in production. No filename can influence an object path. Candidate
-streaming is authenticated and supports a single byte range, but the current
-adapter reads the private object before slicing; bounded backend range reads
-remain a hardening item.
+streaming is authenticated and supports single open-ended and suffix byte
+ranges. Range requests use the storage abstraction's bounded `read_range`
+operation; full-object reads are reserved for non-range playback.
 
 The runtime accepts an AUDIO response only as `{ "media_asset_id": "..." }`.
 `CandidateResponseMediaBinding` in additive migration `0018_audio_response_binding`
@@ -51,6 +51,8 @@ gates remain pending. As-of resolution is intentionally deferred.
 The candidate control is intentionally online-only: permission preflight is
 explicit, recording never auto-starts, the server returns the recording
 deadline, and the finalized media ID is persisted through the existing
-revision-safe runtime save path. Reviewer playback, audit-event emission,
-refresh/resume recovery, and transcription/provider execution remain outside
-this substep.
+revision-safe runtime save path. Reviewer playback is capability-gated by
+`subjective.read` and scoped through the exact organisation, subjective
+assessment, response revision, and media binding. Candidate membership alone
+does not grant reviewer access. Audit-event emission, refresh/resume recovery,
+and transcription/provider execution remain outside this substep.

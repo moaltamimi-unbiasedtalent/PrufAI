@@ -6,10 +6,11 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationError, TenantContext
+from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.config import get_settings
 from app.db import get_db_session
 from app.knowledge.storage import build_object_storage
@@ -18,7 +19,11 @@ from app.models import (
     CandidateExamAssignment,
     CandidateExamAttempt,
     CandidateMediaAsset,
+    CandidateResponse,
+    CandidateResponseMediaBinding,
+    CandidateResponseRevision,
 )
+from app.models.enums import CandidateMediaStatus
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
 from app.speaking_audio.service import AudioValidationError, SpeakingAudioService
 
@@ -92,6 +97,58 @@ def _runtime_error(exc: Exception) -> HTTPException:
     if isinstance(exc, RuntimeError):
         return HTTPException(status_code=403, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
+
+
+def _parse_audio_range(range_header: str | None, size: int) -> tuple[int, int, bool]:
+    if size <= 0:
+        raise HTTPException(status_code=416, detail="audio asset is empty")
+    if not range_header:
+        return 0, size - 1, False
+    if not range_header.startswith("bytes=") or "," in range_header:
+        raise HTTPException(status_code=416, detail="invalid byte range")
+    value = range_header.removeprefix("bytes=")
+    if "-" not in value:
+        raise HTTPException(status_code=416, detail="invalid byte range")
+    start_text, end_text = value.split("-", 1)
+    try:
+        if not start_text:
+            suffix_length = int(end_text)
+            if suffix_length <= 0:
+                raise ValueError
+            start, end = max(0, size - suffix_length), size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else size - 1
+            if start < 0 or end < start or start >= size:
+                raise ValueError
+            end = min(end, size - 1)
+    except ValueError as exc:
+        raise HTTPException(status_code=416, detail="invalid byte range") from exc
+    return start, end, True
+
+
+def _audio_response(
+    *,
+    asset: CandidateMediaAsset,
+    request: Request,
+    storage: Any,
+) -> Response:
+    size = storage.size(asset.storage_key)
+    start, end, partial = _parse_audio_range(request.headers.get("range"), size)
+    body = (
+        storage.read_range(asset.storage_key, start, end)
+        if partial
+        else storage.get(asset.storage_key)
+    )
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(len(body))}
+    if partial:
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    return Response(
+        content=body,
+        status_code=206 if partial else 200,
+        media_type=asset.content_type,
+        headers=headers,
+    )
 
 
 @candidate_router.post("/attempts/{attempt_id}/items/{binding_id}/audio-recordings")
@@ -181,27 +238,56 @@ def stream_audio_asset(
         or asset.candidate_user_id != context.user_id
     ):
         raise HTTPException(status_code=404, detail="audio asset not found")
-    content = build_object_storage(get_settings()).get(asset.storage_key)
-    range_header = request.headers.get("range")
-    start, end = 0, len(content) - 1
-    if range_header:
-        try:
-            value = range_header.removeprefix("bytes=").split("-", 1)
-            start = int(value[0])
-            end = int(value[1]) if value[1] else end
-            if start < 0 or end < start or end >= len(content):
-                raise ValueError
-        except ValueError as exc:
-            raise HTTPException(status_code=416, detail="invalid byte range") from exc
-    body = content[start : end + 1]
-    headers = {"Accept-Ranges": "bytes", "Content-Length": str(len(body))}
-    if range_header:
-        headers["Content-Range"] = f"bytes {start}-{end}/{len(content)}"
-    return Response(
-        content=body,
-        status_code=206 if range_header else 200,
-        media_type=asset.content_type,
-        headers=headers,
+    return _audio_response(
+        asset=asset, request=request, storage=build_object_storage(get_settings())
+    )
+
+
+@organisation_router.get(
+    "/{organisation_id}/candidate-attempts/{attempt_id}/items/{binding_id}/audio-assets/{asset_id}/stream"
+)
+def stream_reviewer_audio_asset(
+    organisation_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    binding_id: uuid.UUID,
+    asset_id: uuid.UUID,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    asset = session.scalar(
+        select(CandidateMediaAsset)
+        .join(
+            CandidateResponseMediaBinding,
+            CandidateResponseMediaBinding.candidate_media_asset_id == CandidateMediaAsset.id,
+        )
+        .join(
+            CandidateResponseRevision,
+            CandidateResponseRevision.id
+            == CandidateResponseMediaBinding.candidate_response_revision_id,
+        )
+        .join(
+            CandidateResponse,
+            CandidateResponse.id == CandidateResponseRevision.candidate_response_id,
+        )
+        .where(
+            CandidateMediaAsset.id == asset_id,
+            CandidateMediaAsset.organisation_id == organisation_id,
+            CandidateMediaAsset.attempt_id == attempt_id,
+            CandidateMediaAsset.exam_version_item_binding_id == binding_id,
+            CandidateMediaAsset.status == CandidateMediaStatus.READY,
+            CandidateResponseRevision.attempt_id == attempt_id,
+            CandidateResponse.exam_version_item_binding_id == binding_id,
+        )
+    )
+    if asset is None or context.user_id == asset.candidate_user_id:
+        raise HTTPException(status_code=404, detail="audio asset not found")
+    return _audio_response(
+        asset=asset, request=request, storage=build_object_storage(get_settings())
     )
 
 

@@ -66,7 +66,7 @@ class PdfParser:
     def parse(self, content: bytes) -> list[ParsedPage]:
         from io import BytesIO
 
-        from pypdf import PdfReader  # type: ignore[import-not-found]
+        from pypdf import PdfReader
 
         reader = PdfReader(BytesIO(content))
         return [

@@ -1,5 +1,18 @@
 """SQLAlchemy persistence models for the identity and governance foundation."""
 
+from app.models.ai_orchestration import (
+    AgentDefinition,
+    AgentVersion,
+    AIModelProfile,
+    AIRun,
+    AIRunStep,
+    AIWorkflowCheckpoint,
+    AIWorkflowDefinition,
+    AIWorkflowVersion,
+    HumanReviewRequest,
+    PromptDefinition,
+    PromptVersion,
+)
 from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.identity import (
@@ -50,6 +63,17 @@ from app.models.standard_pack import (
 
 __all__ = [
     "AuditEvent",
+    "AIModelProfile",
+    "AIRun",
+    "AIRunStep",
+    "AIWorkflowCheckpoint",
+    "AIWorkflowDefinition",
+    "AIWorkflowVersion",
+    "AgentDefinition",
+    "AgentVersion",
+    "HumanReviewRequest",
+    "PromptDefinition",
+    "PromptVersion",
     "AuthSession",
     "Base",
     "MembershipRole",

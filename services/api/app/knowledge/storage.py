@@ -41,7 +41,7 @@ class S3CompatibleObjectStorage:
             self.client = client
             return
         try:
-            import boto3  # type: ignore[import-not-found,import-untyped]
+            import boto3  # type: ignore[import-untyped]  # boto3 ships without py.typed metadata
         except ImportError as exc:
             raise StorageError("S3-compatible object storage client is unavailable") from exc
         scheme_endpoint = endpoint

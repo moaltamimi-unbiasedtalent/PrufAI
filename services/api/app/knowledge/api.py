@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationError, AuthorizationService
+from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.knowledge.storage import InMemoryObjectStorage, StorageError
 from app.models import (
@@ -78,7 +78,7 @@ class RejectRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
-def _platform(principal: Principal):
+def _platform(principal: Principal) -> TenantContext:
     if principal.tenant_context is None or not principal.tenant_context.platform_scope:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="platform authority required"

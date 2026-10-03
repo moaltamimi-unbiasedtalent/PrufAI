@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationError, AuthorizationService
+from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.models import (
     StandardPack,
@@ -98,7 +98,7 @@ class TaskRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-def _platform(principal: Principal):
+def _platform(principal: Principal) -> TenantContext:
     if principal.tenant_context is None or not principal.tenant_context.platform_scope:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="platform authority required"
@@ -106,7 +106,7 @@ def _platform(principal: Principal):
     return principal.tenant_context
 
 
-def _require(principal: Principal, permission: str):
+def _require(principal: Principal, permission: str) -> TenantContext:
     context = _platform(principal)
     try:
         AuthorizationService.require_permission(context, permission)

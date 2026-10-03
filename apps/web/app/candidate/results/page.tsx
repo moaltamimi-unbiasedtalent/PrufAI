@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { candidateApi } from "../../candidate/api";
+import Link from "next/link";
 
 export default function CandidateResultsPage() {
   const [results, setResults] = useState<Array<Record<string, unknown>>>([]);
@@ -38,6 +39,9 @@ export default function CandidateResultsPage() {
                 Score: {String(result.raw_awarded_points ?? "—")} /{" "}
                 {String(result.raw_maximum_points ?? "—")}
               </p>
+              <Link href="/candidate/results/appeal">
+                Appeal a released result
+              </Link>
             </article>
           </li>
         ))}

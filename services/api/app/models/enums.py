@@ -194,6 +194,24 @@ class PackMediaRequirement(str, Enum):
     PROMPT_CARD = "PROMPT_CARD"
 
 
+class CandidateMediaStatus(str, Enum):
+    CREATED = "CREATED"
+    UPLOADING = "UPLOADING"
+    UPLOADED = "UPLOADED"
+    VALIDATING = "VALIDATING"
+    READY = "READY"
+    REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
+class TranscriptionStatus(str, Enum):
+    CREATED = "CREATED"
+    RUNNING = "RUNNING"
+    READY = "READY"
+    FAILED = "FAILED"
+
+
 class AssessmentClassification(str, Enum):
     PRACTICE = "PRACTICE"
     MOCK = "MOCK"

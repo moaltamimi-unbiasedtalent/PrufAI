@@ -237,6 +237,40 @@ class CandidateAttemptStatus(str, Enum):
     INVALIDATED = "INVALIDATED"
 
 
+class ScoringRunStatus(str, Enum):
+    CREATED = "CREATED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class ItemScoreStatus(str, Enum):
+    SCORED = "SCORED"
+    UNANSWERED = "UNANSWERED"
+    PENDING_ASSESSMENT = "PENDING_ASSESSMENT"
+    NOT_SCORABLE = "NOT_SCORABLE"
+    ERROR = "ERROR"
+
+
+class ResultVersionStatus(str, Enum):
+    DRAFT = "DRAFT"
+    INCOMPLETE = "INCOMPLETE"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    APPROVED = "APPROVED"
+    RELEASED = "RELEASED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+    VOIDED = "VOIDED"
+
+
+class ResultOutcome(str, Enum):
+    UNDETERMINED = "UNDETERMINED"
+    PASS = "PASS"
+    FAIL = "FAIL"
+    WARNING = "WARNING"
+
+
 class PackValidationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"

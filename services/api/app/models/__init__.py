@@ -81,6 +81,14 @@ from app.models.runtime import (
     CandidateResponse,
     CandidateResponseRevision,
 )
+from app.models.scoring import (
+    AssessmentResult,
+    ItemScore,
+    ResultVersion,
+    ScoringComponent,
+    ScoringResponseSnapshot,
+    ScoringRun,
+)
 from app.models.standard_pack import (
     StandardPack,
     StandardPackModule,
@@ -160,4 +168,10 @@ __all__ = [
     "CandidateExamSession",
     "CandidateResponse",
     "CandidateResponseRevision",
+    "ScoringRun",
+    "ScoringResponseSnapshot",
+    "ItemScore",
+    "ScoringComponent",
+    "AssessmentResult",
+    "ResultVersion",
 ]

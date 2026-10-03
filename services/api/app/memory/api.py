@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -137,3 +137,24 @@ def activate(
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/retrieve")
+def retrieve(
+    category: Optional[MemoryCategory] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> list[dict[str, object]]:
+    versions = service.retrieve(session, _context(principal), category=category, limit=limit)
+    return [
+        {
+            "id": str(version.id),
+            "memory_id": str(version.memory_id),
+            "version": version.version_label,
+            "content": version.content,
+            "checksum": version.checksum,
+            "provenance": version.origin_type.value,
+        }
+        for version in versions
+    ]

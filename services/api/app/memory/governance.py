@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.audit.service import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.memory.service import canonical_checksum, memory_checksum
-from app.models import LongTermMemory, LongTermMemoryVersion
+from app.models import AIRunMemoryReference, LongTermMemory, LongTermMemoryVersion
 from app.models.enums import (
     MemoryCategory,
     MemoryLifecycleStatus,
@@ -47,6 +47,30 @@ def validate_content(content: dict[str, Any]) -> dict[str, Any]:
 
 
 class GovernedMemoryService:
+    @staticmethod
+    def reference_in_run(
+        session: Session,
+        context: TenantContext,
+        *,
+        ai_run_id: uuid.UUID,
+        version: LongTermMemoryVersion,
+        context_rank: int = 0,
+    ) -> AIRunMemoryReference:
+        """Pin the exact memory version/checksum used by an AI run."""
+        memory = session.get(LongTermMemory, version.memory_id)
+        if memory is None:
+            raise ValueError("memory not found")
+        AuthorizationService.require_permission(context, "memory.read", memory.organisation_id)
+        reference = AIRunMemoryReference(
+            ai_run_id=ai_run_id,
+            memory_version_id=version.id,
+            checksum=version.checksum,
+            context_rank=context_rank,
+        )
+        session.add(reference)
+        session.flush()
+        return reference
+
     @staticmethod
     def diff(left: LongTermMemoryVersion, right: LongTermMemoryVersion) -> dict[str, bool]:
         return {

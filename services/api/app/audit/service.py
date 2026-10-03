@@ -59,12 +59,13 @@ class AuditService:
         entity_type: str,
         organisation_id: Optional[uuid.UUID] = None,
         actor_type: ActorType = ActorType.HUMAN,
+        require_audit_permission: bool = True,
         **fields: Any,
     ) -> AuditEvent:
         record = AuditRecordInput(event_type=event_type, entity_type=entity_type, **fields)
         if _contains_sensitive_key(record.metadata):
             raise ValueError("audit metadata contains a prohibited sensitive key")
-        if organisation_id is not None:
+        if organisation_id is not None and require_audit_permission:
             AuthorizationService.require_permission(context, "audit.read", organisation_id)
         event = AuditEvent(
             timestamp=datetime.now(timezone.utc),

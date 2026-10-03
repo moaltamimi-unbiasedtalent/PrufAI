@@ -54,5 +54,22 @@ deadline, and the finalized media ID is persisted through the existing
 revision-safe runtime save path. Reviewer playback is capability-gated by
 `subjective.read` and scoped through the exact organisation, subjective
 assessment, response revision, and media binding. Candidate membership alone
-does not grant reviewer access. Audit-event emission, refresh/resume recovery,
-and transcription/provider execution remain outside this substep.
+does not grant reviewer access. Refresh/resume recovery is server-backed and
+transcription/provider execution remain outside this substep.
+
+Candidate audio lifecycle events are emitted through `AuditService` for
+recording start, finalization, rejection, expiry, and permitted playback. The
+playback event is logically deduplicated by actor, organisation, and media asset
+so HTTP range seeks do not create one immutable audit row per request. Audit
+metadata contains identifiers, status/failure reason, and checksum only; it
+never contains audio bytes, speech, storage keys, private endpoints, or raw
+request payloads. Audio remains online-only: an unfinalized browser recording
+is not restored after refresh, while a finalized response is restored from the
+server's immutable revision/media binding.
+
+The CI workflow starts PostgreSQL/pgvector, Redis, and MinIO services, applies
+`alembic upgrade head`, and invokes dedicated Candidate Audio PostgreSQL and
+object-storage integration tests with required flags. Local Python validation
+uses `python3 -m pytest tests`: 155 passed and 14 expected infrastructure skips
+(11 PostgreSQL, 2 Redis, 1 object storage), with no unexpected skips. The local
+npm audit endpoint was unavailable due DNS; Python `pip_audit` is not installed.

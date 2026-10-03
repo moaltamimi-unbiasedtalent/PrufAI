@@ -13,7 +13,7 @@ from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.config import get_settings
 from app.db import get_db_session
-from app.knowledge.storage import build_object_storage
+from app.knowledge.storage import StorageError, build_object_storage
 from app.models import (
     CandidateAudioRecordingSession,
     CandidateExamAssignment,
@@ -132,7 +132,13 @@ def _audio_response(
     asset: CandidateMediaAsset,
     request: Request,
     storage: Any,
+    session: Session | None = None,
+    context: TenantContext | None = None,
+    purpose: str = "playback",
 ) -> Response:
+    if session is not None and context is not None:
+        SpeakingAudioService.record_access(session, context, asset, purpose=purpose)
+        session.commit()
     size = storage.size(asset.storage_key)
     start, end, partial = _parse_audio_range(request.headers.get("range"), size)
     body = (
@@ -198,9 +204,16 @@ async def finalize_audio_recording(
             recording.recording_expires_at
             and datetime.now(recording.recording_expires_at.tzinfo) > recording.recording_expires_at
         ):
+            recording.status = CandidateMediaStatus.EXPIRED
+            SpeakingAudioService._audit(
+                session,
+                context,
+                "candidate_audio.recording_expired",
+                recording,
+                reason="recording deadline expired",
+            )
+            session.commit()
             raise RuntimeExpired("recording deadline expired")
-        from app.speaking_audio.service import SpeakingAudioService
-
         content = await request.body()
         asset = SpeakingAudioService.finalize(
             session,
@@ -209,6 +222,7 @@ async def finalize_audio_recording(
             content_type=request.headers.get("content-type", ""),
             filename=request.headers.get("x-filename"),
             storage=build_object_storage(get_settings()),
+            context=context,
         )
         session.commit()
         return {
@@ -217,6 +231,9 @@ async def finalize_audio_recording(
             "sha256": asset.sha256,
             "byte_size": asset.byte_size,
         }
+    except (AudioValidationError, StorageError) as exc:
+        session.commit()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _runtime_error(exc) from exc
@@ -239,7 +256,12 @@ def stream_audio_asset(
     ):
         raise HTTPException(status_code=404, detail="audio asset not found")
     return _audio_response(
-        asset=asset, request=request, storage=build_object_storage(get_settings())
+        asset=asset,
+        request=request,
+        storage=build_object_storage(get_settings()),
+        session=session,
+        context=context,
+        purpose="candidate_playback",
     )
 
 
@@ -287,7 +309,12 @@ def stream_reviewer_audio_asset(
     if asset is None or context.user_id == asset.candidate_user_id:
         raise HTTPException(status_code=404, detail="audio asset not found")
     return _audio_response(
-        asset=asset, request=request, storage=build_object_storage(get_settings())
+        asset=asset,
+        request=request,
+        storage=build_object_storage(get_settings()),
+        session=session,
+        context=context,
+        purpose="reviewer_playback",
     )
 
 

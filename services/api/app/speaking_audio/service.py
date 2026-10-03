@@ -8,8 +8,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import AuditService
+from app.authorization import TenantContext
 from app.knowledge.storage import ObjectStorage, StorageError
 from app.models import (
+    AuditEvent,
     CandidateAudioRecordingSession,
     CandidateExamAttempt,
     CandidateMediaAsset,
@@ -51,13 +54,78 @@ def safe_audio_filename(filename: str | None) -> str | None:
 
 class SpeakingAudioService:
     @staticmethod
+    def _audit(
+        session: Session,
+        context: TenantContext | None,
+        event_type: str,
+        recording: CandidateAudioRecordingSession,
+        *,
+        asset: CandidateMediaAsset | None = None,
+        revision_id: uuid.UUID | None = None,
+        reason: str | None = None,
+    ) -> None:
+        if context is None:
+            return
+        metadata: dict[str, object] = {
+            "candidate_exam_attempt_id": str(recording.attempt_id),
+            "item_binding_id": str(recording.exam_version_item_binding_id),
+            "recording_session_id": str(recording.id),
+        }
+        if asset is not None:
+            metadata["candidate_media_asset_id"] = str(asset.id)
+            metadata["sha256"] = asset.sha256
+        if revision_id is not None:
+            metadata["candidate_response_revision_id"] = str(revision_id)
+        AuditService.record(
+            session,
+            context,
+            event_type=event_type,
+            entity_type="CANDIDATE_AUDIO",
+            entity_id=str(asset.id if asset is not None else recording.id),
+            organisation_id=recording.organisation_id,
+            reason=reason,
+            metadata=metadata,
+            require_audit_permission=False,
+        )
+
+    @staticmethod
+    def record_access(
+        session: Session,
+        context: TenantContext,
+        asset: CandidateMediaAsset,
+        *,
+        purpose: str,
+    ) -> None:
+        existing = session.scalar(
+            select(AuditEvent.id).where(
+                AuditEvent.event_type == "candidate_audio.accessed",
+                AuditEvent.entity_id == str(asset.id),
+                AuditEvent.actor_id == context.user_id,
+                AuditEvent.organisation_id == asset.organisation_id,
+            )
+        )
+        if existing is not None:
+            return
+        recording = session.get(CandidateAudioRecordingSession, asset.recording_session_id)
+        if recording is None:
+            return
+        SpeakingAudioService._audit(
+            session,
+            context,
+            "candidate_audio.accessed",
+            recording,
+            asset=asset,
+            reason=purpose,
+        )
+
+    @staticmethod
     def start_session(
-        session: Session, context: object, attempt_id: uuid.UUID, binding_id: uuid.UUID
+        session: Session, context: TenantContext, attempt_id: uuid.UUID, binding_id: uuid.UUID
     ) -> CandidateAudioRecordingSession:
         from app.runtime.service import CandidateRuntimeService
 
-        attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)  # type: ignore[arg-type]
-        CandidateRuntimeService.expire_if_due(session, context, attempt)  # type: ignore[arg-type]
+        attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
+        CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
             raise AudioValidationError("attempt is not writable")
         item, mode = CandidateRuntimeService._binding_payload(attempt, binding_id)
@@ -98,6 +166,9 @@ class SpeakingAudioService:
         )
         session.add(recording)
         session.flush()
+        SpeakingAudioService._audit(
+            session, context, "candidate_audio.recording_started", recording
+        )
         return recording
 
     @staticmethod
@@ -113,8 +184,17 @@ class SpeakingAudioService:
         content_type: str,
         filename: str | None,
         storage: ObjectStorage,
+        context: TenantContext | None = None,
     ) -> CandidateMediaAsset:
-        validate_audio_bytes(content, content_type)
+        try:
+            validate_audio_bytes(content, content_type)
+        except AudioValidationError as exc:
+            recording.status = CandidateMediaStatus.REJECTED
+            SpeakingAudioService._audit(
+                session, context, "candidate_audio.rejected", recording, reason=str(exc)
+            )
+            session.flush()
+            raise
         checksum = SpeakingAudioService.checksum(content)
         existing = session.scalar(
             select(CandidateMediaAsset).where(
@@ -130,6 +210,13 @@ class SpeakingAudioService:
             storage.put(key, content, content_type)
         except StorageError:
             recording.status = CandidateMediaStatus.REJECTED
+            SpeakingAudioService._audit(
+                session,
+                context,
+                "candidate_audio.rejected",
+                recording,
+                reason="object storage unavailable",
+            )
             raise
         asset = CandidateMediaAsset(
             organisation_id=recording.organisation_id,
@@ -148,6 +235,9 @@ class SpeakingAudioService:
         session.add(asset)
         recording.status = CandidateMediaStatus.READY
         session.flush()
+        SpeakingAudioService._audit(
+            session, context, "candidate_audio.finalized", recording, asset=asset
+        )
         return asset
 
     @staticmethod

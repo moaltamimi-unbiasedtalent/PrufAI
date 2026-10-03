@@ -258,10 +258,18 @@ export function AudioResponseControl({
         the button.
       </p>
       {currentMediaAssetId && (
-        <p role="status">
-          An audio response is already saved. A new recording would be a new
-          governed attempt.
-        </p>
+        <>
+          <p role="status">
+            An audio response is already saved. A new recording would be a new
+            governed attempt.
+          </p>
+          <audio
+            controls
+            preload="metadata"
+            src={`/api/v1/candidate/audio-assets/${encodeURIComponent(currentMediaAssetId)}/stream`}
+            aria-label="Saved recorded response"
+          />
+        </>
       )}
       <p role="status" aria-live="polite">
         {message}

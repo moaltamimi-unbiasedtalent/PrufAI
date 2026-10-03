@@ -30,6 +30,9 @@ def test_candidate_runtime_schema_is_migration_backed() -> None:
             "candidate_exam_sessions",
             "candidate_responses",
             "candidate_response_revisions",
+            "candidate_audio_recording_sessions",
+            "candidate_media_assets",
+            "candidate_response_media_bindings",
         } <= tables
         constraints = {
             row[0]
@@ -42,7 +45,10 @@ def test_candidate_runtime_schema_is_migration_backed() -> None:
                     'candidate_exam_assignments',
                     'candidate_exam_attempts',
                     'candidate_responses',
-                    'candidate_response_revisions'
+                    'candidate_response_revisions',
+                    'candidate_audio_recording_sessions',
+                    'candidate_media_assets',
+                    'candidate_response_media_bindings'
                   )
                 """
             )
@@ -52,6 +58,8 @@ def test_candidate_runtime_schema_is_migration_backed() -> None:
             "uq_candidate_attempt_number",
             "uq_candidate_response_binding",
             "uq_candidate_operation",
+            "uq_audio_recording_attempt",
+            "uq_response_media_binding_role",
         } <= constraints
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]

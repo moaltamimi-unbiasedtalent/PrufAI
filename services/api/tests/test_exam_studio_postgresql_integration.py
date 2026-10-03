@@ -16,9 +16,7 @@ pytestmark = pytest.mark.skipif(
 def test_exam_studio_schema_is_migration_backed() -> None:
     configured_url = os.environ.get("POSTGRES_INTEGRATION_URL")
     if not configured_url:
-        pytest.fail(
-            "PRUFAI_REQUIRE_POSTGRES_INTEGRATION=1 requires POSTGRES_INTEGRATION_URL"
-        )
+        pytest.fail("PRUFAI_REQUIRE_POSTGRES_INTEGRATION=1 requires POSTGRES_INTEGRATION_URL")
     url = configured_url.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(url) as connection:
         tables = {

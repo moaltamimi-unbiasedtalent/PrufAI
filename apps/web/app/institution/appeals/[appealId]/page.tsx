@@ -30,7 +30,7 @@ export default function AppealWorkspacePage({ params }: Props) {
       await appealApi.review(organisationId, appeal.id);
       setMessage("Review started. Reload to confirm the current version.");
     } catch {
-      setMessage("The appeal changed or is not available for review.");
+      setMessage("The appeal changed; refresh before continuing.");
     }
   }
   return (
@@ -39,7 +39,7 @@ export default function AppealWorkspacePage({ params }: Props) {
         Institution review
       </p>
       <h1>Appeal workspace</h1>
-      {message && <p role="status">{message}</p>}
+      {message && <p role="alert">{message}</p>}
       {appeal && (
         <>
           <section aria-labelledby="identity">
@@ -60,6 +60,19 @@ export default function AppealWorkspacePage({ params }: Props) {
           <section aria-labelledby="grounds">
             <h2 id="grounds">Candidate grounds</h2>
             <p>{appeal.grounds}</p>
+          </section>
+          <section aria-labelledby="correction">
+            <h2 id="correction">Correction status</h2>
+            <p>
+              {appeal.correction
+                ? `${appeal.correction.type}: ${appeal.correction.status}`
+                : "No correction initiated"}
+            </p>
+            {appeal.correction?.new_result_version_id && (
+              <p>
+                New result version: {appeal.correction.new_result_version_id}
+              </p>
+            )}
           </section>
           <button type="button" onClick={() => void startReview()}>
             Start review

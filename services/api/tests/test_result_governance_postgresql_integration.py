@@ -29,6 +29,7 @@ def test_result_governance_schema_is_migration_backed() -> None:
             "result_appeal_versions",
             "appeal_information_entries",
             "result_moderation_cases",
+            "result_corrections",
             "assessment_results",
             "result_versions",
             "scoring_runs",
@@ -48,6 +49,7 @@ def test_result_governance_schema_is_migration_backed() -> None:
             "uq_result_appeal_version_number",
             "uq_result_appeal_version_operation",
             "uq_result_moderation_operation",
+            "uq_result_correction_operation",
         } <= constraints
         columns = {
             (row[0], row[1])
@@ -61,6 +63,23 @@ def test_result_governance_schema_is_migration_backed() -> None:
         }
         assert ("result_appeals", "challenged_result_version_id") in columns
         assert ("result_appeal_versions", "evidence_bundle_checksum") in columns
+        correction_columns = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'result_corrections'
+                """
+            )
+        }
+        assert {
+            "appeal_version_id",
+            "source_result_version_id",
+            "correction_type",
+            "status",
+            "new_scoring_run_id",
+            "new_result_version_id",
+        } <= correction_columns
         assert (
             connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
             == repository_alembic_head()

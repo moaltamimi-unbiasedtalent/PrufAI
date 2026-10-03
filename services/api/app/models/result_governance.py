@@ -10,7 +10,13 @@ from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
-from app.models.enums import AppealDecision, AppealStatus, ModerationStatus
+from app.models.enums import (
+    AppealDecision,
+    AppealStatus,
+    CorrectionStatus,
+    CorrectionType,
+    ModerationStatus,
+)
 from app.models.identity import enum_type
 
 
@@ -143,3 +149,50 @@ class ResultModerationCase(UUIDPrimaryKeyMixin, Base):
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     closed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class ResultCorrection(UUIDPrimaryKeyMixin, Base):
+    """Durable link from a human decision to new governed scoring artifacts."""
+
+    __tablename__ = "result_corrections"
+    __table_args__ = (
+        UniqueConstraint("operation_id", name="uq_result_correction_operation"),
+        Index("ix_result_corrections_queue", "organisation_id", "status", "created_at"),
+        Index("ix_result_corrections_appeal", "appeal_id"),
+    )
+
+    organisation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organisations.id"), nullable=False
+    )
+    appeal_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("result_appeals.id"))
+    appeal_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("result_appeal_versions.id")
+    )
+    moderation_case_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("result_moderation_cases.id")
+    )
+    source_result_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("result_versions.id"), nullable=False
+    )
+    source_result_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    correction_type: Mapped[CorrectionType] = mapped_column(
+        enum_type(CorrectionType), nullable=False
+    )
+    status: Mapped[CorrectionStatus] = mapped_column(enum_type(CorrectionStatus), nullable=False)
+    operation_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    new_component_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("subjective_assessment_versions.id", ondelete="RESTRICT")
+    )
+    new_transcription_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("speech_transcription_versions.id", ondelete="RESTRICT")
+    )
+    new_scoring_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("scoring_runs.id"))
+    new_result_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("result_versions.id")
+    )
+    failure_category: Mapped[Optional[str]] = mapped_column(String(120))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

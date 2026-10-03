@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, TenantContext
 from app.db import get_db_session
-from app.models import ResultAppeal, ResultModerationCase
-from app.models.enums import AppealDecision, AppealStatus, ModerationStatus
+from app.models import ResultAppeal, ResultCorrection, ResultModerationCase
+from app.models.enums import AppealDecision, AppealStatus, CorrectionType, ModerationStatus
 from app.result_governance.service import ResultGovernanceService
 
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-appeals"])
@@ -36,6 +36,15 @@ class AdjudicationRequest(BaseModel):
     decision: AppealDecision
     operation_id: str = Field(min_length=1, max_length=120)
     reason: str = Field(min_length=1, max_length=10000)
+
+
+class CorrectionRequest(BaseModel):
+    appeal_version_number: int = Field(gt=0)
+    appeal_checksum: str = Field(min_length=64, max_length=64)
+    evidence_bundle_checksum: str = Field(min_length=64, max_length=64)
+    correction_type: CorrectionType
+    operation_id: str = Field(min_length=1, max_length=120)
+    corrections: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class ModerationRequest(BaseModel):
@@ -331,7 +340,28 @@ def appeal_detail(
     appeal = session.get(ResultAppeal, appeal_id)
     if appeal is None or appeal.organisation_id != organisation_id:
         raise HTTPException(status_code=404, detail="appeal not found")
-    return _appeal_projection(appeal, include_private=True)
+    result = _appeal_projection(appeal, include_private=True)
+    correction = session.scalar(
+        select(ResultCorrection)
+        .where(ResultCorrection.appeal_id == appeal.id)
+        .order_by(ResultCorrection.created_at.desc())
+    )
+    result["correction"] = (
+        {
+            "id": str(correction.id),
+            "type": correction.correction_type.value,
+            "status": correction.status.value,
+            "new_scoring_run_id": str(correction.new_scoring_run_id)
+            if correction.new_scoring_run_id
+            else None,
+            "new_result_version_id": str(correction.new_result_version_id)
+            if correction.new_result_version_id
+            else None,
+        }
+        if correction
+        else None
+    )
+    return result
 
 
 @institution_router.post("/{organisation_id}/appeals/{appeal_id}/review")
@@ -399,6 +429,44 @@ def reviewer_information(
         )
         session.commit()
         return {"id": str(entry.id), "direction": entry.direction}
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _error(exc) from exc
+
+
+@institution_router.post("/{organisation_id}/appeals/{appeal_id}/correction")
+def initiate_correction(
+    organisation_id: uuid.UUID,
+    appeal_id: uuid.UUID,
+    payload: CorrectionRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    if _context(principal).organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        correction = ResultGovernanceService.initiate_correction(
+            session,
+            _context(principal),
+            appeal_id=appeal_id,
+            appeal_version_number=payload.appeal_version_number,
+            appeal_checksum=payload.appeal_checksum,
+            evidence_bundle_checksum=payload.evidence_bundle_checksum,
+            correction_type=payload.correction_type,
+            operation_id=payload.operation_id,
+            corrections=payload.corrections,
+        )
+        session.commit()
+        return {
+            "id": str(correction.id),
+            "status": correction.status.value,
+            "new_scoring_run_id": str(correction.new_scoring_run_id)
+            if correction.new_scoring_run_id
+            else None,
+            "new_result_version_id": str(correction.new_result_version_id)
+            if correction.new_result_version_id
+            else None,
+        }
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _error(exc) from exc

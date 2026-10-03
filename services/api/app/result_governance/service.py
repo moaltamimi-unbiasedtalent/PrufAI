@@ -17,13 +17,27 @@ from app.authorization import AuthorizationService, TenantContext
 from app.models import (
     AppealInformationEntry,
     AssessmentResult,
+    HumanReviewRequest,
     ResultAppeal,
     ResultAppealVersion,
+    ResultCorrection,
     ResultModerationCase,
     ResultVersion,
     ScoringRun,
+    SubjectiveAssessmentVersion,
 )
-from app.models.enums import AppealDecision, AppealStatus, ModerationStatus, ResultVersionStatus
+from app.models.enums import (
+    AppealDecision,
+    AppealStatus,
+    CorrectionStatus,
+    CorrectionType,
+    HumanReviewStatus,
+    ModerationStatus,
+    ResultVersionStatus,
+    SubjectiveAssessmentStatus,
+)
+from app.scoring.service import ScoringService
+from app.writing_assessment.service import SubjectiveAssessmentService
 
 
 class ResultGovernanceError(ValueError):
@@ -290,6 +304,17 @@ class ResultGovernanceService:
             },
             require_audit_permission=False,
         )
+        AuditService.record(
+            session,
+            context,
+            event_type="appeal.submitted",
+            entity_type="result_appeal",
+            organisation_id=result.organisation_id,
+            entity_id=str(appeal.id),
+            entity_version="1",
+            metadata={"result_version_id": str(version.id)},
+            require_audit_permission=False,
+        )
         session.flush()
         return appeal
 
@@ -297,7 +322,9 @@ class ResultGovernanceService:
     def transition(
         cls, session: Session, context: TenantContext, appeal_id: uuid.UUID, target: AppealStatus
     ) -> ResultAppeal:
-        appeal = session.get(ResultAppeal, appeal_id)
+        appeal = session.scalar(
+            select(ResultAppeal).where(ResultAppeal.id == appeal_id).with_for_update()
+        )
         if appeal is None or appeal.organisation_id != context.organisation_id:
             raise ResultGovernanceError("appeal not found")
         if target not in cls._TRANSITIONS.get(appeal.status, frozenset()):
@@ -318,10 +345,16 @@ class ResultGovernanceService:
             )
         appeal.status = target
         appeal.updated_at = _now()
+        event_type = {
+            AppealStatus.UNDER_REVIEW: "appeal.review_started",
+            AppealStatus.INFORMATION_REQUIRED: "appeal.information_requested",
+            AppealStatus.WITHDRAWN: "appeal.withdrawn",
+            AppealStatus.CLOSED: "appeal.closed",
+        }.get(target, f"appeal.{target.value.lower()}")
         AuditService.record(
             session,
             context,
-            event_type=f"appeal.{target.value.lower()}",
+            event_type=event_type,
             entity_type="result_appeal",
             organisation_id=appeal.organisation_id,
             entity_id=str(appeal.id),
@@ -329,6 +362,187 @@ class ResultGovernanceService:
             require_audit_permission=False,
         )
         return appeal
+
+    @classmethod
+    def initiate_correction(
+        cls,
+        session: Session,
+        context: TenantContext,
+        *,
+        appeal_id: uuid.UUID,
+        appeal_version_number: int,
+        appeal_checksum: str,
+        evidence_bundle_checksum: str,
+        correction_type: CorrectionType,
+        operation_id: str,
+        corrections: dict[str, dict[str, Any]] | None = None,
+        transcription_factory: Any = None,
+    ) -> ResultCorrection:
+        """Execute a governed component correction and rescore, without score editing."""
+        AuthorizationService.require_permission(context, "appeal.correct", context.organisation_id)
+        appeal = session.scalar(
+            select(ResultAppeal).where(ResultAppeal.id == appeal_id).with_for_update()
+        )
+        if appeal is None or appeal.organisation_id != context.organisation_id:
+            raise ResultGovernanceError("appeal not found")
+        existing = session.scalar(
+            select(ResultCorrection).where(ResultCorrection.operation_id == operation_id)
+        )
+        if existing is not None:
+            if (
+                existing.appeal_id != appeal.id
+                or existing.correction_type != correction_type
+                or existing.source_result_checksum != appeal.challenged_result_checksum
+            ):
+                raise ResultGovernanceError("operation_id already used with a different correction")
+            return existing
+        current = session.scalar(
+            select(ResultAppealVersion).where(
+                ResultAppealVersion.appeal_id == appeal.id,
+                ResultAppealVersion.version_number == appeal_version_number,
+            )
+        )
+        bundle = cls.build_evidence_bundle(session, appeal.challenged_result_version_id)
+        if (
+            current is None
+            or current.checksum != appeal_checksum
+            or appeal.current_checksum != appeal_checksum
+            or current.evidence_bundle_checksum != evidence_bundle_checksum
+            or bundle.checksum != evidence_bundle_checksum
+        ):
+            raise ResultGovernanceError("stale correction source")
+        if current.decision not in {
+            AppealDecision.UPHOLD,
+            AppealDecision.PARTIALLY_UPHOLD,
+        }:
+            raise ResultGovernanceError("only an upheld appeal may initiate correction")
+        now = _now()
+        correction = ResultCorrection(
+            organisation_id=appeal.organisation_id,
+            appeal_id=appeal.id,
+            appeal_version_id=current.id,
+            source_result_version_id=appeal.challenged_result_version_id,
+            source_result_checksum=appeal.challenged_result_checksum,
+            correction_type=correction_type,
+            status=CorrectionStatus.IN_PROGRESS,
+            operation_id=operation_id,
+            created_by_user_id=context.user_id,
+            created_at=now,
+            updated_at=now,
+            metadata_json={"evidence_bundle_checksum": evidence_bundle_checksum},
+        )
+        session.add(correction)
+        session.flush()
+        cls._audit_correction(session, context, "result.correction_initiated", correction)
+        try:
+            if correction_type is CorrectionType.TRANSCRIPTION_REASSESSMENT:
+                if transcription_factory is None:
+                    raise ResultGovernanceError("a governed transcription factory is required")
+                new_transcript = transcription_factory(session, context, appeal)
+                correction.new_transcription_version_id = new_transcript.id
+                cls._audit_correction(
+                    session, context, "result.correction_component_created", correction
+                )
+            elif correction_type in {
+                CorrectionType.WRITING_REASSESSMENT,
+                CorrectionType.SPEAKING_REASSESSMENT,
+            }:
+                source = cls._subjective_source(session, appeal, correction_type)
+                if source is None:
+                    raise ResultGovernanceError("approved subjective source is unavailable")
+                review = HumanReviewRequest(
+                    review_type="RESULT_CORRECTION",
+                    entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
+                    entity_id=source.id,
+                    status=HumanReviewStatus.PENDING,
+                    requested_by=context.user_id,
+                    requested_at=now,
+                    reviewed_checksum=source.checksum,
+                )
+                session.add(review)
+                session.flush()
+                successor = SubjectiveAssessmentService.correct(
+                    session, context, source, corrections or {}, review
+                )
+                correction.new_component_version_id = successor.id
+                cls._audit_correction(
+                    session, context, "result.correction_component_created", correction
+                )
+            elif correction_type is CorrectionType.OBJECTIVE_RESCORING:
+                raise ResultGovernanceError(
+                    "objective correction requires a new governed source version"
+                )
+            else:
+                raise ResultGovernanceError("unsupported correction type")
+            correction.status = CorrectionStatus.READY_FOR_RESCORING
+            session.flush()
+            run = ScoringService.score(session, context, appeal.attempt_id)
+            correction.new_scoring_run_id = run.id
+            result = session.get(AssessmentResult, appeal.result_id)
+            if result is None:
+                raise ResultGovernanceError("assessment result not found")
+            new_version = max(result.versions, key=lambda item: item.version_number)
+            correction.new_result_version_id = new_version.id
+            correction.status = CorrectionStatus.RESCORED
+            correction.completed_at = _now()
+            correction.updated_at = _now()
+            cls._audit_correction(session, context, "result.correction_rescored", correction)
+            cls._audit_correction(session, context, "result.correction_completed", correction)
+            return correction
+        except Exception as exc:  # noqa: BLE001
+            correction.status = CorrectionStatus.FAILED
+            correction.failure_category = type(exc).__name__[:120]
+            correction.updated_at = _now()
+            cls._audit_correction(session, context, "result.correction_failed", correction)
+            if isinstance(exc, ResultGovernanceError):
+                raise
+            raise ResultGovernanceError("governed correction failed") from exc
+
+    @staticmethod
+    def _subjective_source(
+        session: Session, appeal: ResultAppeal, correction_type: CorrectionType
+    ) -> SubjectiveAssessmentVersion | None:
+        rows = list(
+            session.scalars(
+                select(SubjectiveAssessmentVersion).where(
+                    SubjectiveAssessmentVersion.attempt_id == appeal.attempt_id,
+                    SubjectiveAssessmentVersion.status == SubjectiveAssessmentStatus.APPROVED,
+                )
+            )
+        )
+        speaking = correction_type is CorrectionType.SPEAKING_REASSESSMENT
+        return next(
+            (row for row in rows if bool(row.candidate_media_asset_id) is speaking),
+            None,
+        )
+
+    @staticmethod
+    def _audit_correction(
+        session: Session, context: TenantContext, event_type: str, correction: ResultCorrection
+    ) -> None:
+        AuditService.record(
+            session,
+            context,
+            event_type=event_type,
+            entity_type="result_correction",
+            organisation_id=correction.organisation_id,
+            entity_id=str(correction.id),
+            metadata={
+                "correction_type": correction.correction_type.value,
+                "status": correction.status.value,
+                "source_result_version_id": str(correction.source_result_version_id),
+                "new_component_version_id": str(correction.new_component_version_id)
+                if correction.new_component_version_id
+                else None,
+                "new_scoring_run_id": str(correction.new_scoring_run_id)
+                if correction.new_scoring_run_id
+                else None,
+                "new_result_version_id": str(correction.new_result_version_id)
+                if correction.new_result_version_id
+                else None,
+            },
+            require_audit_permission=False,
+        )
 
     @classmethod
     def adjudicate(
@@ -344,7 +558,9 @@ class ResultGovernanceService:
         operation_id: str,
         reason: str,
     ) -> ResultAppeal:
-        appeal = session.get(ResultAppeal, appeal_id)
+        appeal = session.scalar(
+            select(ResultAppeal).where(ResultAppeal.id == appeal_id).with_for_update()
+        )
         if appeal is None or appeal.organisation_id != context.organisation_id:
             raise ResultGovernanceError("appeal not found")
         AuthorizationService.require_permission(
@@ -439,13 +655,21 @@ class ResultGovernanceService:
             raise ResultGovernanceError(
                 "information message must be between 1 and 10000 characters"
             )
-        appeal = session.get(ResultAppeal, appeal_id)
+        appeal = session.scalar(
+            select(ResultAppeal).where(ResultAppeal.id == appeal_id).with_for_update()
+        )
         if appeal is None or appeal.organisation_id != context.organisation_id:
             raise ResultGovernanceError("appeal not found")
         if context.user_id != appeal.candidate_user_id:
             AuthorizationService.require_permission(
                 context, "appeal.adjudicate", appeal.organisation_id
             )
+            if appeal.status is not AppealStatus.UNDER_REVIEW:
+                raise ResultGovernanceError(
+                    "reviewer information request requires an active review"
+                )
+        elif appeal.status is not AppealStatus.INFORMATION_REQUIRED:
+            raise ResultGovernanceError("candidate information is not currently requested")
         entry = AppealInformationEntry(
             appeal_id=appeal.id,
             appeal_version_id=appeal.versions[-1].id,
@@ -455,6 +679,26 @@ class ResultGovernanceService:
             created_at=_now(),
         )
         session.add(entry)
+        appeal.status = (
+            AppealStatus.UNDER_REVIEW
+            if context.user_id == appeal.candidate_user_id
+            else AppealStatus.INFORMATION_REQUIRED
+        )
+        appeal.updated_at = _now()
+        AuditService.record(
+            session,
+            context,
+            event_type=(
+                "appeal.information_provided"
+                if context.user_id == appeal.candidate_user_id
+                else "appeal.information_requested"
+            ),
+            entity_type="result_appeal",
+            organisation_id=appeal.organisation_id,
+            entity_id=str(appeal.id),
+            metadata={"appeal_version_id": str(entry.appeal_version_id)},
+            require_audit_permission=False,
+        )
         return entry
 
     @classmethod

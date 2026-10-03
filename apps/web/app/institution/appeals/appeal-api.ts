@@ -15,6 +15,13 @@ export type AppealDetail = AppealSummary & {
   decision?: string | null;
   decision_reason?: string | null;
   evidence_bundle_checksum?: string;
+  correction?: {
+    id: string;
+    type: string;
+    status: string;
+    new_scoring_run_id: string | null;
+    new_result_version_id: string | null;
+  } | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

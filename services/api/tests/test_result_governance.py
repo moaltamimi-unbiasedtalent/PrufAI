@@ -1,6 +1,6 @@
 import pytest
 
-from app.models.enums import AppealStatus, ResultVersionStatus
+from app.models.enums import AppealStatus, CorrectionType, ResultVersionStatus
 from app.result_governance.service import (
     AppealPolicy,
     ResultGovernanceError,
@@ -29,3 +29,12 @@ def test_appeal_lifecycle_does_not_allow_reopening_closed_history() -> None:
 
 def test_governance_error_is_a_value_error_for_thin_api_mapping() -> None:
     assert issubclass(ResultGovernanceError, ValueError)
+
+
+def test_correction_categories_are_controlled() -> None:
+    assert {item.value for item in CorrectionType} == {
+        "OBJECTIVE_RESCORING",
+        "WRITING_REASSESSMENT",
+        "SPEAKING_REASSESSMENT",
+        "TRANSCRIPTION_REASSESSMENT",
+    }

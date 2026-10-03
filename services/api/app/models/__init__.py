@@ -64,6 +64,7 @@ from app.models.result_governance import (
     AppealInformationEntry,
     ResultAppeal,
     ResultAppealVersion,
+    ResultCorrection,
     ResultModerationCase,
 )
 from app.models.retrieval import (
@@ -193,6 +194,7 @@ __all__ = [
     "ResultAppealVersion",
     "AppealInformationEntry",
     "ResultModerationCase",
+    "ResultCorrection",
     "ScoringRun",
     "ScoringResponseSnapshot",
     "ItemScore",

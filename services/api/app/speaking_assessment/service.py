@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.authorization import AuthorizationService, TenantContext
 from app.models import (
+    AgentVersion,
     AIModelProfile,
     AIRun,
     CandidateMediaAsset,
@@ -478,6 +479,15 @@ class SpeakingAssessmentService:
         run = session.get(AIRun, ai_run_id)
         if run is None or run.organisation_id != context.organisation_id:
             raise SpeakingAssessmentError("exact AI run provenance is required")
+        if run.workflow_version_id is None or run.agent_version_id is None:
+            raise SpeakingAssessmentError("AI run lacks exact workflow and agent provenance")
+        agent = session.get(AgentVersion, run.agent_version_id)
+        if agent is None:
+            raise SpeakingAssessmentError("AI run agent provenance is missing")
+        version.workflow_version_id = run.workflow_version_id
+        version.agent_version_id = run.agent_version_id
+        version.prompt_version_id = agent.prompt_version_id
+        version.model_profile_id = agent.model_profile_id
         profile = (
             session.get(AIModelProfile, version.model_profile_id)
             if version.model_profile_id
@@ -521,6 +531,11 @@ class SpeakingAssessmentService:
                     str(version.model_profile_id) if version.model_profile_id else None
                 ),
                 "ai_run_id": str(ai_run_id),
+                "workflow_version_id": str(version.workflow_version_id),
+                "agent_version_id": str(version.agent_version_id),
+                "prompt_version_id": str(version.prompt_version_id)
+                if version.prompt_version_id
+                else None,
             },
             criteria=rubric.criteria,
             result=result,

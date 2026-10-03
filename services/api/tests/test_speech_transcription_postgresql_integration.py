@@ -49,5 +49,5 @@ def test_speech_transcription_schema_is_migration_backed() -> None:
             "model_name",
             "adapter_version",
             "configuration_checksum",
-            "source_audio_sha256",
+            "audio_sha256",
         } <= version_columns

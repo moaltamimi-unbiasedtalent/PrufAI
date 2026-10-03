@@ -76,3 +76,28 @@ process. External paid STT services are not used in CI.
 
 Remaining merge-gate work: speaking AI, speaking scoring, mixed
 Writing+Speaking rescoring, and Step 2C review/result integration.
+
+## SUBSTEP 7.2C — Governed Speaking Assessment
+
+Recorded Speaking assessment reuses the generic `SubjectiveAssessment`,
+`SubjectiveAssessmentVersion`, `SubjectiveCriterionAssessment`, and
+`HumanReviewRequest` entities. `RubricVersion.skill=SPEAKING` declares each
+criterion's `AUDIO`, `TRANSCRIPT`, or `AUDIO_AND_TRANSCRIPT` modality. Original
+audio remains primary; an exact `SpeechTranscriptionVersion` is optional
+derived evidence and can never satisfy an audio-only criterion.
+
+The bounded workflow is `prepare_input`, audio and transcript evidence
+analysis, criterion evaluation, consistency review, deterministic validation,
+review routing, and human-review request. It preserves independent criterion
+proposals and disagreement, rejects malformed or authority-escalating model
+output, and routes every valid proposal to mandatory human review. Model
+profiles require purpose `SPEAKING_ASSESSMENT`; acoustic criteria additionally
+require explicit `supports_audio_evidence` capability. No provider,
+majority-vote, transcript-only, accent-origin, emotion, personality, or
+protected-characteristic inference is performed.
+
+Generic subjective provenance carries exact media asset/SHA and
+transcription-version/checksum references plus safe AI, consistency, and human
+value snapshots. Human correction creates a new immutable assessment version.
+Only an approved version may later participate in a new Phase 6 ScoringRun;
+automatic release and official certification remain outside this substep.

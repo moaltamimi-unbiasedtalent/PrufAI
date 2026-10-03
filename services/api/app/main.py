@@ -18,6 +18,7 @@ from app.rules.api import router as rules_router
 from app.runtime.api import candidate_router
 from app.runtime.api import organisation_router as runtime_organisation_router
 from app.scoring.api import candidate_result_router, scoring_router
+from app.speaking_assessment.api import router as speaking_assessment_router
 from app.speech_transcription.api import router as speech_transcription_router
 from app.standard_packs.api import router as standard_packs_router
 from app.writing_assessment.api import writing_router
@@ -70,6 +71,7 @@ app.include_router(scoring_router)
 app.include_router(candidate_result_router)
 app.include_router(writing_router)
 app.include_router(speech_transcription_router)
+app.include_router(speaking_assessment_router)
 
 
 @app.get("/health")

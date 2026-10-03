@@ -15,8 +15,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    inspect,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
 from app.models.enums import (
@@ -207,6 +209,22 @@ class SubjectiveAssessmentVersion(UUIDPrimaryKeyMixin, Base):
     model_profile_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("ai_model_profiles.id")
     )
+    candidate_media_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("candidate_media_assets.id", ondelete="RESTRICT")
+    )
+    audio_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    speech_transcription_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("speech_transcription_versions.id", ondelete="RESTRICT")
+    )
+    transcript_checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    evidence_mode_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    ai_proposal: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    human_approved_values: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    consistency_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     ai_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("ai_runs.id", ondelete="SET NULL")
     )
@@ -262,3 +280,37 @@ class SubjectiveCriterionAssessment(UUIDPrimaryKeyMixin, Base):
     assessment_version: Mapped[SubjectiveAssessmentVersion] = relationship(
         back_populates="criterion_assessments"
     )
+
+
+@event.listens_for(SubjectiveAssessmentVersion, "before_update")
+def _prevent_approved_subjective_mutation(
+    _mapper: Mapper[SubjectiveAssessmentVersion],
+    _connection: Any,
+    target: SubjectiveAssessmentVersion,
+) -> None:
+    state = inspect(target)
+    status_history = state.attrs.status.history
+    old_status = status_history.deleted[0] if status_history.deleted else target.status
+    if old_status not in {
+        SubjectiveAssessmentStatus.APPROVED,
+        SubjectiveAssessmentStatus.SUPERSEDED,
+    }:
+        return
+    protected = (
+        "attempt_id",
+        "candidate_response_revision_id",
+        "rubric_version_id",
+        "response_checksum",
+        "rubric_checksum",
+        "candidate_media_asset_id",
+        "audio_sha256",
+        "speech_transcription_version_id",
+        "transcript_checksum",
+        "ai_proposal",
+        "human_approved_values",
+        "approved_score",
+        "provenance",
+        "checksum",
+    )
+    if any(state.attrs[name].history.has_changes() for name in protected):
+        raise ValueError("approved subjective assessment versions are immutable")

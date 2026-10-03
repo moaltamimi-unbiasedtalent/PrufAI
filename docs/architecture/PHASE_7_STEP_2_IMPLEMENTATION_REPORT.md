@@ -90,3 +90,21 @@ object-storage integration tests with required flags. Local Python validation
 uses `python3 -m pytest tests`: 155 passed and 14 expected infrastructure skips
 (11 PostgreSQL, 2 Redis, 1 object storage), with no unexpected skips. The local
 npm audit endpoint was unavailable due DNS; Python `pip_audit` is not installed.
+
+## Substep 7.2C — governed speaking assessment
+
+Step 2C extends the skill-neutral subjective assessment path rather than
+creating Speaking-specific assessment tables. `RubricVersion` accepts
+`SPEAKING` and declarative criterion evidence modes (`AUDIO`, `TRANSCRIPT`, or
+`AUDIO_AND_TRANSCRIPT`). Migration `0020_speaking_assessment` adds exact audio
+asset/SHA and transcription-version/checksum provenance plus safe AI,
+consistency, and human-value snapshots to `SubjectiveAssessmentVersion`.
+
+`SpeakingAssessmentService` implements bounded preparation, modality-aware
+audio/transcript evidence validation, criterion proposals, consistency review,
+deterministic validation, bounded retry, protected-attribute and spoken prompt
+injection guards, and mandatory human-review routing. It never approves a
+proposal, changes rubric/rules, uses a transcript for an audio-only criterion,
+or claims examiner equivalence. Institution speaking-review routes are
+organisation-scoped and distinguish original audio as primary evidence from
+derived transcription.

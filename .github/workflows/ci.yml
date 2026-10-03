@@ -103,6 +103,12 @@ jobs:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_speaking_assessment_postgresql_integration.py
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - name: Install pinned MinIO
         run: |
           set -euo pipefail
@@ -161,6 +167,16 @@ jobs:
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
       - run: python -m pytest tests/test_speech_transcription_object_storage_integration.py
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
+      - run: python -m pytest tests/test_speaking_assessment_object_storage_integration.py
         working-directory: services/api
         env:
           CI: true

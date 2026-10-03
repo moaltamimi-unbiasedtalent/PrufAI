@@ -5,14 +5,21 @@ import pytest
 
 from tests.alembic_helpers import repository_alembic_head
 
+REQUIRE_POSTGRES_INTEGRATION = os.getenv("PRUFAI_REQUIRE_POSTGRES_INTEGRATION") == "1"
+
 pytestmark = pytest.mark.skipif(
-    not os.getenv("POSTGRES_INTEGRATION_URL") and not os.getenv("CI"),
+    not os.getenv("POSTGRES_INTEGRATION_URL") and not REQUIRE_POSTGRES_INTEGRATION,
     reason="POSTGRES_INTEGRATION_URL is required for Exam Studio integration",
 )
 
 
 def test_exam_studio_schema_is_migration_backed() -> None:
-    url = os.environ["POSTGRES_INTEGRATION_URL"].replace("postgresql+psycopg://", "postgresql://")
+    configured_url = os.environ.get("POSTGRES_INTEGRATION_URL")
+    if not configured_url:
+        pytest.fail(
+            "PRUFAI_REQUIRE_POSTGRES_INTEGRATION=1 requires POSTGRES_INTEGRATION_URL"
+        )
+    url = configured_url.replace("postgresql+psycopg://", "postgresql://")
     with psycopg.connect(url) as connection:
         tables = {
             row[0]

@@ -38,6 +38,7 @@ class AIOrchestrationService:
         "STANDARD_PACK_READ",
         "RULES_EVALUATE",
         "CITATION_RESOLVE",
+        "RUBRIC_READ",
     }
 
     @staticmethod

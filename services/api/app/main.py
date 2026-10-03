@@ -19,6 +19,7 @@ from app.runtime.api import candidate_router
 from app.runtime.api import organisation_router as runtime_organisation_router
 from app.scoring.api import candidate_result_router, scoring_router
 from app.standard_packs.api import router as standard_packs_router
+from app.writing_assessment.api import writing_router
 
 app = FastAPI(title="PrüfAI API", version="0.1.0")
 
@@ -66,6 +67,7 @@ app.include_router(candidate_router)
 app.include_router(runtime_organisation_router)
 app.include_router(scoring_router)
 app.include_router(candidate_result_router)
+app.include_router(writing_router)
 
 
 @app.get("/health")

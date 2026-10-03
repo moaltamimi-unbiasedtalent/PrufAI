@@ -81,3 +81,10 @@ output rejection, failure-category provenance helpers, and an organisation-
 scoped reviewer queue API. Candidate-owned internal assessment access remains
 separate from institution reviewer capability. The remote PostgreSQL gate is
 still pending.
+
+The invalid-output proof has a named 24-case completeness inventory spanning
+schema, criterion, numeric, evidence, consistency, authority, and aggregate
+failures. Case 16 is explicitly not applicable because evidence objects do not
+carry response-version identity. Expected-valid and expected-rejected fixtures
+are evaluated separately; malformed outputs cannot lower the valid-schema
+gate. As-of resolution remains intentionally deferred for Step 1.

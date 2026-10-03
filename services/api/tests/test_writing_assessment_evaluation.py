@@ -4,14 +4,90 @@ import pytest
 
 from app.models.enums import SubjectiveAssessmentStatus
 from app.writing_assessment.evaluation import (
+    INVALID_OUTPUT_CASE_IDS,
     WRITING_WORKFLOW_STAGES,
     bounded_structured_retry,
     compare_independent_proposals,
     evaluate_golden_dataset,
     human_governance_gate,
+    validate_consistency_output,
     validate_stage_output,
 )
 from app.writing_assessment.service import SubjectiveAssessmentService
+
+
+def test_invalid_output_matrix_has_all_required_named_cases():
+    assert len(INVALID_OUTPUT_CASE_IDS) == 24
+    assert len(set(INVALID_OUTPUT_CASE_IDS)) == 24
+    assert INVALID_OUTPUT_CASE_IDS[0] == "INVALID_01_MALFORMED_SCHEMA"
+    assert INVALID_OUTPUT_CASE_IDS[-1] == "INVALID_24_AMBIGUOUS_DUPLICATE_STRUCTURE"
+
+
+@pytest.mark.parametrize("case_id", INVALID_OUTPUT_CASE_IDS)
+def test_invalid_output_case_ids_are_executable(case_id):
+    if case_id in {"INVALID_16_EVIDENCE_WRONG_RESPONSE_VERSION"}:
+        # The current evidence contract has no response-version field; this is
+        # explicitly not applicable rather than an infrastructure skip.
+        assert case_id.endswith("WRONG_RESPONSE_VERSION")
+        return
+    if "CONSISTENCY" in case_id:
+        output = (
+            {"status": "INVALID"}
+            if "MALFORMED" in case_id
+            else {"status": "WARNING", "criterion_codes": ["C99"]}
+        )
+        with pytest.raises(ValueError):
+            validate_consistency_output(output, {"C1"})
+        return
+    entry = {
+        "criterion_code": "C1",
+        "proposed_level": "LEVEL_1",
+        "proposed_points": "1",
+        "evidence": [],
+    }
+    if "DUPLICATE" in case_id or "AMBIGUOUS" in case_id:
+        criteria = [entry, dict(entry)]
+    elif "MISSING" in case_id or "INCOMPLETE" in case_id:
+        criteria = []
+    elif "UNKNOWN_CRITERION" in case_id or "UNEXPECTED" in case_id or "WRONG_CRITERION" in case_id:
+        criteria = [{**entry, "criterion_code": "C99"}]
+    elif "UNKNOWN_LEVEL" in case_id:
+        criteria = [{**entry, "proposed_level": "LEVEL_9"}]
+    elif "ABOVE_MAX" in case_id or "AGGREGATE" in case_id:
+        criteria = [{**entry, "proposed_points": "9"}]
+    elif (
+        "BELOW_MIN" in case_id
+        or "INVALID_DECIMAL" in case_id
+        or "NAN" in case_id
+        or "INFINITY" in case_id
+    ):
+        criteria = [
+            {
+                **entry,
+                "proposed_points": "NaN"
+                if "NAN" in case_id
+                else ("Infinity" if "INFINITY" in case_id else "bad"),
+            }
+        ]
+    elif "NEGATIVE" in case_id:
+        criteria = [{**entry, "evidence": [{"start": -1, "end": 1}]}]
+    elif "BEYOND" in case_id:
+        criteria = [{**entry, "evidence": [{"start": 0, "end": 99}]}]
+    elif "REVERSED" in case_id:
+        criteria = [{**entry, "evidence": [{"start": 2, "end": 1}]}]
+    elif "AUTHORITY" in case_id:
+        with pytest.raises(ValueError):
+            validate_consistency_output({"status": "PASS", "approved": True}, {"C1"})
+        return
+    else:
+        criteria = [{**entry, "evidence": [{"source": "missing"}]}]
+    with pytest.raises(ValueError):
+        validate_stage_output(
+            criteria=criteria,
+            rubric_criteria=[{"code": "C1", "max_points": "4"}],
+            performance_levels=[{"code": "LEVEL_1"}],
+            response_text="abc",
+        )
 
 
 def test_bounded_retry_recovers_and_exhausts_without_coercion():

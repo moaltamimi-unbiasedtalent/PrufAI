@@ -13,6 +13,39 @@ WRITING_WORKFLOW_STAGES = (
     "human_review_request",
 )
 
+INVALID_OUTPUT_CASE_IDS = tuple(
+    f"INVALID_{number:02d}_{name}"
+    for number, name in enumerate(
+        (
+            "MALFORMED_SCHEMA",
+            "MISSING_CRITERION",
+            "DUPLICATE_CRITERION",
+            "UNKNOWN_CRITERION",
+            "UNKNOWN_LEVEL",
+            "ABOVE_MAX",
+            "BELOW_MIN",
+            "INVALID_DECIMAL",
+            "NAN",
+            "INFINITY",
+            "INVALID_CONFIDENCE",
+            "NEGATIVE_EVIDENCE_START",
+            "EVIDENCE_END_BEYOND_RESPONSE",
+            "REVERSED_EVIDENCE_RANGE",
+            "EVIDENCE_WRONG_CRITERION",
+            "EVIDENCE_WRONG_RESPONSE_VERSION",
+            "MISSING_REQUIRED_EVIDENCE",
+            "INCOMPLETE_COVERAGE",
+            "MALFORMED_CONSISTENCY",
+            "CONSISTENCY_UNKNOWN_CRITERION",
+            "AUTHORITY_ESCALATION",
+            "AGGREGATE_MISMATCH",
+            "UNEXPECTED_CRITERION",
+            "AMBIGUOUS_DUPLICATE_STRUCTURE",
+        ),
+        start=1,
+    )
+)
+
 
 def bounded_structured_retry(adapter: Any, *, max_attempts: int = 2) -> tuple[Any, int]:
     """Use the existing bounded structured-output retry contract."""
@@ -51,7 +84,10 @@ def validate_stage_output(
     """Strictly validate bounded AI stage output before persistence."""
     expected = {str(item["code"]): item for item in rubric_criteria}
     levels = {str(item["code"]) for item in performance_levels}
-    if {str(item.get("criterion_code")) for item in criteria} != set(expected):
+    codes = [str(item.get("criterion_code")) for item in criteria]
+    if len(codes) != len(set(codes)):
+        raise ValueError("duplicate criterion")
+    if set(codes) != set(expected):
         raise ValueError("criterion coverage does not match rubric")
     for item in criteria:
         code = str(item.get("criterion_code"))
@@ -79,6 +115,16 @@ def validate_stage_output(
                 or end > len(response_text)
             ):
                 raise ValueError("evidence reference is outside response")
+
+
+def validate_consistency_output(output: dict[str, Any], criterion_codes: set[str]) -> None:
+    if output.get("status") not in {"PASS", "WARNING", "BLOCKING_ISSUE"}:
+        raise ValueError("malformed consistency output")
+    unknown = set(str(item) for item in output.get("criterion_codes", [])) - criterion_codes
+    if unknown:
+        raise ValueError("consistency output references unknown criterion")
+    if output.get("final") is True or output.get("approved") is True:
+        raise ValueError("consistency reviewer cannot approve")
 
 
 def compare_independent_proposals(

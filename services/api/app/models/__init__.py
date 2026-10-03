@@ -15,6 +15,14 @@ from app.models.ai_orchestration import (
 )
 from app.models.audit import AuditEvent
 from app.models.base import Base
+from app.models.exam import (
+    Exam,
+    ExamVersion,
+    ExamVersionItemBinding,
+    ExamVersionModule,
+    ExamVersionSection,
+    ExamVersionTask,
+)
 from app.models.identity import (
     AuthSession,
     MembershipRole,
@@ -134,4 +142,10 @@ __all__ = [
     "QuestionBankItemEvidenceBinding",
     "QuestionBankStandardPackBinding",
     "QuestionBankMediaAsset",
+    "Exam",
+    "ExamVersion",
+    "ExamVersionModule",
+    "ExamVersionSection",
+    "ExamVersionTask",
+    "ExamVersionItemBinding",
 ]

@@ -76,6 +76,10 @@ jobs:
         working-directory: services/api
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_exam_studio.py tests/test_exam_studio_postgresql_integration.py
+        working-directory: services/api
+        env:
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: >-
           python -c "import os, psycopg;
           c=psycopg.connect(os.environ['DATABASE_URL'].replace('postgresql+psycopg://','postgresql://'));

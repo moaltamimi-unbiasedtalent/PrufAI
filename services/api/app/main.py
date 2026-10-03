@@ -9,6 +9,7 @@ from app.auth.api import org_router
 from app.auth.api import router as auth_router
 from app.config import Settings
 from app.dependencies import settings_dependency
+from app.exams.api import router as exam_router
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
 from app.memory.api import router as memory_router
@@ -57,6 +58,7 @@ app.include_router(rules_router)
 app.include_router(ai_orchestration_router)
 app.include_router(memory_router)
 app.include_router(question_bank_router)
+app.include_router(exam_router)
 
 
 @app.get("/health")

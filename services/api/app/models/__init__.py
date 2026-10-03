@@ -38,6 +38,12 @@ from app.models.knowledge import (
     KnowledgeLegalMetadata,
     KnowledgeSource,
 )
+from app.models.memory import (
+    AIRunMemoryReference,
+    LongTermMemory,
+    LongTermMemoryVersion,
+    MemoryEvidenceBinding,
+)
 from app.models.retrieval import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -110,4 +116,8 @@ __all__ = [
     "RuleEvidenceBinding",
     "StandardPackRuleBinding",
     "RuleSet",
+    "LongTermMemory",
+    "LongTermMemoryVersion",
+    "MemoryEvidenceBinding",
+    "AIRunMemoryReference",
 ]

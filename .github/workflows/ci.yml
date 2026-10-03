@@ -90,6 +90,12 @@ jobs:
         working-directory: services/api
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - run: python -m pytest tests/test_memory_governance.py
+        working-directory: services/api
+      - run: python -m pytest tests/test_memory_postgresql_integration.py
+        working-directory: services/api
+        env:
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -c "import psycopg; c=psycopg.connect('postgresql://prufai:prufai_ci@localhost:5432/prufai'); print(c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone()); assert c.execute(\"SELECT extname FROM pg_extension WHERE extname = 'vector'\").fetchone() is not None"
         working-directory: services/api
       - run: python -m pytest tests/test_postgresql_integration.py
@@ -101,6 +107,10 @@ jobs:
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -m pytest tests/test_redis_integration.py
+        working-directory: services/api
+        env:
+          REDIS_INTEGRATION_URL: redis://localhost:6379/0
+      - run: python -m pytest tests/test_memory_redis_integration.py
         working-directory: services/api
         env:
           REDIS_INTEGRATION_URL: redis://localhost:6379/0

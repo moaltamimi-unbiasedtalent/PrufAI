@@ -1,16 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { candidateApi } from "../../candidate/api";
+import { candidateApi, type CandidateRelease } from "../../candidate/api";
 
 export default function CandidateResultsPage() {
-  const [results, setResults] = useState<Array<Record<string, unknown>>>([]);
+  const [results, setResults] = useState<CandidateRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     candidateApi
-      .results()
+      .releases()
       .then(setResults)
       .catch(() => setError("Released results are unavailable right now."))
       .finally(() => setLoading(false));
@@ -29,15 +29,12 @@ export default function CandidateResultsPage() {
       )}
       <ul aria-label="Released assessment results">
         {results.map((result) => (
-          <li key={String(result.result_version_id)}>
+          <li key={result.id}>
             <article>
               <h2>Assessment result</h2>
-              <p>Status: Released</p>
-              <p>Outcome: {String(result.outcome ?? "Undetermined")}</p>
-              <p>
-                Score: {String(result.raw_awarded_points ?? "—")} /{" "}
-                {String(result.raw_maximum_points ?? "—")}
-              </p>
+              <p>Status: {result.status}</p>
+              <p>Classification: {result.classification}</p>
+              <p>Released: {new Date(result.released_at).toLocaleString()}</p>
             </article>
           </li>
         ))}

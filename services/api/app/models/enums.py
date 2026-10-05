@@ -285,6 +285,30 @@ class ResultVersionStatus(str, Enum):
     VOIDED = "VOIDED"
 
 
+class ReleaseStatus(str, Enum):
+    RELEASED = "RELEASED"
+    SUPERSEDED = "SUPERSEDED"
+    REVOKED = "REVOKED"
+
+
+class StatementStatus(str, Enum):
+    ISSUED = "ISSUED"
+    SUPERSEDED = "SUPERSEDED"
+    REVOKED = "REVOKED"
+
+
+class CertificationAuthorizationStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+
+
+class CertificateStatus(str, Enum):
+    ISSUED = "ISSUED"
+    SUPERSEDED = "SUPERSEDED"
+    REVOKED = "REVOKED"
+
+
 class ResultOutcome(str, Enum):
     UNDETERMINED = "UNDETERMINED"
     PASS = "PASS"

@@ -60,6 +60,12 @@ from app.models.question_bank import (
     QuestionBankMediaAsset,
     QuestionBankStandardPackBinding,
 )
+from app.models.result_release import (
+    CertificateRecord,
+    CertificationAuthorization,
+    ResultRelease,
+    StatementOfResults,
+)
 from app.models.retrieval import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -189,6 +195,10 @@ __all__ = [
     "ScoringComponent",
     "AssessmentResult",
     "ResultVersion",
+    "ResultRelease",
+    "StatementOfResults",
+    "CertificationAuthorization",
+    "CertificateRecord",
     "AssessmentRubric",
     "RubricVersion",
     "RubricEvidenceBinding",

@@ -14,6 +14,8 @@ from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
 from app.memory.api import router as memory_router
 from app.question_bank.api import router as question_bank_router
+from app.result_release.api import candidate_router as candidate_release_router
+from app.result_release.api import router as result_release_router
 from app.rules.api import router as rules_router
 from app.runtime.api import candidate_router
 from app.runtime.api import organisation_router as runtime_organisation_router
@@ -69,6 +71,8 @@ app.include_router(candidate_router)
 app.include_router(runtime_organisation_router)
 app.include_router(scoring_router)
 app.include_router(candidate_result_router)
+app.include_router(result_release_router)
+app.include_router(candidate_release_router)
 app.include_router(writing_router)
 app.include_router(speech_transcription_router)
 app.include_router(speaking_assessment_router)

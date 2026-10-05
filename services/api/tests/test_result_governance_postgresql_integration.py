@@ -35,21 +35,26 @@ def test_result_governance_schema_is_migration_backed() -> None:
             "scoring_runs",
         } <= tables
         constraints = {
-            row[0]
+            (row[0], row[1])
             for row in connection.execute(
                 """
-                SELECT constraint_name FROM information_schema.table_constraints
-                WHERE table_schema = 'public' AND table_name IN
-                ('result_appeals', 'result_appeal_versions', 'result_moderation_cases')
+                SELECT table_name, constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public' AND table_name IN (
+                    'result_appeals',
+                    'result_appeal_versions',
+                    'result_moderation_cases',
+                    'result_corrections'
+                )
                 """
             )
         }
         assert {
-            "uq_result_appeal_operation",
-            "uq_result_appeal_version_number",
-            "uq_result_appeal_version_operation",
-            "uq_result_moderation_operation",
-            "uq_result_correction_operation",
+            ("result_appeals", "uq_result_appeal_operation"),
+            ("result_appeal_versions", "uq_result_appeal_version_number"),
+            ("result_appeal_versions", "uq_result_appeal_version_operation"),
+            ("result_moderation_cases", "uq_result_moderation_operation"),
+            ("result_corrections", "uq_result_correction_operation"),
         } <= constraints
         columns = {
             (row[0], row[1])

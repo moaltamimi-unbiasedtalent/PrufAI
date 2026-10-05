@@ -21,6 +21,7 @@ class ResultRelease(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "result_releases"
     __table_args__ = (
         UniqueConstraint("result_version_id", "operation_id", name="uq_result_release_operation"),
+        UniqueConstraint("result_version_id", name="uq_result_release_version"),
         Index("ix_result_releases_candidate", "candidate_user_id", "organisation_id"),
     )
 

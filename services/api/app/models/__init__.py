@@ -69,8 +69,8 @@ from app.models.result_governance import (
     ResultModerationCase,
 )
 from app.models.result_release import (
-    CertificationAuthorization,
     CertificateRecord,
+    CertificationAuthorization,
     ResultRelease,
     StatementOfResults,
 )

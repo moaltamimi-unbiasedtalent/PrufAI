@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -145,7 +146,11 @@ class ResultReleaseService:
             ):
                 certificate.status = CertificateStatus.SUPERSEDED
         session.add(release)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            raise ResultReleaseError("result release conflict") from exc
         ResultReleaseService._audit(session, context, "result.release_created", release)
         return release
 

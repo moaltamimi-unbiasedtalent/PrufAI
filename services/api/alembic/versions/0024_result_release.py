@@ -38,6 +38,7 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "result_version_id", "operation_id", name="uq_result_release_operation"
         ),
+        sa.UniqueConstraint("result_version_id", name="uq_result_release_version"),
     )
     op.create_index(
         "ix_result_releases_candidate", "result_releases", ["candidate_user_id", "organisation_id"]

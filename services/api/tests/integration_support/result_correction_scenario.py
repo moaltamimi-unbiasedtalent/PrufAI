@@ -189,6 +189,7 @@ def build_governed_result_correction_scenario(
         scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
         rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
         origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
+        created_at=now,
         checksum=_checksum("i1"),
     )
     i2 = QuestionBankItemVersion(
@@ -207,8 +208,17 @@ def build_governed_result_correction_scenario(
         scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
         rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
         origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
+        created_at=now,
         checksum=_checksum("i2"),
     )
+    assert i1.item is item
+    assert i2.item is item
+    assert i1.origin_type is QuestionBankOriginType.HUMAN_AUTHORED
+    assert i2.origin_type is QuestionBankOriginType.HUMAN_AUTHORED
+    assert i1.created_at is not None
+    assert i2.created_at is not None
+    assert i1.checksum
+    assert i2.checksum
     exam = Exam(
         code=f"EXAM-{uuid.uuid4().hex[:8]}",
         name="Synthetic correction exam",
@@ -240,6 +250,8 @@ def build_governed_result_correction_scenario(
     )
     session.add_all([item, exam, module, section, task, binding])
     session.flush()
+    assert i1.item_id is not None
+    assert i2.item_id is not None
     ExamStudioService._refresh_checksum(session, exam_version)
     session.flush()
     assignment = CandidateExamAssignment(

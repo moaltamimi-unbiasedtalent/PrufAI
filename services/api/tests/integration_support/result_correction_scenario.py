@@ -36,6 +36,9 @@ from app.models import (
     SpeechTranscription,
     SpeechTranscriptionVersion,
     StandardPack,
+    StandardPackModule,
+    StandardPackSection,
+    StandardPackTaskSpecification,
     StandardPackVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -52,6 +55,7 @@ from app.models.enums import (
     OrganisationStatus,
     OrganisationType,
     PackMediaRequirement,
+    PackNavigationMode,
     PackResponseMode,
     QuestionBankLifecycleStatus,
     QuestionBankOriginType,
@@ -85,6 +89,9 @@ class GovernedResultCorrectionScenario:
     second_candidate: User
     reviewer: User
     standard_pack_version: StandardPackVersion
+    standard_pack_module: StandardPackModule
+    standard_pack_section: StandardPackSection
+    standard_pack_task: StandardPackTaskSpecification
     exam: Exam
     exam_version: ExamVersion
     objective_item: QuestionBankItem
@@ -166,6 +173,44 @@ def build_governed_result_correction_scenario(
     )
     session.add(pack)
     session.flush()
+    pack_version.standard_pack_id = pack.id
+    session.add(pack_version)
+    session.flush()
+    pack_module = StandardPackModule(
+        standard_pack_version_id=pack_version.id,
+        code="SPEAKING",
+        name="Speaking",
+        skill="SPEAKING",
+        sequence=1,
+        navigation_mode=PackNavigationMode.LINEAR,
+        created_at=now,
+    )
+    session.add(pack_module)
+    session.flush()
+    pack_section = StandardPackSection(
+        module_id=pack_module.id,
+        code="A",
+        name="Speaking task",
+        sequence=1,
+        navigation_mode=PackNavigationMode.LINEAR,
+        created_at=now,
+    )
+    session.add(pack_section)
+    session.flush()
+    pack_task = StandardPackTaskSpecification(
+        section_id=pack_section.id,
+        code="TASK_1",
+        name="Speaking objective item",
+        sequence=1,
+        task_type="MULTIPLE_CHOICE",
+        min_items=1,
+        max_items=1,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        created_at=now,
+    )
+    session.add(pack_task)
+    session.flush()
     item = QuestionBankItem(
         code=f"ITEM-{uuid.uuid4().hex[:8]}",
         scope_type="ORGANISATION_PRIVATE",
@@ -219,6 +264,10 @@ def build_governed_result_correction_scenario(
     assert i2.created_at is not None
     assert i1.checksum
     assert i2.checksum
+    session.add(item)
+    session.flush()
+    assert i1.item_id == item.id
+    assert i2.item_id == item.id
     exam = Exam(
         code=f"EXAM-{uuid.uuid4().hex[:8]}",
         name="Synthetic correction exam",
@@ -237,10 +286,10 @@ def build_governed_result_correction_scenario(
         created_at=now,
     )
     module = ExamVersionModule(
-        exam_version=exam_version, standard_pack_module_id=uuid.uuid4(), ordinal=1
+        exam_version=exam_version, standard_pack_module_id=pack_module.id, ordinal=1
     )
-    section = ExamVersionSection(module=module, standard_pack_section_id=uuid.uuid4(), ordinal=1)
-    task = ExamVersionTask(section=section, standard_pack_task_spec_id=uuid.uuid4(), ordinal=1)
+    section = ExamVersionSection(module=module, standard_pack_section_id=pack_section.id, ordinal=1)
+    task = ExamVersionTask(section=section, standard_pack_task_spec_id=pack_task.id, ordinal=1)
     binding = ExamVersionItemBinding(
         task=task,
         slot_index=0,
@@ -248,10 +297,8 @@ def build_governed_result_correction_scenario(
         origin_type=ExamOriginType.HUMAN_AUTHORED,
         created_at=now,
     )
-    session.add_all([item, exam, module, section, task, binding])
+    session.add_all([exam, module, section, task, binding])
     session.flush()
-    assert i1.item_id is not None
-    assert i2.item_id is not None
     ExamStudioService._refresh_checksum(session, exam_version)
     session.flush()
     assignment = CandidateExamAssignment(
@@ -275,6 +322,8 @@ def build_governed_result_correction_scenario(
         submitted_at=now,
         created_at=now,
     )
+    session.add_all([assignment, attempt])
+    session.flush()
     response = CandidateResponse(
         attempt=attempt,
         exam_version_item_binding_id=binding.id,
@@ -291,7 +340,10 @@ def build_governed_result_correction_scenario(
         payload_checksum=_checksum("response"),
         received_at=now,
     )
-    session.add_all([assignment, attempt, response, revision])
+    session.add(response)
+    session.flush()
+    revision.candidate_response_id = response.id
+    session.add(revision)
     session.flush()
     session.add(
         CandidateAudioRecordingSession(
@@ -321,6 +373,8 @@ def build_governed_result_correction_scenario(
         status=CandidateMediaStatus.READY,
         created_at=now,
     )
+    session.add(asset)
+    session.flush()
     transcription = SpeechTranscription(
         asset=asset, operation_id=uuid.uuid4(), language="de", status=TranscriptionStatus.READY
     )
@@ -337,7 +391,11 @@ def build_governed_result_correction_scenario(
         configuration={},
         created_at=now,
     )
-    session.add_all([asset, transcription, t1])
+    session.add(transcription)
+    session.flush()
+    t1.transcription_id = transcription.id
+    t1.candidate_media_asset_id = asset.id
+    session.add(t1)
     session.flush()
     rubric = RubricVersion(
         rubric_id=uuid.uuid4(),
@@ -397,7 +455,14 @@ def build_governed_result_correction_scenario(
         checksum=_checksum("sp1"),
         created_at=now,
     )
-    session.add_all([rubric, speaking, sp1])
+    session.add(rubric)
+    session.flush()
+    session.add(speaking)
+    session.flush()
+    sp1.rubric_version_id = rubric.id
+    sp1.candidate_media_asset_id = asset.id
+    sp1.speech_transcription_version_id = t1.id
+    session.add(sp1)
     session.flush()
     run = ScoringRun(
         attempt_id=attempt.id,
@@ -440,7 +505,10 @@ def build_governed_result_correction_scenario(
         released_at=now,
         released_by_user_id=reviewer.id,
     )
-    session.add_all([result, r1])
+    session.add(result)
+    session.flush()
+    r1.result_id = result.id
+    session.add(r1)
     session.flush()
     appeal = ResultAppeal(
         organisation_id=org.id,
@@ -474,7 +542,10 @@ def build_governed_result_correction_scenario(
         checksum=_checksum("appeal-version"),
         created_at=now,
     )
-    session.add_all([appeal, av])
+    session.add(appeal)
+    session.flush()
+    av.appeal_id = appeal.id
+    session.add(av)
     session.flush()
     return GovernedResultCorrectionScenario(
         org,
@@ -482,6 +553,9 @@ def build_governed_result_correction_scenario(
         second_candidate,
         reviewer,
         pack_version,
+        pack_module,
+        pack_section,
+        pack_task,
         exam,
         exam_version,
         item,
@@ -502,3 +576,43 @@ def build_governed_result_correction_scenario(
         appeal,
         av,
     )
+
+
+def validate_governed_result_correction_scenario(
+    session: Session, scenario: GovernedResultCorrectionScenario
+) -> None:
+    """Verify critical persisted parents and historical provenance links."""
+    assert session.get(StandardPackVersion, scenario.exam_version.standard_pack_version_id)
+    assert session.get(StandardPackModule, scenario.exam_version.modules[0].standard_pack_module_id)
+    assert session.get(
+        StandardPackSection, scenario.exam_version.modules[0].sections[0].standard_pack_section_id
+    )
+    assert session.get(
+        StandardPackTaskSpecification,
+        scenario.exam_version.modules[0].sections[0].tasks[0].standard_pack_task_spec_id,
+    )
+    assert session.get(QuestionBankItem, scenario.objective_item.id)
+    assert scenario.objective_item_version_i1.item_id == scenario.objective_item.id
+    assert scenario.objective_item_version_i2.item_id == scenario.objective_item.id
+    binding = scenario.exam_version.modules[0].sections[0].tasks[0].item_bindings[0]
+    assert session.get(QuestionBankItemVersion, binding.question_bank_item_version_id)
+    assert binding.question_bank_item_version_id == scenario.objective_item_version_i1.id
+    assert binding.question_bank_item_version_id != scenario.objective_item_version_i2.id
+    assert session.get(CandidateExamAssignment, scenario.attempt.assignment_id)
+    assert session.get(CandidateExamAttempt, scenario.attempt.id)
+    assert session.get(CandidateResponse, scenario.candidate_response.id)
+    assert session.get(CandidateResponseRevision, scenario.candidate_response_revision.id)
+    assert session.get(RubricVersion, scenario.rubric_version.id)
+    assert session.get(CandidateMediaAsset, scenario.candidate_media_asset.id)
+    assert session.get(SpeechTranscription, scenario.speech_transcription.id)
+    assert session.get(SpeechTranscriptionVersion, scenario.transcription_t1.id)
+    assert session.get(SubjectiveAssessment, scenario.speaking_assessment.id)
+    assert session.get(SubjectiveAssessmentVersion, scenario.speaking_version_sp1.id)
+    assert session.get(ScoringRun, scenario.scoring_run_s1.id)
+    assert session.get(AssessmentResult, scenario.assessment_result.id)
+    assert session.get(ResultVersion, scenario.result_version_r1.id)
+    assert session.get(ResultAppeal, scenario.appeal.id)
+    assert session.get(ResultAppealVersion, scenario.appeal_version.id)
+    assert scenario.result_version_r1.scoring_run_id == scenario.scoring_run_s1.id
+    assert scenario.appeal.challenged_result_version_id == scenario.result_version_r1.id
+    assert scenario.appeal.challenged_result_checksum == scenario.result_version_r1.checksum

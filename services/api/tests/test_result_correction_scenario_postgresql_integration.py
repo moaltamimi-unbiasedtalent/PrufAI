@@ -35,6 +35,12 @@ def test_governed_result_correction_scenario_is_internally_consistent() -> None:
         assert (
             scenario.objective_item_version_i1.item_id == scenario.objective_item_version_i2.item_id
         )
+        assert scenario.objective_item_version_i1.origin_type is not None
+        assert scenario.objective_item_version_i2.origin_type is not None
+        assert (
+            scenario.objective_item_version_i1.origin_type
+            == scenario.objective_item_version_i2.origin_type
+        )
         assert scenario.attempt.candidate_user_id == scenario.candidate.id
         assert (
             scenario.transcription_t1.candidate_media_asset_id == scenario.candidate_media_asset.id

@@ -54,6 +54,7 @@ from app.models.enums import (
     PackMediaRequirement,
     PackResponseMode,
     QuestionBankLifecycleStatus,
+    QuestionBankOriginType,
     QuestionBankRightsStatus,
     QuestionBankScoringPolicy,
     QuestionBankSkill,
@@ -187,6 +188,7 @@ def build_governed_result_correction_scenario(
         max_points=Decimal("1"),
         scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
         rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
         checksum=_checksum("i1"),
     )
     i2 = QuestionBankItemVersion(
@@ -204,6 +206,7 @@ def build_governed_result_correction_scenario(
         max_points=Decimal("1"),
         scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
         rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
         checksum=_checksum("i2"),
     )
     exam = Exam(

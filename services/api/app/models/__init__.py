@@ -60,6 +60,14 @@ from app.models.question_bank import (
     QuestionBankMediaAsset,
     QuestionBankStandardPackBinding,
 )
+from app.models.result_governance import (
+    AppealInformationEntry,
+    ResultAppeal,
+    ResultAppealVersion,
+    ResultCorrection,
+    ResultCorrectionObjectiveBinding,
+    ResultModerationCase,
+)
 from app.models.retrieval import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -183,6 +191,12 @@ __all__ = [
     "CandidateExamSession",
     "CandidateResponse",
     "CandidateResponseRevision",
+    "ResultAppeal",
+    "ResultAppealVersion",
+    "AppealInformationEntry",
+    "ResultModerationCase",
+    "ResultCorrection",
+    "ResultCorrectionObjectiveBinding",
     "ScoringRun",
     "ScoringResponseSnapshot",
     "ItemScore",

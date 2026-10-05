@@ -7,11 +7,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.exams.service import ExamStudioService
 from app.models import (
     AssessmentResult,
+    AssessmentRubric,
     CandidateAudioRecordingSession,
     CandidateExamAssignment,
     CandidateExamAttempt,
@@ -106,11 +109,52 @@ class GovernedResultCorrectionScenario:
     transcription_t1: SpeechTranscriptionVersion
     speaking_assessment: SubjectiveAssessment
     speaking_version_sp1: SubjectiveAssessmentVersion
+    assessment_rubric: AssessmentRubric
     scoring_run_s1: ScoringRun
     assessment_result: AssessmentResult
     result_version_r1: ResultVersion
     appeal: ResultAppeal
     appeal_version: ResultAppealVersion
+
+
+def _flush_fixture_group(session: Session, *objects: Any) -> None:
+    """Add and flush a parent-first fixture group with metadata preflight.
+
+    This is deliberately test-only.  The checks run before SQLAlchemy flushes so
+    fixture defects identify the child field and missing parent rather than
+    surfacing later as a generic database integrity error.
+    """
+    for obj in objects:
+        mapper = sa_inspect(obj).mapper
+        for column in mapper.columns:
+            value = getattr(obj, column.key, None)
+            if (
+                not column.nullable
+                and not column.primary_key
+                and column.default is None
+                and column.server_default is None
+                and value is None
+            ):
+                raise AssertionError(
+                    f"Missing required fixture field: {mapper.class_.__name__} "
+                    f"{mapper.local_table.name}.{column.key} object={id(obj)}"
+                )
+            if value is None:
+                continue
+            for foreign_key in column.foreign_keys:
+                target_column = foreign_key.column
+                with session.no_autoflush:
+                    exists = session.execute(
+                        select(target_column).where(target_column == value).limit(1)
+                    ).first()
+                if exists is None:
+                    raise AssertionError(
+                        "Dangling fixture FK: "
+                        f"{mapper.class_.__name__}.{column.key} -> "
+                        f"{target_column.table.name}.{target_column.name}={value}"
+                    )
+    session.add_all(objects)
+    session.flush()
 
 
 def build_governed_result_correction_scenario(
@@ -146,15 +190,13 @@ def build_governed_result_correction_scenario(
         display_name="Reviewer R1",
         status=UserStatus.ACTIVE,
     )
-    session.add_all([org, candidate, second_candidate, reviewer])
-    session.flush()
-    session.add_all(
-        [
-            OrganisationMembership(organisation_id=org.id, user_id=candidate.id),
-            OrganisationMembership(organisation_id=org.id, user_id=second_candidate.id),
-            OrganisationMembership(organisation_id=org.id, user_id=reviewer.id),
-        ]
-    )
+    _flush_fixture_group(session, org, candidate, second_candidate, reviewer)
+    memberships = [
+        OrganisationMembership(organisation_id=org.id, user_id=candidate.id),
+        OrganisationMembership(organisation_id=org.id, user_id=second_candidate.id),
+        OrganisationMembership(organisation_id=org.id, user_id=reviewer.id),
+    ]
+    _flush_fixture_group(session, *memberships)
     pack = StandardPack(
         code=f"FIXTURE-{uuid.uuid4().hex[:8]}",
         name="Synthetic correction pack",
@@ -171,11 +213,9 @@ def build_governed_result_correction_scenario(
         supported_levels=["B1"],
         allowed_classifications=[AssessmentClassification.PRACTICE.value],
     )
-    session.add(pack)
-    session.flush()
+    _flush_fixture_group(session, pack)
     pack_version.standard_pack_id = pack.id
-    session.add(pack_version)
-    session.flush()
+    _flush_fixture_group(session, pack_version)
     pack_module = StandardPackModule(
         standard_pack_version_id=pack_version.id,
         code="SPEAKING",
@@ -185,8 +225,8 @@ def build_governed_result_correction_scenario(
         navigation_mode=PackNavigationMode.LINEAR,
         created_at=now,
     )
-    session.add(pack_module)
-    session.flush()
+    pack_module.standard_pack_version_id = pack_version.id
+    _flush_fixture_group(session, pack_module)
     pack_section = StandardPackSection(
         module_id=pack_module.id,
         code="A",
@@ -195,8 +235,8 @@ def build_governed_result_correction_scenario(
         navigation_mode=PackNavigationMode.LINEAR,
         created_at=now,
     )
-    session.add(pack_section)
-    session.flush()
+    pack_section.module_id = pack_module.id
+    _flush_fixture_group(session, pack_section)
     pack_task = StandardPackTaskSpecification(
         section_id=pack_section.id,
         code="TASK_1",
@@ -209,8 +249,8 @@ def build_governed_result_correction_scenario(
         media_requirement=PackMediaRequirement.NONE,
         created_at=now,
     )
-    session.add(pack_task)
-    session.flush()
+    pack_task.section_id = pack_section.id
+    _flush_fixture_group(session, pack_task)
     item = QuestionBankItem(
         code=f"ITEM-{uuid.uuid4().hex[:8]}",
         scope_type="ORGANISATION_PRIVATE",
@@ -264,8 +304,10 @@ def build_governed_result_correction_scenario(
     assert i2.created_at is not None
     assert i1.checksum
     assert i2.checksum
-    session.add(item)
-    session.flush()
+    _flush_fixture_group(session, item)
+    i1.item_id = item.id
+    i2.item_id = item.id
+    _flush_fixture_group(session, i1, i2)
     assert i1.item_id == item.id
     assert i2.item_id == item.id
     exam = Exam(
@@ -276,7 +318,6 @@ def build_governed_result_correction_scenario(
         created_at=now,
     )
     exam_version = ExamVersion(
-        exam=exam,
         version_label="1",
         status=ExamVersionStatus.PUBLISHED,
         standard_pack_version_id=pack_version.id,
@@ -285,22 +326,31 @@ def build_governed_result_correction_scenario(
         checksum=_checksum("exam"),
         created_at=now,
     )
+    _flush_fixture_group(session, exam)
+    exam_version.exam_id = exam.id
+    _flush_fixture_group(session, exam_version)
     module = ExamVersionModule(
-        exam_version=exam_version, standard_pack_module_id=pack_module.id, ordinal=1
+        exam_version_id=exam_version.id, standard_pack_module_id=pack_module.id, ordinal=1
     )
-    section = ExamVersionSection(module=module, standard_pack_section_id=pack_section.id, ordinal=1)
-    task = ExamVersionTask(section=section, standard_pack_task_spec_id=pack_task.id, ordinal=1)
+    _flush_fixture_group(session, module)
+    section = ExamVersionSection(
+        exam_version_module_id=module.id, standard_pack_section_id=pack_section.id, ordinal=1
+    )
+    _flush_fixture_group(session, section)
+    task = ExamVersionTask(
+        exam_version_section_id=section.id, standard_pack_task_spec_id=pack_task.id, ordinal=1
+    )
+    _flush_fixture_group(session, task)
     binding = ExamVersionItemBinding(
-        task=task,
+        exam_version_task_id=task.id,
         slot_index=0,
         question_bank_item_version_id=i1.id,
         origin_type=ExamOriginType.HUMAN_AUTHORED,
         created_at=now,
     )
-    session.add_all([exam, module, section, task, binding])
-    session.flush()
+    _flush_fixture_group(session, binding)
     ExamStudioService._refresh_checksum(session, exam_version)
-    session.flush()
+    _flush_fixture_group(session)
     assignment = CandidateExamAssignment(
         organisation_id=org.id,
         candidate_user_id=candidate.id,
@@ -322,17 +372,21 @@ def build_governed_result_correction_scenario(
         submitted_at=now,
         created_at=now,
     )
-    session.add_all([assignment, attempt])
-    session.flush()
+    assignment.candidate_user_id = candidate.id
+    assignment.organisation_id = org.id
+    assignment.exam_version_id = exam_version.id
+    _flush_fixture_group(session, assignment)
+    attempt.assignment_id = assignment.id
+    _flush_fixture_group(session, attempt)
     response = CandidateResponse(
-        attempt=attempt,
+        attempt_id=attempt.id,
         exam_version_item_binding_id=binding.id,
         current_revision=1,
         current_payload={"option_id": "b"},
         finalized_at=now,
     )
     revision = CandidateResponseRevision(
-        response=response,
+        candidate_response_id=None,
         attempt_id=attempt.id,
         revision_number=1,
         client_operation_id=uuid.uuid4(),
@@ -340,25 +394,21 @@ def build_governed_result_correction_scenario(
         payload_checksum=_checksum("response"),
         received_at=now,
     )
-    session.add(response)
-    session.flush()
+    _flush_fixture_group(session, response)
     revision.candidate_response_id = response.id
-    session.add(revision)
-    session.flush()
-    session.add(
-        CandidateAudioRecordingSession(
-            attempt_id=attempt.id,
-            exam_version_item_binding_id=binding.id,
-            candidate_user_id=candidate.id,
-            organisation_id=org.id,
-            attempt_number=1,
-            status=CandidateMediaStatus.READY,
-            operation_id=uuid.uuid4(),
-            policy_snapshot={},
-        )
+    _flush_fixture_group(session, revision)
+    recording_session = CandidateAudioRecordingSession(
+        attempt_id=attempt.id,
+        exam_version_item_binding_id=binding.id,
+        candidate_user_id=candidate.id,
+        organisation_id=org.id,
+        attempt_number=1,
+        status=CandidateMediaStatus.READY,
+        operation_id=uuid.uuid4(),
+        policy_snapshot={},
     )
-    session.flush()
-    recording = session.query(CandidateAudioRecordingSession).filter_by(attempt_id=attempt.id).one()
+    _flush_fixture_group(session, recording_session)
+    recording = recording_session
     audio = b"synthetic correction audio"
     asset = CandidateMediaAsset(
         organisation_id=org.id,
@@ -373,13 +423,15 @@ def build_governed_result_correction_scenario(
         status=CandidateMediaStatus.READY,
         created_at=now,
     )
-    session.add(asset)
-    session.flush()
+    _flush_fixture_group(session, asset)
     transcription = SpeechTranscription(
-        asset=asset, operation_id=uuid.uuid4(), language="de", status=TranscriptionStatus.READY
+        asset_id=asset.id,
+        operation_id=uuid.uuid4(),
+        language="de",
+        status=TranscriptionStatus.READY,
     )
     t1 = SpeechTranscriptionVersion(
-        transcription=transcription,
+        transcription_id=None,
         version_number=1,
         candidate_media_asset_id=asset.id,
         audio_sha256=asset.sha256,
@@ -391,14 +443,19 @@ def build_governed_result_correction_scenario(
         configuration={},
         created_at=now,
     )
-    session.add(transcription)
-    session.flush()
+    _flush_fixture_group(session, transcription)
     t1.transcription_id = transcription.id
     t1.candidate_media_asset_id = asset.id
-    session.add(t1)
-    session.flush()
+    _flush_fixture_group(session, t1)
+    rubric_root = AssessmentRubric(
+        code=f"FIXTURE-RUBRIC-{uuid.uuid4().hex[:8]}",
+        name="Synthetic speaking rubric",
+        organisation_id=org.id,
+        status=RubricVersionStatus.PUBLISHED,
+    )
+    _flush_fixture_group(session, rubric_root)
     rubric = RubricVersion(
-        rubric_id=uuid.uuid4(),
+        rubric_id=rubric_root.id,
         version_label="1",
         schema_version="1",
         assessment_family=AssessmentFamily.LANGUAGE,
@@ -426,7 +483,7 @@ def build_governed_result_correction_scenario(
         created_at=now,
     )
     sp1 = SubjectiveAssessmentVersion(
-        assessment=speaking,
+        subjective_assessment_id=None,
         version_number=1,
         attempt_id=attempt.id,
         exam_version_id=exam_version.id,
@@ -455,15 +512,13 @@ def build_governed_result_correction_scenario(
         checksum=_checksum("sp1"),
         created_at=now,
     )
-    session.add(rubric)
-    session.flush()
-    session.add(speaking)
-    session.flush()
+    _flush_fixture_group(session, rubric)
+    _flush_fixture_group(session, speaking)
+    sp1.subjective_assessment_id = speaking.id
     sp1.rubric_version_id = rubric.id
     sp1.candidate_media_asset_id = asset.id
     sp1.speech_transcription_version_id = t1.id
-    session.add(sp1)
-    session.flush()
+    _flush_fixture_group(session, sp1)
     run = ScoringRun(
         attempt_id=attempt.id,
         exam_version_id=exam_version.id,
@@ -480,8 +535,7 @@ def build_governed_result_correction_scenario(
         completed_at=now,
         initiated_by_user_id=reviewer.id,
     )
-    session.add(run)
-    session.flush()
+    _flush_fixture_group(session, run)
     result = AssessmentResult(
         attempt_id=attempt.id,
         candidate_user_id=candidate.id,
@@ -490,7 +544,7 @@ def build_governed_result_correction_scenario(
         created_at=now,
     )
     r1 = ResultVersion(
-        result=result,
+        result_id=None,
         scoring_run_id=run.id,
         version_number=1,
         status=ResultVersionStatus.RELEASED,
@@ -505,11 +559,9 @@ def build_governed_result_correction_scenario(
         released_at=now,
         released_by_user_id=reviewer.id,
     )
-    session.add(result)
-    session.flush()
+    _flush_fixture_group(session, result)
     r1.result_id = result.id
-    session.add(r1)
-    session.flush()
+    _flush_fixture_group(session, r1)
     appeal = ResultAppeal(
         organisation_id=org.id,
         candidate_user_id=candidate.id,
@@ -542,11 +594,9 @@ def build_governed_result_correction_scenario(
         checksum=_checksum("appeal-version"),
         created_at=now,
     )
-    session.add(appeal)
-    session.flush()
+    _flush_fixture_group(session, appeal)
     av.appeal_id = appeal.id
-    session.add(av)
-    session.flush()
+    _flush_fixture_group(session, av)
     return GovernedResultCorrectionScenario(
         org,
         candidate,
@@ -570,6 +620,7 @@ def build_governed_result_correction_scenario(
         t1,
         speaking,
         sp1,
+        rubric_root,
         run,
         result,
         r1,
@@ -582,6 +633,7 @@ def validate_governed_result_correction_scenario(
     session: Session, scenario: GovernedResultCorrectionScenario
 ) -> None:
     """Verify critical persisted parents and historical provenance links."""
+    _validate_fixture_fk_closure(session, scenario)
     assert session.get(StandardPackVersion, scenario.exam_version.standard_pack_version_id)
     assert session.get(StandardPackModule, scenario.exam_version.modules[0].standard_pack_module_id)
     assert session.get(
@@ -592,6 +644,8 @@ def validate_governed_result_correction_scenario(
         scenario.exam_version.modules[0].sections[0].tasks[0].standard_pack_task_spec_id,
     )
     assert session.get(QuestionBankItem, scenario.objective_item.id)
+    assert session.get(AssessmentRubric, scenario.assessment_rubric.id)
+    assert scenario.rubric_version.rubric_id == scenario.assessment_rubric.id
     assert scenario.objective_item_version_i1.item_id == scenario.objective_item.id
     assert scenario.objective_item_version_i2.item_id == scenario.objective_item.id
     binding = scenario.exam_version.modules[0].sections[0].tasks[0].item_bindings[0]
@@ -616,3 +670,25 @@ def validate_governed_result_correction_scenario(
     assert scenario.result_version_r1.scoring_run_id == scenario.scoring_run_s1.id
     assert scenario.appeal.challenged_result_version_id == scenario.result_version_r1.id
     assert scenario.appeal.challenged_result_checksum == scenario.result_version_r1.checksum
+
+
+def _validate_fixture_fk_closure(
+    session: Session, scenario: GovernedResultCorrectionScenario
+) -> None:
+    """Re-query every FK on every ORM object exposed by the scenario."""
+    for obj in scenario.__dict__.values():
+        mapper = sa_inspect(obj).mapper
+        for column in mapper.columns:
+            value = getattr(obj, column.key, None)
+            if value is None:
+                continue
+            for foreign_key in column.foreign_keys:
+                target_column = foreign_key.column
+                with session.no_autoflush:
+                    exists = session.execute(
+                        select(target_column).where(target_column == value).limit(1)
+                    ).first()
+                assert exists is not None, (
+                    f"Dangling persisted fixture FK: {mapper.class_.__name__}.{column.key} -> "
+                    f"{target_column.table.name}.{target_column.name}={value}"
+                )

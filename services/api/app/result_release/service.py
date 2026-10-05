@@ -136,6 +136,14 @@ class ResultReleaseService:
             if previous is None or previous.organisation_id != result.organisation_id:
                 raise ResultReleaseError("superseded release is not available")
             previous.status = ReleaseStatus.SUPERSEDED
+            for statement in session.scalars(
+                select(StatementOfResults).where(StatementOfResults.release_id == previous.id)
+            ):
+                statement.status = StatementStatus.SUPERSEDED
+            for certificate in session.scalars(
+                select(CertificateRecord).where(CertificateRecord.release_id == previous.id)
+            ):
+                certificate.status = CertificateStatus.SUPERSEDED
         session.add(release)
         session.flush()
         ResultReleaseService._audit(session, context, "result.release_created", release)
@@ -269,6 +277,38 @@ class ResultReleaseService:
         session.flush()
         ResultReleaseService._audit(session, context, "certificate.issued", certificate)
         return certificate
+
+    @staticmethod
+    def revoke_release(
+        session: Session, context: TenantContext, release_id: uuid.UUID, reason: str
+    ) -> ResultRelease:
+        AuthorizationService.require_permission(context, "result.manage", context.organisation_id)
+        release = ResultReleaseService._owned_release(session, context, release_id)
+        if release.status is not ReleaseStatus.RELEASED:
+            raise ResultReleaseError("release is not active")
+        if not reason.strip():
+            raise ResultReleaseError("revocation reason is required")
+        release.status = ReleaseStatus.REVOKED
+        ResultReleaseService._audit(session, context, "result.release_revoked", release)
+        session.flush()
+        return release
+
+    @staticmethod
+    def revoke_authorization(
+        session: Session, context: TenantContext, authorization_id: uuid.UUID, reason: str
+    ) -> CertificationAuthorization:
+        AuthorizationService.require_permission(context, "result.manage", context.organisation_id)
+        authorization = session.get(CertificationAuthorization, authorization_id)
+        if authorization is None or authorization.organisation_id != context.organisation_id:
+            raise ResultReleaseError("authorization is not available")
+        if not reason.strip():
+            raise ResultReleaseError("revocation reason is required")
+        authorization.status = CertificationAuthorizationStatus.REVOKED
+        ResultReleaseService._audit(
+            session, context, "certification.authorization_revoked", authorization
+        )
+        session.flush()
+        return authorization
 
     @staticmethod
     def candidate_releases(session: Session, context: TenantContext) -> list[ResultRelease]:

@@ -30,6 +30,10 @@ class AuthorizationRequest(BaseModel):
     effective_from: datetime
 
 
+class RevocationRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=240)
+
+
 def _context(principal: Principal) -> TenantContext:
     if principal.tenant_context is None:
         raise HTTPException(status_code=403, detail="organisation context required")
@@ -113,6 +117,26 @@ def issue_statement(
         raise _handle(exc) from exc
 
 
+@router.post("/{organisation_id}/releases/{release_id}/revoke")
+def revoke_release(
+    organisation_id: uuid.UUID,
+    release_id: uuid.UUID,
+    request: RevocationRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        release = ResultReleaseService.revoke_release(session, context, release_id, request.reason)
+        session.commit()
+        return {"id": str(release.id), "status": release.status.value}
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _handle(exc) from exc
+
+
 @router.post("/{organisation_id}/certification-authorizations")
 def create_authorization(
     organisation_id: uuid.UUID,
@@ -138,6 +162,28 @@ def create_authorization(
             "status": authorization.status.value,
             "checksum": authorization.checksum,
         }
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _handle(exc) from exc
+
+
+@router.post("/{organisation_id}/certification-authorizations/{authorization_id}/revoke")
+def revoke_authorization(
+    organisation_id: uuid.UUID,
+    authorization_id: uuid.UUID,
+    request: RevocationRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        authorization = ResultReleaseService.revoke_authorization(
+            session, context, authorization_id, request.reason
+        )
+        session.commit()
+        return {"id": str(authorization.id), "status": authorization.status.value}
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _handle(exc) from exc

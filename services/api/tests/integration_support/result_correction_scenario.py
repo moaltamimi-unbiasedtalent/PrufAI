@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.exams.service import ExamStudioService
 from app.models import (
     AssessmentResult,
     CandidateAudioRecordingSession,
@@ -162,6 +163,8 @@ def build_governed_result_correction_scenario(
         supported_levels=["B1"],
         allowed_classifications=[AssessmentClassification.PRACTICE.value],
     )
+    session.add(pack)
+    session.flush()
     item = QuestionBankItem(
         code=f"ITEM-{uuid.uuid4().hex[:8]}",
         scope_type="ORGANISATION_PRIVATE",
@@ -232,7 +235,9 @@ def build_governed_result_correction_scenario(
         origin_type=ExamOriginType.HUMAN_AUTHORED,
         created_at=now,
     )
-    session.add_all([pack, item, exam, module, section, task, binding])
+    session.add_all([item, exam, module, section, task, binding])
+    session.flush()
+    ExamStudioService._refresh_checksum(session, exam_version)
     session.flush()
     assignment = CandidateExamAssignment(
         organisation_id=org.id,

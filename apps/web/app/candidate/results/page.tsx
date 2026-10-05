@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { candidateApi, type CandidateRelease } from "../../candidate/api";
+import Link from "next/link";
 
 export default function CandidateResultsPage() {
   const [results, setResults] = useState<CandidateRelease[]>([]);
@@ -35,6 +36,9 @@ export default function CandidateResultsPage() {
               <p>Status: {result.status}</p>
               <p>Classification: {result.classification}</p>
               <p>Released: {new Date(result.released_at).toLocaleString()}</p>
+              <Link href="/candidate/results/appeal">
+                Appeal a released result
+              </Link>
             </article>
           </li>
         ))}

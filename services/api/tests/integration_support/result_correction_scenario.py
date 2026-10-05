@@ -1,0 +1,694 @@
+from __future__ import annotations
+
+import hashlib
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.exams.service import ExamStudioService
+from app.models import (
+    AssessmentResult,
+    AssessmentRubric,
+    CandidateAudioRecordingSession,
+    CandidateExamAssignment,
+    CandidateExamAttempt,
+    CandidateMediaAsset,
+    CandidateResponse,
+    CandidateResponseRevision,
+    Exam,
+    ExamVersion,
+    ExamVersionItemBinding,
+    ExamVersionModule,
+    ExamVersionSection,
+    ExamVersionTask,
+    Organisation,
+    OrganisationMembership,
+    QuestionBankItem,
+    QuestionBankItemVersion,
+    ResultAppeal,
+    ResultAppealVersion,
+    ResultVersion,
+    RubricVersion,
+    ScoringRun,
+    SpeechTranscription,
+    SpeechTranscriptionVersion,
+    StandardPack,
+    StandardPackModule,
+    StandardPackSection,
+    StandardPackTaskSpecification,
+    StandardPackVersion,
+    SubjectiveAssessment,
+    SubjectiveAssessmentVersion,
+    User,
+)
+from app.models.enums import (
+    AssessmentClassification,
+    AssessmentFamily,
+    CandidateAssignmentStatus,
+    CandidateAttemptStatus,
+    CandidateMediaStatus,
+    ExamOriginType,
+    ExamVersionStatus,
+    OrganisationStatus,
+    OrganisationType,
+    PackMediaRequirement,
+    PackNavigationMode,
+    PackResponseMode,
+    QuestionBankLifecycleStatus,
+    QuestionBankOriginType,
+    QuestionBankRightsStatus,
+    QuestionBankScoringPolicy,
+    QuestionBankSkill,
+    QuestionBankTaskType,
+    ResultOutcome,
+    ResultVersionStatus,
+    RubricVersionStatus,
+    ScoringRunStatus,
+    StandardPackStatus,
+    SubjectiveAssessmentStatus,
+    TranscriptionStatus,
+    UserStatus,
+)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _checksum(value: Any) -> str:
+    return hashlib.sha256(repr(value).encode()).hexdigest()
+
+
+@dataclass
+class GovernedResultCorrectionScenario:
+    organisation: Organisation
+    candidate: User
+    second_candidate: User
+    reviewer: User
+    standard_pack_version: StandardPackVersion
+    standard_pack_module: StandardPackModule
+    standard_pack_section: StandardPackSection
+    standard_pack_task: StandardPackTaskSpecification
+    exam: Exam
+    exam_version: ExamVersion
+    objective_item: QuestionBankItem
+    objective_item_version_i1: QuestionBankItemVersion
+    objective_item_version_i2: QuestionBankItemVersion
+    attempt: CandidateExamAttempt
+    candidate_response: CandidateResponse
+    candidate_response_revision: CandidateResponseRevision
+    rubric_version: RubricVersion
+    candidate_media_asset: CandidateMediaAsset
+    speech_transcription: SpeechTranscription
+    transcription_t1: SpeechTranscriptionVersion
+    speaking_assessment: SubjectiveAssessment
+    speaking_version_sp1: SubjectiveAssessmentVersion
+    assessment_rubric: AssessmentRubric
+    scoring_run_s1: ScoringRun
+    assessment_result: AssessmentResult
+    result_version_r1: ResultVersion
+    appeal: ResultAppeal
+    appeal_version: ResultAppealVersion
+
+
+def _flush_fixture_group(session: Session, *objects: Any) -> None:
+    """Add and flush a parent-first fixture group with metadata preflight.
+
+    This is deliberately test-only.  The checks run before SQLAlchemy flushes so
+    fixture defects identify the child field and missing parent rather than
+    surfacing later as a generic database integrity error.
+    """
+    for obj in objects:
+        mapper = sa_inspect(obj).mapper
+        for column in mapper.columns:
+            value = getattr(obj, column.key, None)
+            if (
+                not column.nullable
+                and not column.primary_key
+                and column.default is None
+                and column.server_default is None
+                and value is None
+            ):
+                raise AssertionError(
+                    f"Missing required fixture field: {mapper.class_.__name__} "
+                    f"{mapper.local_table.name}.{column.key} object={id(obj)}"
+                )
+            if value is None:
+                continue
+            for foreign_key in column.foreign_keys:
+                target_column = foreign_key.column
+                with session.no_autoflush:
+                    exists = session.execute(
+                        select(target_column).where(target_column == value).limit(1)
+                    ).first()
+                if exists is None:
+                    raise AssertionError(
+                        "Dangling fixture FK: "
+                        f"{mapper.class_.__name__}.{column.key} -> "
+                        f"{target_column.table.name}.{target_column.name}={value}"
+                    )
+    session.add_all(objects)
+    session.flush()
+
+
+def build_governed_result_correction_scenario(
+    session: Session, *, include_objective_replacement: bool = True
+) -> GovernedResultCorrectionScenario:
+    """Bootstrap one migration-backed, internally linked correction scenario.
+
+    This builder intentionally seeds historical prerequisite state directly;
+    correction behavior itself remains exercised through production services.
+    """
+    now = _now()
+    org = Organisation(
+        name=f"Correction Fixture {uuid.uuid4().hex[:8]}",
+        slug=f"correction-{uuid.uuid4().hex[:12]}",
+        organisation_type=OrganisationType.LANGUAGE_SCHOOL,
+        status=OrganisationStatus.ACTIVE,
+    )
+    candidate = User(
+        email=f"candidate-{uuid.uuid4()}@fixture.invalid",
+        normalized_email=f"candidate-{uuid.uuid4()}@fixture.invalid",
+        display_name="Candidate B",
+        status=UserStatus.ACTIVE,
+    )
+    second_candidate = User(
+        email=f"candidate-a-{uuid.uuid4()}@fixture.invalid",
+        normalized_email=f"candidate-a-{uuid.uuid4()}@fixture.invalid",
+        display_name="Candidate A",
+        status=UserStatus.ACTIVE,
+    )
+    reviewer = User(
+        email=f"reviewer-{uuid.uuid4()}@fixture.invalid",
+        normalized_email=f"reviewer-{uuid.uuid4()}@fixture.invalid",
+        display_name="Reviewer R1",
+        status=UserStatus.ACTIVE,
+    )
+    _flush_fixture_group(session, org, candidate, second_candidate, reviewer)
+    memberships = [
+        OrganisationMembership(organisation_id=org.id, user_id=candidate.id),
+        OrganisationMembership(organisation_id=org.id, user_id=second_candidate.id),
+        OrganisationMembership(organisation_id=org.id, user_id=reviewer.id),
+    ]
+    _flush_fixture_group(session, *memberships)
+    pack = StandardPack(
+        code=f"FIXTURE-{uuid.uuid4().hex[:8]}",
+        name="Synthetic correction pack",
+        assessment_family=AssessmentFamily.LANGUAGE,
+        language="de",
+        status=StandardPackStatus.ACTIVE,
+    )
+    pack_version = StandardPackVersion(
+        standard_pack=pack,
+        version_label="1",
+        status=StandardPackStatus.ACTIVE,
+        created_at=now,
+        configuration_checksum=_checksum("pack"),
+        supported_levels=["B1"],
+        allowed_classifications=[AssessmentClassification.PRACTICE.value],
+    )
+    _flush_fixture_group(session, pack)
+    pack_version.standard_pack_id = pack.id
+    _flush_fixture_group(session, pack_version)
+    pack_module = StandardPackModule(
+        standard_pack_version_id=pack_version.id,
+        code="SPEAKING",
+        name="Speaking",
+        skill="SPEAKING",
+        sequence=1,
+        navigation_mode=PackNavigationMode.LINEAR,
+        created_at=now,
+    )
+    pack_module.standard_pack_version_id = pack_version.id
+    _flush_fixture_group(session, pack_module)
+    pack_section = StandardPackSection(
+        module_id=pack_module.id,
+        code="A",
+        name="Speaking task",
+        sequence=1,
+        navigation_mode=PackNavigationMode.LINEAR,
+        created_at=now,
+    )
+    pack_section.module_id = pack_module.id
+    _flush_fixture_group(session, pack_section)
+    pack_task = StandardPackTaskSpecification(
+        section_id=pack_section.id,
+        code="TASK_1",
+        name="Speaking objective item",
+        sequence=1,
+        task_type="MULTIPLE_CHOICE",
+        min_items=1,
+        max_items=1,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        created_at=now,
+    )
+    pack_task.section_id = pack_section.id
+    _flush_fixture_group(session, pack_task)
+    item = QuestionBankItem(
+        code=f"ITEM-{uuid.uuid4().hex[:8]}",
+        scope_type="ORGANISATION_PRIVATE",
+        organisation_id=org.id,
+        status=QuestionBankLifecycleStatus.PUBLISHED,
+        created_by_user_id=reviewer.id,
+    )
+    i1 = QuestionBankItemVersion(
+        item=item,
+        version_label="1",
+        status=QuestionBankLifecycleStatus.PUBLISHED,
+        assessment_family=AssessmentFamily.LANGUAGE,
+        language="de",
+        skill=QuestionBankSkill.SPEAKING,
+        task_type=QuestionBankTaskType.MULTIPLE_CHOICE,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        content={"correct_option_ids": ["a"]},
+        scoring_policy=QuestionBankScoringPolicy.OBJECTIVE_KEYED,
+        max_points=Decimal("1"),
+        scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
+        rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
+        created_at=now,
+        checksum=_checksum("i1"),
+    )
+    i2 = QuestionBankItemVersion(
+        item=item,
+        version_label="2",
+        status=QuestionBankLifecycleStatus.PUBLISHED,
+        assessment_family=AssessmentFamily.LANGUAGE,
+        language="de",
+        skill=QuestionBankSkill.SPEAKING,
+        task_type=QuestionBankTaskType.MULTIPLE_CHOICE,
+        response_mode=PackResponseMode.SELECT_ONE,
+        media_requirement=PackMediaRequirement.NONE,
+        content={"correct_option_ids": ["b"]},
+        scoring_policy=QuestionBankScoringPolicy.OBJECTIVE_KEYED,
+        max_points=Decimal("1"),
+        scoring_metadata={"unanswered_policy": {"type": "ZERO", "points": "0"}},
+        rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
+        origin_type=QuestionBankOriginType.HUMAN_AUTHORED,
+        created_at=now,
+        checksum=_checksum("i2"),
+    )
+    assert i1.item is item
+    assert i2.item is item
+    assert i1.origin_type is QuestionBankOriginType.HUMAN_AUTHORED
+    assert i2.origin_type is QuestionBankOriginType.HUMAN_AUTHORED
+    assert i1.created_at is not None
+    assert i2.created_at is not None
+    assert i1.checksum
+    assert i2.checksum
+    _flush_fixture_group(session, item)
+    i1.item_id = item.id
+    i2.item_id = item.id
+    _flush_fixture_group(session, i1, i2)
+    assert i1.item_id == item.id
+    assert i2.item_id == item.id
+    exam = Exam(
+        code=f"EXAM-{uuid.uuid4().hex[:8]}",
+        name="Synthetic correction exam",
+        scope_type="ORGANISATION_PRIVATE",
+        organisation_id=org.id,
+        created_at=now,
+    )
+    exam_version = ExamVersion(
+        version_label="1",
+        status=ExamVersionStatus.PUBLISHED,
+        standard_pack_version_id=pack_version.id,
+        classification=AssessmentClassification.PRACTICE,
+        origin_type=ExamOriginType.HUMAN_AUTHORED,
+        checksum=_checksum("exam"),
+        created_at=now,
+    )
+    _flush_fixture_group(session, exam)
+    exam_version.exam_id = exam.id
+    _flush_fixture_group(session, exam_version)
+    module = ExamVersionModule(
+        exam_version_id=exam_version.id, standard_pack_module_id=pack_module.id, ordinal=1
+    )
+    _flush_fixture_group(session, module)
+    section = ExamVersionSection(
+        exam_version_module_id=module.id, standard_pack_section_id=pack_section.id, ordinal=1
+    )
+    _flush_fixture_group(session, section)
+    task = ExamVersionTask(
+        exam_version_section_id=section.id, standard_pack_task_spec_id=pack_task.id, ordinal=1
+    )
+    _flush_fixture_group(session, task)
+    binding = ExamVersionItemBinding(
+        exam_version_task_id=task.id,
+        slot_index=0,
+        question_bank_item_version_id=i1.id,
+        origin_type=ExamOriginType.HUMAN_AUTHORED,
+        created_at=now,
+    )
+    _flush_fixture_group(session, binding)
+    ExamStudioService._refresh_checksum(session, exam_version)
+    _flush_fixture_group(session)
+    assignment = CandidateExamAssignment(
+        organisation_id=org.id,
+        candidate_user_id=candidate.id,
+        exam_version_id=exam_version.id,
+        status=CandidateAssignmentStatus.COMPLETED,
+        maximum_attempts=1,
+        created_at=now,
+    )
+    attempt = CandidateExamAttempt(
+        assignment=assignment,
+        candidate_user_id=candidate.id,
+        organisation_id=org.id,
+        exam_version_id=exam_version.id,
+        attempt_number=1,
+        status=CandidateAttemptStatus.SUBMITTED,
+        delivery_manifest_checksum=_checksum("manifest"),
+        runtime_plan_checksum=_checksum("runtime"),
+        runtime_plan={"standard_pack_version_id": str(pack_version.id)},
+        submitted_at=now,
+        created_at=now,
+    )
+    assignment.candidate_user_id = candidate.id
+    assignment.organisation_id = org.id
+    assignment.exam_version_id = exam_version.id
+    _flush_fixture_group(session, assignment)
+    attempt.assignment_id = assignment.id
+    _flush_fixture_group(session, attempt)
+    response = CandidateResponse(
+        attempt_id=attempt.id,
+        exam_version_item_binding_id=binding.id,
+        current_revision=1,
+        current_payload={"option_id": "b"},
+        finalized_at=now,
+    )
+    revision = CandidateResponseRevision(
+        candidate_response_id=None,
+        attempt_id=attempt.id,
+        revision_number=1,
+        client_operation_id=uuid.uuid4(),
+        payload={"option_id": "b"},
+        payload_checksum=_checksum("response"),
+        received_at=now,
+    )
+    _flush_fixture_group(session, response)
+    revision.candidate_response_id = response.id
+    _flush_fixture_group(session, revision)
+    recording_session = CandidateAudioRecordingSession(
+        attempt_id=attempt.id,
+        exam_version_item_binding_id=binding.id,
+        candidate_user_id=candidate.id,
+        organisation_id=org.id,
+        attempt_number=1,
+        status=CandidateMediaStatus.READY,
+        operation_id=uuid.uuid4(),
+        policy_snapshot={},
+    )
+    _flush_fixture_group(session, recording_session)
+    recording = recording_session
+    audio = b"synthetic correction audio"
+    asset = CandidateMediaAsset(
+        organisation_id=org.id,
+        candidate_user_id=candidate.id,
+        attempt_id=attempt.id,
+        exam_version_item_binding_id=binding.id,
+        recording_session_id=recording.id,
+        content_type="audio/ogg",
+        byte_size=len(audio),
+        sha256=hashlib.sha256(audio).hexdigest(),
+        storage_key=f"fixture/{uuid.uuid4()}",
+        status=CandidateMediaStatus.READY,
+        created_at=now,
+    )
+    _flush_fixture_group(session, asset)
+    transcription = SpeechTranscription(
+        asset_id=asset.id,
+        operation_id=uuid.uuid4(),
+        language="de",
+        status=TranscriptionStatus.READY,
+    )
+    t1 = SpeechTranscriptionVersion(
+        transcription_id=None,
+        version_number=1,
+        candidate_media_asset_id=asset.id,
+        audio_sha256=asset.sha256,
+        transcript="synthetic transcript",
+        segments=[],
+        checksum=_checksum("t1"),
+        status=TranscriptionStatus.READY,
+        language="de",
+        configuration={},
+        created_at=now,
+    )
+    _flush_fixture_group(session, transcription)
+    t1.transcription_id = transcription.id
+    t1.candidate_media_asset_id = asset.id
+    _flush_fixture_group(session, t1)
+    rubric_root = AssessmentRubric(
+        code=f"FIXTURE-RUBRIC-{uuid.uuid4().hex[:8]}",
+        name="Synthetic speaking rubric",
+        organisation_id=org.id,
+        status=RubricVersionStatus.PUBLISHED,
+    )
+    _flush_fixture_group(session, rubric_root)
+    rubric = RubricVersion(
+        rubric_id=rubric_root.id,
+        version_label="1",
+        schema_version="1",
+        assessment_family=AssessmentFamily.LANGUAGE,
+        language="de",
+        cefr_levels=["B1"],
+        skill=QuestionBankSkill.SPEAKING,
+        standard_pack_version_id=pack_version.id,
+        criteria=[{"code": "FLUENCY", "max_points": "1"}],
+        performance_levels=[{"code": "A"}],
+        aggregation_policy={"method": "SUM"},
+        evidence_policy={},
+        ai_assessment_policy={},
+        human_review_policy={},
+        status=RubricVersionStatus.PUBLISHED,
+        checksum=_checksum("rubric"),
+        created_at=now,
+    )
+    speaking = SubjectiveAssessment(
+        attempt_id=attempt.id,
+        exam_version_id=exam_version.id,
+        exam_version_item_binding_id=binding.id,
+        question_bank_item_version_id=i1.id,
+        candidate_user_id=candidate.id,
+        organisation_id=org.id,
+        created_at=now,
+    )
+    sp1 = SubjectiveAssessmentVersion(
+        subjective_assessment_id=None,
+        version_number=1,
+        attempt_id=attempt.id,
+        exam_version_id=exam_version.id,
+        exam_version_item_binding_id=binding.id,
+        question_bank_item_version_id=i1.id,
+        candidate_response_id=response.id,
+        candidate_response_revision_id=revision.id,
+        rubric_version_id=rubric.id,
+        standard_pack_version_id=pack_version.id,
+        status=SubjectiveAssessmentStatus.APPROVED,
+        response_checksum=revision.payload_checksum,
+        rubric_checksum=rubric.checksum,
+        candidate_media_asset_id=asset.id,
+        audio_sha256=asset.sha256,
+        speech_transcription_version_id=t1.id,
+        transcript_checksum=t1.checksum,
+        evidence_mode_summary={},
+        ai_proposal={},
+        human_approved_values={"FLUENCY": {"points": "1"}},
+        consistency_summary={},
+        confidence_summary={},
+        disagreement_summary={},
+        provenance={},
+        proposed_score=Decimal("1"),
+        approved_score=Decimal("1"),
+        checksum=_checksum("sp1"),
+        created_at=now,
+    )
+    _flush_fixture_group(session, rubric)
+    _flush_fixture_group(session, speaking)
+    sp1.subjective_assessment_id = speaking.id
+    sp1.rubric_version_id = rubric.id
+    sp1.candidate_media_asset_id = asset.id
+    sp1.speech_transcription_version_id = t1.id
+    _flush_fixture_group(session, sp1)
+    run = ScoringRun(
+        attempt_id=attempt.id,
+        exam_version_id=exam_version.id,
+        organisation_id=org.id,
+        candidate_user_id=candidate.id,
+        standard_pack_version_id=pack_version.id,
+        status=ScoringRunStatus.COMPLETED,
+        response_set_checksum=_checksum("response-set"),
+        scoring_engine_name="fixture",
+        scoring_engine_version="1",
+        configuration_checksum=_checksum("config"),
+        checksum=_checksum("s1"),
+        started_at=now,
+        completed_at=now,
+        initiated_by_user_id=reviewer.id,
+    )
+    _flush_fixture_group(session, run)
+    result = AssessmentResult(
+        attempt_id=attempt.id,
+        candidate_user_id=candidate.id,
+        organisation_id=org.id,
+        exam_version_id=exam_version.id,
+        created_at=now,
+    )
+    r1 = ResultVersion(
+        result_id=None,
+        scoring_run_id=run.id,
+        version_number=1,
+        status=ResultVersionStatus.RELEASED,
+        response_set_checksum=run.response_set_checksum,
+        scoring_run_checksum=run.checksum or "",
+        raw_awarded_points=Decimal("1"),
+        raw_maximum_points=Decimal("1"),
+        outcome=ResultOutcome.PASS,
+        rule_provenance={},
+        checksum=_checksum("r1"),
+        created_at=now,
+        released_at=now,
+        released_by_user_id=reviewer.id,
+    )
+    _flush_fixture_group(session, result)
+    r1.result_id = result.id
+    _flush_fixture_group(session, r1)
+    appeal = ResultAppeal(
+        organisation_id=org.id,
+        candidate_user_id=candidate.id,
+        attempt_id=attempt.id,
+        result_id=result.id,
+        challenged_result_version_id=r1.id,
+        scoring_run_id=run.id,
+        exam_version_id=exam_version.id,
+        standard_pack_version_id=pack_version.id,
+        challenged_result_checksum=r1.checksum,
+        status="SUBMITTED",
+        category="CORRECTION",
+        operation_id=str(uuid.uuid4()),
+        current_version_number=1,
+        current_checksum=_checksum("appeal"),
+        created_at=now,
+        updated_at=now,
+    )
+    av = ResultAppealVersion(
+        appeal=appeal,
+        version_number=1,
+        status="SUBMITTED",
+        category="CORRECTION",
+        grounds="synthetic",
+        challenged_result_version_id=r1.id,
+        challenged_result_checksum=r1.checksum,
+        evidence_bundle_checksum=_checksum("evidence"),
+        operation_id=str(uuid.uuid4()),
+        actor_user_id=candidate.id,
+        checksum=_checksum("appeal-version"),
+        created_at=now,
+    )
+    _flush_fixture_group(session, appeal)
+    av.appeal_id = appeal.id
+    _flush_fixture_group(session, av)
+    return GovernedResultCorrectionScenario(
+        org,
+        candidate,
+        second_candidate,
+        reviewer,
+        pack_version,
+        pack_module,
+        pack_section,
+        pack_task,
+        exam,
+        exam_version,
+        item,
+        i1,
+        i2,
+        attempt,
+        response,
+        revision,
+        rubric,
+        asset,
+        transcription,
+        t1,
+        speaking,
+        sp1,
+        rubric_root,
+        run,
+        result,
+        r1,
+        appeal,
+        av,
+    )
+
+
+def validate_governed_result_correction_scenario(
+    session: Session, scenario: GovernedResultCorrectionScenario
+) -> None:
+    """Verify critical persisted parents and historical provenance links."""
+    _validate_fixture_fk_closure(session, scenario)
+    assert session.get(StandardPackVersion, scenario.exam_version.standard_pack_version_id)
+    assert session.get(StandardPackModule, scenario.exam_version.modules[0].standard_pack_module_id)
+    assert session.get(
+        StandardPackSection, scenario.exam_version.modules[0].sections[0].standard_pack_section_id
+    )
+    assert session.get(
+        StandardPackTaskSpecification,
+        scenario.exam_version.modules[0].sections[0].tasks[0].standard_pack_task_spec_id,
+    )
+    assert session.get(QuestionBankItem, scenario.objective_item.id)
+    assert session.get(AssessmentRubric, scenario.assessment_rubric.id)
+    assert scenario.rubric_version.rubric_id == scenario.assessment_rubric.id
+    assert scenario.objective_item_version_i1.item_id == scenario.objective_item.id
+    assert scenario.objective_item_version_i2.item_id == scenario.objective_item.id
+    binding = scenario.exam_version.modules[0].sections[0].tasks[0].item_bindings[0]
+    assert session.get(QuestionBankItemVersion, binding.question_bank_item_version_id)
+    assert binding.question_bank_item_version_id == scenario.objective_item_version_i1.id
+    assert binding.question_bank_item_version_id != scenario.objective_item_version_i2.id
+    assert session.get(CandidateExamAssignment, scenario.attempt.assignment_id)
+    assert session.get(CandidateExamAttempt, scenario.attempt.id)
+    assert session.get(CandidateResponse, scenario.candidate_response.id)
+    assert session.get(CandidateResponseRevision, scenario.candidate_response_revision.id)
+    assert session.get(RubricVersion, scenario.rubric_version.id)
+    assert session.get(CandidateMediaAsset, scenario.candidate_media_asset.id)
+    assert session.get(SpeechTranscription, scenario.speech_transcription.id)
+    assert session.get(SpeechTranscriptionVersion, scenario.transcription_t1.id)
+    assert session.get(SubjectiveAssessment, scenario.speaking_assessment.id)
+    assert session.get(SubjectiveAssessmentVersion, scenario.speaking_version_sp1.id)
+    assert session.get(ScoringRun, scenario.scoring_run_s1.id)
+    assert session.get(AssessmentResult, scenario.assessment_result.id)
+    assert session.get(ResultVersion, scenario.result_version_r1.id)
+    assert session.get(ResultAppeal, scenario.appeal.id)
+    assert session.get(ResultAppealVersion, scenario.appeal_version.id)
+    assert scenario.result_version_r1.scoring_run_id == scenario.scoring_run_s1.id
+    assert scenario.appeal.challenged_result_version_id == scenario.result_version_r1.id
+    assert scenario.appeal.challenged_result_checksum == scenario.result_version_r1.checksum
+
+
+def _validate_fixture_fk_closure(
+    session: Session, scenario: GovernedResultCorrectionScenario
+) -> None:
+    """Re-query every FK on every ORM object exposed by the scenario."""
+    for obj in scenario.__dict__.values():
+        mapper = sa_inspect(obj).mapper
+        for column in mapper.columns:
+            value = getattr(obj, column.key, None)
+            if value is None:
+                continue
+            for foreign_key in column.foreign_keys:
+                target_column = foreign_key.column
+                with session.no_autoflush:
+                    exists = session.execute(
+                        select(target_column).where(target_column == value).limit(1)
+                    ).first()
+                assert exists is not None, (
+                    f"Dangling persisted fixture FK: {mapper.class_.__name__}.{column.key} -> "
+                    f"{target_column.table.name}.{target_column.name}={value}"
+                )

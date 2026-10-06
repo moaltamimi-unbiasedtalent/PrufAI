@@ -24,7 +24,7 @@ export type SpeakingReview = SpeakingReviewSummary & {
 };
 
 async function request<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: "include" });
+  const response = await authenticatedFetch(path);
   if (!response.ok) throw new Error(`REVIEW_HTTP_${response.status}`);
   return (await response.json()) as T;
 }
@@ -39,3 +39,4 @@ export const speakingReviewApi = {
       `/api/v1/organisations/${organisationId}/speaking-reviews/${assessmentId}`,
     ),
 };
+import { authenticatedFetch } from "../../../lib/api";

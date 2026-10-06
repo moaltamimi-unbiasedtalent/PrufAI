@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { authenticatedFetch } from "../../../lib/api";
 
 type ModerationCase = {
   id: string;
@@ -21,9 +22,9 @@ export default function ResultModerationPage() {
       setMessage("Organisation context is required.");
       return;
     }
-    fetch(`/api/v1/organisations/${organisationId}/result-moderation`, {
-      credentials: "include",
-    })
+    authenticatedFetch(
+      `/api/v1/organisations/${organisationId}/result-moderation`,
+    )
       .then((response) => {
         if (!response.ok) throw new Error("queue");
         return response.json() as Promise<ModerationCase[]>;

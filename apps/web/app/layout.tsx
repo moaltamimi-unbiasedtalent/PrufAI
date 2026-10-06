@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { AppShell, AuthProvider } from "../lib/auth";
 
 export const metadata: Metadata = {
   title: "PrüfAI Platform",
-  description: "PrüfAI engineering baseline",
+  description: "Governed assessment platform local demo",
 };
 
 export default function RootLayout({
@@ -12,7 +13,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
+      </body>
     </html>
   );
 }

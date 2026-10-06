@@ -23,7 +23,7 @@ from app.auth.service import AuthenticationError, AuthenticationService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
 from app.config import Settings, get_settings
 from app.db import get_db_session
-from app.models import AuthSession, OrganisationMembership, User
+from app.models import AuthSession, MembershipRole, OrganisationMembership, Role, User
 from app.models.enums import AuthSessionStatus
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -274,7 +274,16 @@ def me(
         "display_name": principal.user.display_name,
         "status": principal.user.status.value,
         "memberships": [
-            {"organisation_id": str(item.organisation_id), "status": item.status.value}
+            {
+                "organisation_id": str(item.organisation_id),
+                "organisation_name": item.organisation.name,
+                "status": item.status.value,
+                "role_keys": [role.key for role in session.scalars(
+                    select(Role).join(MembershipRole, MembershipRole.role_id == Role.id).where(
+                        MembershipRole.membership_id == item.id
+                    )
+                )],
+            }
             for item in memberships
         ],
         "platform_scope": bool(

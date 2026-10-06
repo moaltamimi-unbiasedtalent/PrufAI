@@ -25,7 +25,7 @@ export type AppealDetail = AppealSummary & {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await authenticatedFetch(path, {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -49,3 +49,4 @@ export const appealApi = {
       },
     ),
 };
+import { authenticatedFetch } from "../../../lib/api";

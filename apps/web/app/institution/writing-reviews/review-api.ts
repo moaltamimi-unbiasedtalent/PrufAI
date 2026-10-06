@@ -19,7 +19,7 @@ export type WritingReviewSummary = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await authenticatedFetch(path, {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -52,3 +52,4 @@ export const writingReviewApi = {
       { method: "POST", body: JSON.stringify({ decision }) },
     ),
 };
+import { authenticatedFetch } from "../../../lib/api";

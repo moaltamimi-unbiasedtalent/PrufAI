@@ -125,6 +125,7 @@ from app.models.writing_assessment import (
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
     SubjectiveCriterionAssessment,
+    WritingGovernanceOperation,
 )
 
 __all__ = [
@@ -219,6 +220,7 @@ __all__ = [
     "SubjectiveAssessment",
     "SubjectiveAssessmentVersion",
     "SubjectiveCriterionAssessment",
+    "WritingGovernanceOperation",
     "CandidateAudioRecordingSession",
     "CandidateMediaAsset",
     "CandidateResponseMediaBinding",

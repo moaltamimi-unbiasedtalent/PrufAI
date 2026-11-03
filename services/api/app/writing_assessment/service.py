@@ -26,6 +26,7 @@ from app.models import (
     RubricEvidenceBinding,
     RubricVersion,
     SpeechTranscriptionVersion,
+    StandardPackTaskSpecification,
     StandardPackVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -69,7 +70,10 @@ def normalized_writing_input(
 
 def _decimal(value: Any) -> Decimal:
     try:
-        return Decimal(str(value))
+        result = Decimal(str(value))
+        if not result.is_finite():
+            raise RubricError("rubric values must be finite Decimal numbers")
+        return result
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise RubricError("invalid Decimal rubric value") from exc
 
@@ -161,7 +165,7 @@ class RubricService:
 
     @staticmethod
     def checksum_payload(version: RubricVersion) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": version.schema_version,
             "assessment_family": version.assessment_family.value,
             "language": version.language,
@@ -191,6 +195,10 @@ class RubricService:
                 for binding in version.evidence_bindings
             ],
         }
+        # Keep historical unbound rubric checksums unchanged.
+        if version.task_spec_id is not None:
+            payload["task_spec_id"] = str(version.task_spec_id)
+        return payload
 
     @staticmethod
     def create_rubric(
@@ -243,6 +251,7 @@ class RubricService:
         human_review_policy: dict[str, Any],
         evidence_bindings: list[dict[str, Any]] | None = None,
         skill: QuestionBankSkill = QuestionBankSkill.WRITING,
+        task_spec_id: uuid.UUID | None = None,
         context: TenantContext | None = None,
     ) -> RubricVersion:
         validate_rubric(
@@ -256,6 +265,10 @@ class RubricService:
             standard_pack=standard_pack,
             schema_version="1",
         )
+        if task_spec_id is not None:
+            task = session.get(StandardPackTaskSpecification, task_spec_id)
+            if task is None or task.section.module.standard_pack_version_id != standard_pack.id:
+                raise RubricError("rubric task is not in the exact StandardPackVersion")
         version = RubricVersion(
             rubric_id=rubric.id,
             version_label=version_label,
@@ -265,6 +278,7 @@ class RubricService:
             cefr_levels=standard_pack.supported_levels,
             skill=QuestionBankSkill.WRITING,
             standard_pack_version_id=standard_pack.id,
+            task_spec_id=task_spec_id,
             criteria=criteria,
             performance_levels=performance_levels,
             aggregation_policy=aggregation_policy,
@@ -404,11 +418,17 @@ class SubjectiveAssessmentService:
         skill: QuestionBankSkill = QuestionBankSkill.WRITING,
         media_asset_id: uuid.UUID | None = None,
         transcription_version_id: uuid.UUID | None = None,
+        _human_origin: bool = False,
     ) -> SubjectiveAssessmentVersion:
         AuthorizationService.require_permission(
             context, "subjective.assess", context.organisation_id
         )
-        attempt = session.get(CandidateExamAttempt, attempt_id)
+        attempt = session.scalar(
+            select(CandidateExamAttempt)
+            .where(CandidateExamAttempt.id == attempt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         rubric = session.get(RubricVersion, rubric_version_id)
         if attempt is None or attempt.organisation_id != context.organisation_id:
             raise RubricError("attempt is not available in this organisation")
@@ -500,6 +520,16 @@ class SubjectiveAssessmentService:
                 session, context, "subjective_assessment.created", existing
             )
         latest = max(existing.versions, key=lambda row: row.version_number, default=None)
+        if latest is not None and latest.assessment_origin == "HUMAN":
+            if not _human_origin:
+                raise RubricError("human assessment history requires the governed human workflow")
+            if latest.status not in {
+                SubjectiveAssessmentStatus.REJECTED,
+                SubjectiveAssessmentStatus.CHANGES_REQUESTED,
+                SubjectiveAssessmentStatus.FAILED,
+                SubjectiveAssessmentStatus.VOIDED,
+            }:
+                raise RubricError("human assessment already has a current review or approval")
         version = SubjectiveAssessmentVersion(
             subjective_assessment_id=existing.id,
             version_number=(latest.version_number + 1 if latest else 1),
@@ -582,6 +612,13 @@ class SubjectiveAssessmentService:
         version = session.get(SubjectiveAssessmentVersion, assessment_version_id)
         if version is None:
             raise RubricError("subjective assessment version not found")
+        if version.assessment_origin == "HUMAN":
+            raise RubricError("human assessments cannot accept AI proposals")
+        if version.status not in {
+            SubjectiveAssessmentStatus.CREATED,
+            SubjectiveAssessmentStatus.AI_EVALUATION_RUNNING,
+        }:
+            raise RubricError("subjective assessment cannot accept another AI proposal")
         assessment = session.get(SubjectiveAssessment, version.subjective_assessment_id)
         if assessment is None or assessment.organisation_id != context.organisation_id:
             raise RubricError("subjective assessment is not available in this organisation")
@@ -636,6 +673,7 @@ class SubjectiveAssessmentService:
             ],
         }
         version.ai_run_id = ai_run_id
+        version.assessment_origin = "AI"
         if ai_run_id is not None:
             ai_run = session.get(AIRun, ai_run_id)
             if (
@@ -732,6 +770,8 @@ class SubjectiveAssessmentService:
         version = session.get(SubjectiveAssessmentVersion, version_id)
         if version is None or version.status is not SubjectiveAssessmentStatus.AI_PROPOSED:
             raise RubricError("subjective assessment is not awaiting review")
+        if version.assessment_origin == "HUMAN":
+            raise RubricError("human assessments require the human review path")
         assessment = session.get(SubjectiveAssessment, version.subjective_assessment_id)
         if assessment is None or assessment.organisation_id != context.organisation_id:
             raise RubricError("subjective assessment is not available in this organisation")
@@ -809,6 +849,7 @@ class SubjectiveAssessmentService:
         successor = SubjectiveAssessmentVersion(
             subjective_assessment_id=source.subjective_assessment_id,
             version_number=latest.version_number + 1,
+            assessment_origin=source.assessment_origin,
             attempt_id=source.attempt_id,
             exam_version_id=source.exam_version_id,
             exam_version_item_binding_id=source.exam_version_item_binding_id,
@@ -817,7 +858,7 @@ class SubjectiveAssessmentService:
             candidate_response_revision_id=source.candidate_response_revision_id,
             rubric_version_id=source.rubric_version_id,
             standard_pack_version_id=source.standard_pack_version_id,
-            status=SubjectiveAssessmentStatus.APPROVED,
+            status=SubjectiveAssessmentStatus.IN_REVIEW,
             response_checksum=source.response_checksum,
             rubric_checksum=source.rubric_checksum,
             workflow_version_id=source.workflow_version_id,
@@ -889,6 +930,8 @@ class SubjectiveAssessmentService:
                 "supersedes_version_id": str(source.id),
             }
         )
+        # Freeze only after the complete successor and its criteria are assembled.
+        successor.status = SubjectiveAssessmentStatus.APPROVED
         source.status = SubjectiveAssessmentStatus.SUPERSEDED
         review.status = HumanReviewStatus.APPROVED
         review.decided_by = context.user_id

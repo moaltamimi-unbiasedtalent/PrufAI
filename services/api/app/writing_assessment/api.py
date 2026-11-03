@@ -11,17 +11,24 @@ from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.models import (
+    AgentVersion,
+    AIRun,
     AssessmentRubric,
     CandidateResponseRevision,
+    ExamVersionItemBinding,
+    QuestionBankItemVersion,
     RubricVersion,
+    StandardPackTaskSpecification,
     StandardPackVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
 )
 from app.models.enums import HumanReviewStatus, QuestionBankSkill
+from app.writing_assessment.governance_api import human_writing_router, review_projection
 from app.writing_assessment.service import RubricError, RubricService, SubjectiveAssessmentService
 
 writing_router = APIRouter(prefix="/api/v1/organisations", tags=["writing-assessment"])
+writing_router.include_router(human_writing_router)
 
 
 def _context(principal: Principal) -> TenantContext:
@@ -36,6 +43,41 @@ def _error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=409, detail=str(exc))
 
 
+def _require_read(context: TenantContext, organisation_id: uuid.UUID) -> None:
+    try:
+        AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    except AuthorizationError as exc:
+        raise _error(exc) from exc
+
+
+def _legacy_ai_review_eligible(session: Session, version: SubjectiveAssessmentVersion) -> bool:
+    """Recognize pinned legacy association without claiming authentic inference."""
+    if version.assessment_origin != "UNSPECIFIED" or version.status.value != "AI_PROPOSED":
+        return False
+    if not all(
+        (
+            version.ai_run_id,
+            version.workflow_version_id,
+            version.agent_version_id,
+            version.prompt_version_id,
+            version.model_profile_id,
+        )
+    ):
+        return False
+    run = session.get(AIRun, version.ai_run_id)
+    agent = session.get(AgentVersion, version.agent_version_id)
+    return bool(
+        run
+        and agent
+        and run.workflow_version_id == version.workflow_version_id
+        and run.agent_version_id == version.agent_version_id
+        and agent.prompt_version_id == version.prompt_version_id
+        and agent.model_profile_id == version.model_profile_id
+        and agent.model_profile
+        and agent.model_profile.purpose == "WRITING_ASSESSMENT"
+    )
+
+
 @writing_router.get("/{organisation_id}/subjective-assessments")
 def list_assessments(
     organisation_id: uuid.UUID,
@@ -45,7 +87,7 @@ def list_assessments(
     context = _context(principal)
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
-    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    _require_read(context, organisation_id)
     assessments = session.scalars(
         select(SubjectiveAssessment)
         .where(
@@ -58,12 +100,15 @@ def list_assessments(
     result: list[dict[str, Any]] = []
     for item in assessments:
         current = SubjectiveAssessmentService.current_version(item)
+        rubric = session.get(RubricVersion, current.rubric_version_id) if current else None
         result.append(
             {
                 "id": str(item.id),
                 "attempt_id": str(item.attempt_id),
                 "status": current.status.value if current else "CREATED",
                 "current_version_id": str(current.id) if current else None,
+                "assessment_origin": current.assessment_origin if current else "UNSPECIFIED",
+                "skill": rubric.skill.value if rubric else None,
             }
         )
     return result
@@ -79,7 +124,7 @@ def get_assessment_workspace(
     context = _context(principal)
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
-    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    _require_read(context, organisation_id)
     assessment = session.scalar(
         select(SubjectiveAssessment)
         .where(
@@ -103,13 +148,70 @@ def get_assessment_workspace(
         raise HTTPException(status_code=404, detail="assessment version not found")
     revision = session.get(CandidateResponseRevision, current.candidate_response_revision_id)
     rubric = session.get(RubricVersion, current.rubric_version_id)
+    binding = session.get(ExamVersionItemBinding, current.exam_version_item_binding_id)
+    task = (
+        session.get(StandardPackTaskSpecification, binding.task.standard_pack_task_spec_id)
+        if binding
+        else None
+    )
+    item = session.get(QuestionBankItemVersion, current.question_bank_item_version_id)
     return {
         "id": str(assessment.id),
         "version_id": str(current.id),
         "status": current.status.value,
         "checksum": current.checksum,
+        "assessment_origin": current.assessment_origin,
+        "ai_run_id": str(current.ai_run_id) if current.ai_run_id else None,
+        "legacy_ai_review_eligible": _legacy_ai_review_eligible(session, current),
+        "skill": rubric.skill.value if rubric else None,
+        "assessor_id": current.provenance.get("assessed_by")
+        if current.assessment_origin == "HUMAN"
+        else None,
+        "reviewer_id": current.provenance.get("reviewed_by")
+        if current.assessment_origin == "HUMAN"
+        else None,
+        "provenance": current.provenance if current.assessment_origin == "HUMAN" else {},
+        "attempt_id": str(current.attempt_id),
+        "exam_version_id": str(current.exam_version_id),
+        "exam_version_item_binding_id": str(current.exam_version_item_binding_id),
+        "question_bank_item_version_id": str(current.question_bank_item_version_id),
+        "candidate_response_revision_id": str(current.candidate_response_revision_id),
+        "response_checksum": current.response_checksum,
+        "rubric_checksum": current.rubric_checksum,
+        "standard_pack_version_id": str(current.standard_pack_version_id),
+        "task_spec_id": str(rubric.task_spec_id) if rubric and rubric.task_spec_id else None,
+        "task_label": task.name if task else "Writing task",
+        "task_prompt": str(item.content.get("prompt", ""))
+        if item
+        and AuthorizationService.has_permission(context, "question_bank.read", organisation_id)
+        else "",
+        "task_prompt_available": bool(
+            item
+            and AuthorizationService.has_permission(context, "question_bank.read", organisation_id)
+        ),
+        "proposed_score": str(current.proposed_score)
+        if current.proposed_score is not None
+        else None,
+        "approved_score": str(current.approved_score)
+        if current.approved_score is not None
+        else None,
+        "review": review_projection(
+            session,
+            "SUBJECTIVE_ASSESSMENT_VERSION",
+            current.id,
+            review_type="HUMAN_WRITING_ASSESSMENT"
+            if current.assessment_origin == "HUMAN"
+            else None,
+        ),
         "candidate_text": (revision.payload.get("text") if revision else ""),
-        "rubric": {"id": str(rubric.id), "checksum": rubric.checksum, "criteria": rubric.criteria}
+        "rubric": {
+            "id": str(rubric.id),
+            "checksum": rubric.checksum,
+            "criteria": rubric.criteria,
+            "performance_levels": rubric.performance_levels,
+            "aggregation_policy": rubric.aggregation_policy,
+            "evidence_policy": rubric.evidence_policy,
+        }
         if rubric
         else None,
         "criteria": [
@@ -123,7 +225,7 @@ def get_assessment_workspace(
                 else None,
                 "evidence": item.evidence,
                 "rationale": item.rationale,
-                "confidence": item.confidence.value,
+                "confidence": item.confidence.value if item.confidence else None,
                 "disagreement": item.disagreement,
             }
             for item in current.criterion_assessments
@@ -187,6 +289,9 @@ def create_rubric_version(
             human_review_policy=payload.get("human_review_policy", {"required": True}),
             evidence_bindings=payload.get("evidence_bindings", []),
             skill=QuestionBankSkill(str(payload.get("skill", QuestionBankSkill.WRITING.value))),
+            task_spec_id=uuid.UUID(str(payload["task_spec_id"]))
+            if payload.get("task_spec_id")
+            else None,
             context=context,
         )
         session.commit()

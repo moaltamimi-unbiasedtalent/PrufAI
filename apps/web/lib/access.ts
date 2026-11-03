@@ -42,6 +42,8 @@ export function canViewRoute(
     return permissions.includes("result.read");
   if (path.startsWith("/institution/releases"))
     return permissions.includes("result.read");
+  if (path.startsWith("/institution/rubrics"))
+    return permissions.includes("rubric.read");
   if (
     path.startsWith("/institution/writing-reviews") ||
     path.startsWith("/institution/speaking-reviews")
@@ -97,5 +99,6 @@ export const workspaceLinks = [
   ["Result moderation", "/institution/result-moderation"],
   ["Appeals", "/institution/appeals"],
   ["Writing review", "/institution/writing-reviews"],
+  ["Writing rubrics", "/institution/rubrics"],
   ["Speaking review", "/institution/speaking-reviews"],
 ] as const;

@@ -331,6 +331,8 @@ class AIOrchestrationService:
         reason: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
+        if review.review_type in {"RUBRIC_PUBLICATION", "HUMAN_WRITING_ASSESSMENT"}:
+            raise ValueError("review requires a domain governed decision")
         if review.status not in {HumanReviewStatus.PENDING, HumanReviewStatus.IN_REVIEW}:
             raise ValueError("review already decided")
         if review.reviewed_checksum and checksum and review.reviewed_checksum != checksum:

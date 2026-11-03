@@ -82,7 +82,7 @@ export class CandidateApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/v1/candidate${path}`, {
+  const response = await authenticatedFetch(`/api/v1/candidate${path}`, {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -105,7 +105,7 @@ async function uploadAudio(
   content: Blob,
   filename: string,
 ): Promise<AudioMediaAsset> {
-  const response = await fetch(`/api/v1/candidate${path}`, {
+  const response = await authenticatedFetch(`/api/v1/candidate${path}`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -198,3 +198,4 @@ export const candidateApi = {
   result: (resultId: string) =>
     request<Record<string, unknown>>(`/results/${resultId}`),
 };
+import { authenticatedFetch } from "../../lib/api";

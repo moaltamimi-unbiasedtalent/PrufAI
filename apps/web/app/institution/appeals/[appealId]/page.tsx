@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../../lib/auth";
+
 import { useEffect, useState } from "react";
 import { appealApi, type AppealDetail } from "../appeal-api";
 
@@ -8,7 +10,7 @@ type Props = { params: Promise<{ appealId: string }> };
 export default function AppealWorkspacePage({ params }: Props) {
   const [appeal, setAppeal] = useState<AppealDetail | null>(null);
   const [message, setMessage] = useState("Loading appeal…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     void params.then(({ appealId }) => {
       if (!organisationId) {

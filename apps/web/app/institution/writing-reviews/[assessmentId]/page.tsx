@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../../lib/auth";
+
 import { useEffect, useState } from "react";
 import { writingReviewApi, type WritingReview } from "../review-api";
 
@@ -9,7 +11,7 @@ export default function WritingReviewWorkspacePage({ params }: Props) {
   const [assessmentId, setAssessmentId] = useState("");
   const [review, setReview] = useState<WritingReview | null>(null);
   const [message, setMessage] = useState("");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
 
   useEffect(() => {
     void params.then(({ assessmentId: id }) => {

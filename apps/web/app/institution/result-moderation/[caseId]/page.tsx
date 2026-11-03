@@ -1,6 +1,9 @@
 "use client";
 
+import { useAuth } from "../../../../lib/auth";
+
 import { useEffect, useState } from "react";
+import { authenticatedFetch } from "../../../../lib/api";
 
 type Props = { params: Promise<{ caseId: string }> };
 type ModerationCase = {
@@ -16,12 +19,11 @@ type ModerationCase = {
 export default function ModerationCasePage({ params }: Props) {
   const [item, setItem] = useState<ModerationCase | null>(null);
   const [message, setMessage] = useState("Loading moderation case…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     void params.then(({ caseId }) => {
-      fetch(
+      authenticatedFetch(
         `/api/v1/organisations/${organisationId}/result-moderation/${caseId}`,
-        { credentials: "include" },
       )
         .then((response) => {
           if (!response.ok) throw new Error("case");

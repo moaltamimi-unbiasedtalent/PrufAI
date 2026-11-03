@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { authenticatedFetch } from "../../../../lib/api";
 
 export default function CandidateAppealPage() {
   const [message, setMessage] = useState("");
@@ -8,7 +9,7 @@ export default function CandidateAppealPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const response = await fetch(
+    const response = await authenticatedFetch(
       `/api/v1/candidate/results/${resultVersionId}/appeals`,
       {
         method: "POST",

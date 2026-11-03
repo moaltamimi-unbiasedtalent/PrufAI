@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../lib/auth";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { appealApi, type AppealSummary } from "./appeal-api";
@@ -7,7 +9,7 @@ import { appealApi, type AppealSummary } from "./appeal-api";
 export default function AppealsQueuePage() {
   const [appeals, setAppeals] = useState<AppealSummary[]>([]);
   const [message, setMessage] = useState("Loading appeals…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     if (!organisationId) {
       setMessage("Organisation context is required.");
@@ -42,6 +44,13 @@ export default function AppealsQueuePage() {
           </tr>
         </thead>
         <tbody>
+          {!message && appeals.length === 0 && (
+            <tr>
+              <td colSpan={3}>
+                No appeals are available for review in this organisation.
+              </td>
+            </tr>
+          )}
           {appeals.map((appeal) => (
             <tr key={appeal.id}>
               <td>

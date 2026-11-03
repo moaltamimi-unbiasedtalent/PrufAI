@@ -1,7 +1,15 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import React, {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useAuth } from "../../../../lib/auth";
 import {
   CandidateApiError,
   candidateApi,
@@ -9,6 +17,7 @@ import {
 } from "../../api";
 import {
   AudioResponseControl,
+  applySavedResponse,
   RuntimeTimer,
   runtimeStateMessage,
   type ResponseMode,
@@ -17,6 +26,7 @@ import {
 import {
   queueCandidateOperation,
   syncCandidateOutbox,
+  type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "../../outbox";
 
@@ -36,7 +46,7 @@ const modeLabels: Record<string, string> = {
 };
 
 function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
-  return runtime.runtime_plan.modules.flatMap((module) =>
+  return (runtime.runtime_plan.modules ?? []).flatMap((module) =>
     module.sections.flatMap((section) =>
       section.tasks.flatMap((task) =>
         task.items.map((item) => ({
@@ -64,6 +74,13 @@ function safeError(cause: unknown): string {
 }
 
 export default function CandidateExamRuntimePage() {
+  const router = useRouter();
+  const { user, organisationId } = useAuth();
+  const userId = user?.id;
+  const accountScope = useMemo<CandidateAccountScope | null>(
+    () => (userId && organisationId ? { userId, organisationId } : null),
+    [userId, organisationId],
+  );
   const params = useParams<{ attemptId: string }>();
   const routeId = params.attemptId;
   const assignmentId = routeId.startsWith("assignment-")
@@ -82,7 +99,20 @@ export default function CandidateExamRuntimePage() {
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<Record<string, unknown>>({});
   const [starting, setStarting] = useState(false);
+  const [pendingSave, setPendingSave] = useState(false);
   const questionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const runtimeRef = useRef<RuntimeDto | null>(null);
+  const saveSequence = useRef<Promise<void>>(Promise.resolve());
+  const saveBlocked = useRef(false);
+
+  const updateRuntime = useCallback(
+    (update: (current: RuntimeDto | null) => RuntimeDto | null) => {
+      const state = update(runtimeRef.current);
+      runtimeRef.current = state;
+      setRuntime(state);
+    },
+    [],
+  );
 
   const items = useMemo(
     () => (runtime ? flattenItems(runtime) : []),
@@ -98,34 +128,43 @@ export default function CandidateExamRuntimePage() {
     ? items.findIndex((item) => item.binding_id === currentItem.binding_id)
     : -1;
   const editable = runtime?.status === "IN_PROGRESS";
+  const savedRevision =
+    runtime?.responses.find((item) => item.binding_id === currentBinding)
+      ?.revision ?? 0;
 
-  async function loadRuntime(id: string, nextScreen?: Screen) {
-    const state = await candidateApi.runtime(id);
-    setAttemptId(id);
-    setRuntime(state);
-    const persisted = state.responses.find(
-      (item) => item.binding_id === (state.session.current_binding_id ?? ""),
-    );
-    setResponse(persisted?.payload ?? {});
-    setScreen(
-      nextScreen ??
-        (state.status === "READY"
-          ? "prestart"
-          : state.status === "IN_PROGRESS" ||
-              state.status === "SUBMITTED" ||
-              state.status === "EXPIRED"
-            ? "runtime"
-            : "unavailable"),
-    );
-  }
+  const loadRuntime = useCallback(
+    async (id: string, nextScreen?: Screen) => {
+      const state = await candidateApi.runtime(id);
+      setAttemptId(id);
+      updateRuntime(() => state);
+      const bindingId =
+        state.session.current_binding_id ?? flattenItems(state)[0]?.binding_id;
+      const persisted = state.responses.find(
+        (item) => item.binding_id === bindingId,
+      );
+      setResponse(persisted?.payload ?? {});
+      setScreen(
+        nextScreen ??
+          (state.status === "READY"
+            ? "prestart"
+            : state.status === "IN_PROGRESS" ||
+                state.status === "SUBMITTED" ||
+                state.status === "EXPIRED"
+              ? "runtime"
+              : "unavailable"),
+      );
+    },
+    [updateRuntime],
+  );
 
   useEffect(() => {
     let active = true;
+    if (!accountScope) return;
     if (assignmentId) {
       candidateApi
         .assignments()
         .then((rows) => {
-          if (!active && rows.length === 0) return;
+          if (!active) return;
           if (!rows.some((row) => row.id === assignmentId))
             throw new CandidateApiError(404, "assignment unavailable");
           setScreen("prestart");
@@ -147,7 +186,7 @@ export default function CandidateExamRuntimePage() {
     return () => {
       active = false;
     };
-  }, [assignmentId, routeId]);
+  }, [assignmentId, routeId, accountScope, loadRuntime]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -166,7 +205,7 @@ export default function CandidateExamRuntimePage() {
       void candidateApi
         .heartbeat(attemptId)
         .then((state) => {
-          setRuntime((current) =>
+          updateRuntime((current) =>
             current
               ? {
                   ...current,
@@ -181,37 +220,85 @@ export default function CandidateExamRuntimePage() {
         .catch(() => undefined);
     }, 30000);
     return () => window.clearInterval(heartbeat);
-  }, [attemptId, editable]);
+  }, [attemptId, editable, updateRuntime]);
 
   useEffect(() => {
-    if (!online || !attemptId) return;
-    void syncCandidateOutbox(async (operation: CandidateOutboxOperation) => {
-      try {
-        await candidateApi.save(
-          operation.attemptId,
-          operation.bindingId,
-          operation.payload,
-          operation.expectedRevision,
-          operation.operationId,
-        );
-        setStatus("Saved");
-        return "ack";
-      } catch (cause) {
-        if (cause instanceof CandidateApiError && cause.status === 409) {
-          setStatus("Conflict");
-          return "conflict";
-        }
-        if (
-          cause instanceof CandidateApiError &&
-          cause.code.includes("expired")
-        ) {
-          setStatus("Expired");
-          return "expired";
-        }
-        return "conflict";
-      }
+    if (!online || !attemptId || !accountScope) return;
+    let active = true;
+    let expired = false;
+    setPendingSave(true);
+    const task = saveSequence.current.then(async () => {
+      if (!active) return;
+      return syncCandidateOutbox(
+        accountScope,
+        async (operation: CandidateOutboxOperation) => {
+          if (!active) throw new Error("candidate account changed");
+          try {
+            const saved = await candidateApi.save(
+              operation.attemptId,
+              operation.bindingId,
+              operation.payload,
+              operation.expectedRevision,
+              operation.operationId,
+            );
+            if (!active) throw new Error("candidate account changed");
+            updateRuntime((current) =>
+              current?.attempt_id === operation.attemptId
+                ? applySavedResponse(current, operation.bindingId, saved)
+                : current,
+            );
+            return "ack";
+          } catch (cause) {
+            if (cause instanceof CandidateApiError && cause.status === 409) {
+              saveBlocked.current = true;
+              setStatus("Conflict");
+              return "conflict";
+            }
+            if (
+              cause instanceof CandidateApiError &&
+              cause.code.includes("expired")
+            ) {
+              expired = true;
+              saveBlocked.current = true;
+              setStatus("Expired");
+              return "expired";
+            }
+            saveBlocked.current = true;
+            return "conflict";
+          }
+        },
+        attemptId,
+      );
     });
-  }, [online, attemptId]);
+    const complete = task
+      .then((result) => {
+        if (
+          active &&
+          result &&
+          !expired &&
+          result.acknowledged > 0 &&
+          result.conflicts === 0
+        ) {
+          saveBlocked.current = false;
+          setStatus("Saved");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          saveBlocked.current = true;
+          setError(
+            "Queued responses could not be synchronized. They remain saved for this account.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setPendingSave(false);
+      });
+    saveSequence.current = complete;
+    return () => {
+      active = false;
+    };
+  }, [online, attemptId, accountScope, updateRuntime]);
 
   async function prepareAttempt() {
     if (!assignmentId) return;
@@ -220,6 +307,7 @@ export default function CandidateExamRuntimePage() {
     try {
       const attempt = await candidateApi.createAttempt(assignmentId);
       await loadRuntime(attempt.id, "prestart");
+      router.replace(`/candidate/exams/${attempt.id}`);
     } catch (cause) {
       setError(safeError(cause));
       setScreen("prestart");
@@ -234,7 +322,7 @@ export default function CandidateExamRuntimePage() {
     setError(null);
     try {
       const started = await candidateApi.start(attemptId);
-      setRuntime(started);
+      updateRuntime(() => started);
       setScreen("runtime");
     } catch (cause) {
       setError(safeError(cause));
@@ -244,64 +332,75 @@ export default function CandidateExamRuntimePage() {
   }
 
   async function persist(payload: Record<string, unknown>) {
-    if (!attemptId || !currentItem || !editable) return;
-    const existing = runtime?.responses.find(
-      (item) => item.binding_id === currentItem.binding_id,
-    );
+    if (!attemptId || !currentItem || !editable || !accountScope) return;
+    const bindingId = currentItem.binding_id;
     const operationId = crypto.randomUUID();
-    const operation: CandidateOutboxOperation = {
-      attemptId,
-      bindingId: currentItem.binding_id,
-      operationId,
-      expectedRevision: existing?.revision ?? 0,
-      payload,
-      queuedAt: new Date().toISOString(),
-    };
     setResponse(payload);
-    if (!online) {
-      await queueCandidateOperation(operation);
-      setStatus("Offline — queued");
-      return;
-    }
-    setStatus("Saving");
-    try {
-      const saved = await candidateApi.save(
-        attemptId,
-        currentItem.binding_id,
-        payload,
-        operation.expectedRevision,
-        operationId,
-      );
-      setRuntime((current) =>
-        current
-          ? {
-              ...current,
-              responses: current.responses.map((item) =>
-                item.binding_id === currentItem.binding_id
-                  ? {
-                      ...item,
-                      revision: saved.revision,
-                      payload: saved.payload,
-                    }
-                  : item,
-              ),
-            }
-          : current,
-      );
-      setStatus("Saved");
-    } catch (cause) {
-      setStatus(
-        cause instanceof CandidateApiError && cause.status === 409
-          ? "Conflict"
-          : "Expired",
-      );
-      setError(safeError(cause));
-    }
+    setPendingSave(true);
+    const task = saveSequence.current
+      .then(async () => {
+        const existing = runtimeRef.current?.responses.find(
+          (item) => item.binding_id === bindingId,
+        );
+        const operation: CandidateOutboxOperation = {
+          attemptId,
+          bindingId,
+          operationId,
+          expectedRevision: existing?.revision ?? 0,
+          payload,
+          queuedAt: new Date().toISOString(),
+        };
+        if (!online) {
+          await queueCandidateOperation(accountScope, operation);
+          saveBlocked.current = true;
+          setStatus("Offline — queued");
+          return;
+        }
+        setStatus("Saving");
+        try {
+          const saved = await candidateApi.save(
+            attemptId,
+            bindingId,
+            payload,
+            operation.expectedRevision,
+            operationId,
+          );
+          updateRuntime((current) =>
+            current ? applySavedResponse(current, bindingId, saved) : current,
+          );
+          saveBlocked.current = false;
+          setError(null);
+          setStatus("Saved");
+        } catch (cause) {
+          saveBlocked.current = true;
+          setStatus(
+            cause instanceof CandidateApiError && cause.status === 409
+              ? "Conflict"
+              : cause instanceof CandidateApiError &&
+                  cause.code.includes("expired")
+                ? "Expired"
+                : "Save failed",
+          );
+          setError(safeError(cause));
+        }
+      })
+      .catch(() => {
+        saveBlocked.current = true;
+        setStatus("Save failed");
+        setError(
+          "Your response could not be saved locally. Keep this page open and reconnect before submitting.",
+        );
+      })
+      .finally(() => setPendingSave(false));
+    saveSequence.current = task;
+    await task;
   }
 
   async function navigateTo(bindingId: string) {
     if (!attemptId || !editable) return;
     try {
+      await saveSequence.current;
+      if (saveBlocked.current) throw new Error("response is not synchronized");
       await candidateApi.navigate(attemptId, bindingId);
       await loadRuntime(attemptId, "runtime");
       setError(null);
@@ -314,8 +413,15 @@ export default function CandidateExamRuntimePage() {
   async function submit() {
     if (!attemptId || !editable) return;
     try {
+      await saveSequence.current;
+      if (!online || saveBlocked.current) {
+        setError(
+          "Synchronize all responses before submitting. Reload to resolve a conflict.",
+        );
+        return;
+      }
       const submitted = await candidateApi.submit(attemptId);
-      setRuntime((current) =>
+      updateRuntime((current) =>
         current ? { ...current, status: submitted.status } : current,
       );
       setStatus("Submitted");
@@ -401,6 +507,7 @@ export default function CandidateExamRuntimePage() {
         Module and task position: {currentIndex + 1} of {items.length}
       </p>
       <p>Connection: {online ? "Online" : "Offline — changes are queued"}</p>
+      <p>Saved response revision: {savedRevision}</p>
       <p
         role={status === "Saved" || status === "Saving" ? "status" : "alert"}
         aria-live={status === "Saved" || status === "Saving" ? "off" : "polite"}
@@ -447,7 +554,7 @@ export default function CandidateExamRuntimePage() {
                           },
                     )
                   }
-                  disabled={!editable}
+                  disabled={!editable || pendingSave}
                 />{" "}
                 {option.display_text ?? option.option_id}
               </label>
@@ -463,7 +570,7 @@ export default function CandidateExamRuntimePage() {
               onChange={(event) => setResponse({ text: event.target.value })}
               onBlur={() => void persist(response)}
               aria-describedby={`${promptId} ${responseHelpId}`}
-              disabled={!editable}
+              disabled={!editable || pendingSave}
               maxLength={4000}
             />
           </label>
@@ -477,7 +584,7 @@ export default function CandidateExamRuntimePage() {
               onChange={(event) => setResponse({ text: event.target.value })}
               onBlur={() => void persist(response)}
               aria-describedby={`${promptId} ${responseHelpId}`}
-              disabled={!editable}
+              disabled={!editable || pendingSave}
               rows={8}
               maxLength={20000}
             />
@@ -519,7 +626,11 @@ export default function CandidateExamRuntimePage() {
           Next question
         </button>
       </nav>
-      <button type="button" onClick={() => void submit()} disabled={!editable}>
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={!editable || pendingSave}
+      >
         Submit attempt
       </button>
     </main>

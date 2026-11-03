@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../lib/auth";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { writingReviewApi, type WritingReviewSummary } from "./review-api";
@@ -7,7 +9,8 @@ import { writingReviewApi, type WritingReviewSummary } from "./review-api";
 export default function WritingReviewQueuePage() {
   const [reviews, setReviews] = useState<WritingReviewSummary[]>([]);
   const [message, setMessage] = useState("Loading review queue…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const { organisationId: activeOrganisationId, demoMode } = useAuth();
+  const organisationId = activeOrganisationId ?? "";
   useEffect(() => {
     if (!organisationId) {
       setMessage("Organisation context is required.");
@@ -42,6 +45,15 @@ export default function WritingReviewQueuePage() {
           </tr>
         </thead>
         <tbody>
+          {!message && reviews.length === 0 && (
+            <tr>
+              <td colSpan={3}>
+                No writing assessments are available for this organisation.
+                {demoMode &&
+                  " This demo includes objective practice evidence only; no submitted writing has been seeded."}
+              </td>
+            </tr>
+          )}
           {reviews.map((review) => (
             <tr key={review.id}>
               <td>

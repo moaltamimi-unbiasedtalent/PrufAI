@@ -201,6 +201,13 @@ jobs:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Human Writing foundation (required PostgreSQL)
+        run: python -m pytest tests/test_writing_foundation_postgresql_integration.py -v
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - name: Install pinned MinIO
         run: |
           set -euo pipefail

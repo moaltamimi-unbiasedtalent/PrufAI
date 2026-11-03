@@ -54,6 +54,8 @@ SAFE_EVENT_PREFIXES = frozenset(
         "certification",
         "appeal",
         "subjective",
+        "subjective_assessment",
+        "rubric",
         "scoring",
         "result_moderation",
     }

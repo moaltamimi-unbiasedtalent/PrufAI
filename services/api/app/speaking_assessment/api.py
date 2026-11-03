@@ -120,7 +120,7 @@ def get_speaking_review(
                 if item.approved_points is not None
                 else None,
                 "evidence": item.evidence,
-                "confidence": item.confidence.value,
+                "confidence": item.confidence.value if item.confidence else None,
                 "uncertainties": item.uncertainties,
                 "disagreement": item.disagreement,
             }

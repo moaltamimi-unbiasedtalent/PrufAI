@@ -88,6 +88,7 @@ from app.models.enums import (
 from app.question_bank.service import item_checksum
 from app.runtime.service import CandidateRuntimeService
 from app.scoring.service import ScoringService, checksum
+from app.scripts.seed_writing_demo import reconcile_writing_demo
 from app.services.identity import normalize_email
 from app.standard_packs.service import StandardPackService
 
@@ -672,6 +673,15 @@ def reconcile_demo(
     historical = _historical_result(
         session, organisation, administrator, users["history@demo.prufai.local"], version
     )
+    writing = reconcile_writing_demo(
+        session,
+        settings,
+        enabled=enabled,
+        organisation=organisation,
+        administrator=administrator,
+        platform_operator=platform_administrator,
+        password=password,
+    )
     session.commit()
     return {
         "organisation_id": str(organisation.id),
@@ -684,6 +694,7 @@ def reconcile_demo(
         "golden_exam_version_id": str(golden_version.id),
         "golden_pack_version_id": str(golden_version.standard_pack_version_id),
         "golden_item_version_id": str(demo_id("golden-item-version")),
+        **writing,
     }
 
 
@@ -699,7 +710,10 @@ def seed() -> dict[str, str]:
             password=os.getenv("PRUFAI_DEMO_PASSWORD", PASSWORD),
         )
     print(f"Reconciled synthetic objective and platform governance demo: {ORG_SLUG}")
-    print("Use the documented local-only accounts. No audio/writing evidence is seeded.")
+    print(
+        "Use the documented local-only accounts. "
+        "No audio/writing responses or assessments are seeded."
+    )
     return identifiers
 
 

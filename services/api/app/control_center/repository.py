@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol
 
-from sqlalchemy import Select, func, literal, select, text
+from sqlalchemy import func, literal, select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import Executable, FromClause
 
 from app.models import (
     AIModelProfile,
@@ -39,11 +40,27 @@ from app.models import (
 from app.models.enums import AppealStatus, ModerationStatus
 
 
+class SubquerySource(Protocol):
+    def subquery(self) -> FromClause: ...
+
+
+class LimitableQuery(Protocol):
+    def limit(self, limit: int, /) -> Executable: ...
+
+
+class MetadataQuery(Protocol):
+    """Pagination capabilities independent of SQLAlchemy's row-shape generics."""
+
+    def order_by(self, clause: None, /) -> SubquerySource: ...
+
+    def offset(self, offset: int, /) -> LimitableQuery: ...
+
+
 class ControlCenterRepository:
     """Explicit metadata projections; private domain payloads are never serialized."""
 
     @staticmethod
-    def page(session: Session, query: Select[Any], offset: int, limit: int) -> dict[str, Any]:
+    def page(session: Session, query: MetadataQuery, offset: int, limit: int) -> dict[str, Any]:
         total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery()))
         rows = session.execute(query.offset(offset).limit(limit)).mappings()
         return {
@@ -147,7 +164,7 @@ class ControlCenterRepository:
 
     @staticmethod
     def standards(session: Session, kind: str, offset: int, limit: int) -> dict[str, Any]:
-        query: Select[Any]
+        query: MetadataQuery
         if kind == "authorities":
             query = select(
                 KnowledgeAuthority.id,
@@ -203,7 +220,7 @@ class ControlCenterRepository:
 
     @staticmethod
     def sources(session: Session, kind: str, offset: int, limit: int) -> dict[str, Any]:
-        query: Select[Any]
+        query: MetadataQuery
         if kind == "documents":
             query = (
                 select(
@@ -362,7 +379,7 @@ class ControlCenterRepository:
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
-        query: Select[Any]
+        query: MetadataQuery
         if kind == "workflows":
             query = (
                 select(

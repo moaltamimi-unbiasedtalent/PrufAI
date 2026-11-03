@@ -28,6 +28,8 @@ export function canViewRoute(path: string, membership: Membership | undefined) {
   if (path.startsWith("/candidate")) return candidateMembership(membership);
   if (path.startsWith("/institution/overview"))
     return permissions.includes("exam_assignment.read");
+  if (path.startsWith("/institution/releases"))
+    return permissions.includes("result.read");
   if (
     path.startsWith("/institution/writing-reviews") ||
     path.startsWith("/institution/speaking-reviews")
@@ -45,7 +47,9 @@ export function canViewRoute(path: string, membership: Membership | undefined) {
 export const workspaceLinks = [
   ["Overview", "/"],
   ["My exams", "/candidate"],
+  ["My released results", "/candidate/results"],
   ["Institution inspection", "/institution/overview"],
+  ["Result releases", "/institution/releases"],
   ["Exam Studio preview", "/exam-studio"],
   ["Result moderation", "/institution/result-moderation"],
   ["Appeals", "/institution/appeals"],

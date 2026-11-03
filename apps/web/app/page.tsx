@@ -23,6 +23,19 @@ export default function Home() {
           marginTop: "2rem",
         }}
       >
+        {user?.platform_permissions.includes(
+          "platform.control_center.read",
+        ) && (
+          <article style={styles.card}>
+            <h2 style={{ marginTop: 0 }}>PrüfAI Control Centre</h2>
+            <p>
+              Inspect platform governance, audit evidence and system metadata.
+            </p>
+            <Link style={styles.primary} href="/control-center">
+              Open Control Centre →
+            </Link>
+          </article>
+        )}
         {workspaceLinks
           .filter(([, href]) => href !== "/" && canViewRoute(href, membership))
           .map(([title, href]) => (
@@ -48,7 +61,8 @@ export default function Home() {
             The local demo includes an original objective practice exam and
             institution inspection of submitted results. Audio playback,
             transcription and Writing evidence are unavailable in this dataset.
-            Full Control Centre is deferred to a separate milestone.
+            Platform operators can inspect governance metadata in the Control
+            Centre.
           </p>
         )}
         <p>

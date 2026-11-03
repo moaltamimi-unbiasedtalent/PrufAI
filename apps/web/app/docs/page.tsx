@@ -40,9 +40,15 @@ export default function DemoDocsPage() {
             <code>admin@demo.prufai.local</code> — institution administration
             and inspection
           </li>
+          <li>
+            <code>platform.admin@demo.prufai.local</code> — platform Control
+            Centre; no institution membership or tenant impersonation
+          </li>
         </ul>
         <p>
-          Password for all local-only accounts: <code>Demo-PrufAI-2026!</code>
+          Password for all local-only accounts: <code>Demo-PrufAI-2026!</code> A
+          local seed password override takes precedence; ask the local operator
+          if this default was changed.
         </p>
         <p>
           <strong>Safety:</strong> synthetic data only; never use these
@@ -52,7 +58,8 @@ export default function DemoDocsPage() {
       <p>
         The data contains no fabricated Writing or Speaking assessment. Local
         audio playback, transcription and AI proposals are unavailable in this
-        demonstration. Full Control Centre is deferred to a separate milestone.
+        demonstration. The Control Centre provides read-only platform metadata;
+        it does not grant official provider certification authority.
       </p>
       <OfflinePrivacyCheck />
       <p>

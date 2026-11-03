@@ -379,9 +379,13 @@ class ResultReleaseService:
         version = session.get(ResultVersion, release.result_version_id)
         if version is None:
             raise ResultReleaseError("statement result version is unavailable")
+        run = session.get(ScoringRun, release.scoring_run_id)
+        issued_at = _now()
         payload = {
             "statement_type": "Statement of Results",
             "issued_by_user_id": str(context.user_id),
+            "issued_at": issued_at.isoformat(),
+            "assessment_components": ScoringService.assessment_components(run),
             "raw_awarded_points": str(version.raw_awarded_points)
             if version.raw_awarded_points is not None
             else None,
@@ -410,7 +414,7 @@ class ResultReleaseService:
             attempt_id=release.attempt_id,
             classification=release.classification,
             statement_version=1,
-            issued_at=_now(),
+            issued_at=issued_at,
             checksum=_checksum(payload),
             status=StatementStatus.ISSUED,
             operation_id=operation_id,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,8 +12,15 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
-from app.models import CertificateRecord, ResultRelease, ResultVersion, StatementOfResults
+from app.models import (
+    CertificateRecord,
+    ResultRelease,
+    ResultVersion,
+    ScoringRun,
+    StatementOfResults,
+)
 from app.result_release.service import ResultReleaseError, ResultReleaseService
+from app.scoring.service import ScoringService
 
 router = APIRouter(prefix="/api/v1/organisations", tags=["result-release"])
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-release"])
@@ -60,7 +67,17 @@ def _artifact(session: Session, release: ResultRelease, artifact: Any) -> dict[s
         "checksum": artifact.checksum,
     }
     if isinstance(artifact, StatementOfResults):
-        payload.update({"classification": artifact.classification, "payload": artifact.payload})
+        payload.update(
+            {
+                "classification": artifact.classification,
+                "payload": artifact.payload,
+                "issued_at": (
+                    artifact.issued_at.astimezone(timezone.utc)
+                    if artifact.issued_at.tzinfo
+                    else artifact.issued_at.replace(tzinfo=timezone.utc)
+                ).isoformat(),
+            }
+        )
     else:
         payload.update(
             {
@@ -105,6 +122,9 @@ def _payload(session: Session, release: ResultRelease, *, detail: bool = False) 
                 else None,
                 "outcome": version.outcome.value if version.outcome else None,
                 "result_checksum": version.checksum,
+                "assessment_components": ScoringService.assessment_components(
+                    session.get(ScoringRun, release.scoring_run_id)
+                ),
             }
             if version is not None
             else None

@@ -839,12 +839,23 @@ class SubjectiveAssessmentService:
         source: SubjectiveAssessmentVersion,
         corrections: dict[str, dict[str, Any]],
         review: HumanReviewRequest,
+        *,
+        result_correction_id: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         """Create an approved successor; never overwrite AI proposal values."""
         rubric = session.get(RubricVersion, source.rubric_version_id)
         assessment = session.get(SubjectiveAssessment, source.subjective_assessment_id)
         if rubric is None or assessment is None:
             raise RubricError("assessment correction references unavailable data")
+        is_human = source.assessment_origin == "HUMAN"
+        if is_human:
+            from app.writing_assessment.governance import HumanWritingService
+
+            HumanWritingService.authorize_correction(
+                session, context, source, review, result_correction_id
+            )
+            corrections = HumanWritingService.normalize_correction_input(rubric, corrections)
+        decision_time = datetime.now(timezone.utc)
         latest = max(assessment.versions, key=lambda item: item.version_number)
         successor = SubjectiveAssessmentVersion(
             subjective_assessment_id=source.subjective_assessment_id,
@@ -881,6 +892,18 @@ class SubjectiveAssessmentService:
                 **source.provenance,
                 "human_correction": True,
                 "reviewed_by": str(context.user_id),
+                **(
+                    {
+                        "reviewed_at": decision_time.isoformat(),
+                        "result_correction_id": str(result_correction_id),
+                        "correction_review_id": str(review.id),
+                        "source_version_id": str(source.id),
+                        "source_checksum": source.checksum,
+                        "correction_input": corrections,
+                    }
+                    if is_human
+                    else {}
+                ),
             },
             checksum="",
             created_at=datetime.now(timezone.utc),
@@ -891,37 +914,54 @@ class SubjectiveAssessmentService:
         values: dict[str, Decimal] = {}
         for criterion in source.criterion_assessments:
             correction = corrections.get(criterion.criterion_code, {})
-            points = _decimal(correction.get("approved_points", criterion.proposed_points))
+            default_points = (
+                criterion.approved_points
+                if is_human and criterion.approved_points is not None
+                else criterion.proposed_points
+            )
+            points = _decimal(correction.get("approved_points", default_points))
             rubric_criterion = next(
                 item for item in rubric.criteria if item["code"] == criterion.criterion_code
             )
             if points < 0 or points > _decimal(rubric_criterion["max_points"]):
                 raise RubricError("human correction exceeds rubric bounds")
-            level = str(correction.get("approved_level", criterion.proposed_level))
+            default_level = (
+                criterion.approved_level
+                if is_human and criterion.approved_level is not None
+                else criterion.proposed_level
+            )
+            level = str(correction.get("approved_level", default_level))
             if level not in {str(item.get("code")) for item in rubric.performance_levels}:
                 raise RubricError("human correction uses unknown performance level")
-            session.add(
-                SubjectiveCriterionAssessment(
-                    subjective_assessment_version_id=successor.id,
-                    criterion_code=criterion.criterion_code,
-                    proposed_level=criterion.proposed_level,
-                    proposed_points=criterion.proposed_points,
-                    approved_level=level,
-                    approved_points=points,
-                    confidence=criterion.confidence,
-                    evidence=list(criterion.evidence),
-                    rationale=criterion.rationale,
-                    uncertainties=list(criterion.uncertainties),
-                    disagreement=dict(criterion.disagreement),
-                    status=SubjectiveCriterionStatus.APPROVED,
-                )
+            row = SubjectiveCriterionAssessment(
+                subjective_assessment_version_id=successor.id,
+                criterion_code=criterion.criterion_code,
+                proposed_level=criterion.proposed_level,
+                proposed_points=criterion.proposed_points,
+                approved_level=level,
+                approved_points=points,
+                confidence=criterion.confidence,
+                evidence=list(criterion.evidence),
+                rationale=criterion.rationale,
+                uncertainties=list(criterion.uncertainties),
+                disagreement=dict(criterion.disagreement),
+                status=SubjectiveCriterionStatus.APPROVED,
             )
+            successor.criterion_assessments.append(row)
             values[criterion.criterion_code] = points
         successor.approved_score = SubjectiveAssessmentService._aggregate(rubric, values)
         successor.human_approved_values = {
             code: {"level": corrections.get(code, {}).get("approved_level"), "points": str(points)}
             for code, points in values.items()
         }
+        if is_human:
+            successor.human_approved_values = {
+                row.criterion_code: {
+                    "level": row.approved_level,
+                    "points": format(row.approved_points, ".4f"),
+                }
+                for row in successor.criterion_assessments
+            }
         successor.checksum = canonical_checksum(
             {
                 "source_checksum": source.checksum,
@@ -935,7 +975,7 @@ class SubjectiveAssessmentService:
         source.status = SubjectiveAssessmentStatus.SUPERSEDED
         review.status = HumanReviewStatus.APPROVED
         review.decided_by = context.user_id
-        review.decided_at = datetime.now(timezone.utc)
+        review.decided_at = decision_time
         review.decision = "APPROVED"
         session.flush()
         SubjectiveAssessmentService._audit(

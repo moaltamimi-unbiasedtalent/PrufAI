@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
-from app.authorization import AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.models import (
     AppealInformationEntry,
     AssessmentResult,
@@ -27,6 +27,7 @@ from app.models import (
     ResultCorrectionObjectiveBinding,
     ResultModerationCase,
     ResultVersion,
+    RubricVersion,
     ScoringRun,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -594,6 +595,27 @@ class ResultGovernanceService:
                 or existing.source_result_checksum != appeal.challenged_result_checksum
             ):
                 raise ResultGovernanceError("operation_id already used with a different correction")
+            component = (
+                session.get(SubjectiveAssessmentVersion, existing.new_component_version_id)
+                if existing.new_component_version_id
+                else None
+            )
+            if component is not None and component.assessment_origin == "HUMAN":
+                from app.writing_assessment.governance import HumanWritingService
+
+                source = session.get(SubjectiveAssessmentVersion, component.supersedes_version_id)
+                rubric = session.get(RubricVersion, component.rubric_version_id)
+                if source is None or rubric is None:
+                    raise ResultGovernanceError("HUMAN correction replay provenance is unavailable")
+                HumanWritingService.authorize_correction_actor(context, source)
+                if existing.created_by_user_id != context.user_id:
+                    raise PermissionError("HUMAN correction replay requires its original reviewer")
+                if HumanWritingService.normalize_correction_input(
+                    rubric, corrections or {}
+                ) != component.provenance.get("correction_input"):
+                    raise ResultGovernanceError(
+                        "operation_id already used with different HUMAN correction values"
+                    )
             return existing
         current = session.scalar(
             select(ResultAppealVersion).where(
@@ -678,7 +700,12 @@ class ResultGovernanceService:
                 session.add(review)
                 session.flush()
                 successor = SubjectiveAssessmentService.correct(
-                    session, context, source, corrections or {}, review
+                    session,
+                    context,
+                    source,
+                    corrections or {},
+                    review,
+                    result_correction_id=correction.id,
                 )
                 correction.new_component_version_id = successor.id
                 cls._audit_correction(
@@ -756,7 +783,7 @@ class ResultGovernanceService:
             correction.failure_category = type(exc).__name__[:120]
             correction.updated_at = _now()
             cls._audit_correction(session, context, "result.correction_failed", correction)
-            if isinstance(exc, ResultGovernanceError):
+            if isinstance(exc, (ResultGovernanceError, AuthorizationError, PermissionError)):
                 raise
             raise ResultGovernanceError("governed correction failed") from exc
 

@@ -79,6 +79,24 @@ def test_required_human_evidence_is_not_satisfied_by_rationale():
         HumanWritingService.validate_entries(bound, "Grüße 👋", [entry()])
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {},
+        {"mode": "AI_ASSISTED", "enabled": True},
+        {"mode": "HUMAN_ONLY", "enabled": True},
+        {"mode": "HUMAN_ONLY"},
+        {"enabled": False},
+    ],
+)
+def test_human_workflow_requires_explicit_opt_in_and_is_never_an_ai_fallback(policy):
+    with pytest.raises(RubricError, match="explicitly authorize HUMAN_ONLY"):
+        HumanWritingService.assert_human_mode(RubricVersion(ai_assessment_policy=policy))
+    HumanWritingService.assert_human_mode(
+        RubricVersion(ai_assessment_policy={"mode": "HUMAN_ONLY", "enabled": False})
+    )
+
+
 def test_ai_proposal_route_cannot_reclassify_a_human_origin():
     context = TenantContext(
         uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), frozenset({"subjective.assess"})

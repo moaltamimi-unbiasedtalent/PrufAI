@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -41,6 +42,8 @@ from app.models.enums import (
     SubjectiveAssessmentStatus,
 )
 from app.rules.engine import EvaluationContext, RulesEngine
+from app.writing_assessment.governance import HumanWritingService
+from app.writing_assessment.service import RubricError
 
 ENGINE_NAME = "prufai_objective_scoring"
 ENGINE_VERSION = "1.0"
@@ -204,6 +207,22 @@ def objective_award(
 
 class ScoringService:
     @staticmethod
+    def _current_approved_subjective_versions(
+        versions: Iterable[SubjectiveAssessmentVersion],
+    ) -> dict[str, SubjectiveAssessmentVersion]:
+        current: dict[str, SubjectiveAssessmentVersion] = {}
+        for version in versions:
+            binding = str(version.exam_version_item_binding_id)
+            previous = current.get(binding)
+            if previous is None or version.version_number > previous.version_number:
+                current[binding] = version
+        return {
+            binding: version
+            for binding, version in current.items()
+            if version.status is SubjectiveAssessmentStatus.APPROVED
+        }
+
+    @staticmethod
     def fail_run(
         session: Session,
         run: ScoringRun,
@@ -307,15 +326,31 @@ class ScoringService:
                 if original_id not in item_map or replacement_id not in replacements:
                     raise ScoringError("OBJECTIVE_CORRECTION_SOURCE_MISSING")
                 item_map[original_id] = replacements[replacement_id]
-        subjective_versions = {
-            str(version.exam_version_item_binding_id): version
-            for version in session.scalars(
+        subjective_versions = ScoringService._current_approved_subjective_versions(
+            session.scalars(
                 select(SubjectiveAssessmentVersion).where(
                     SubjectiveAssessmentVersion.attempt_id == attempt.id,
-                    SubjectiveAssessmentVersion.status == SubjectiveAssessmentStatus.APPROVED,
                 )
             )
-        }
+        )
+        human_evidence: dict[str, dict[str, Any]] = {}
+        for row in snapshot_json["items"]:
+            source = subjective_versions.get(row["binding_id"])
+            item = item_map.get(str(row["question_bank_item_version_id"]))
+            if source is not None and source.assessment_origin == "HUMAN" and item is not None:
+                try:
+                    human_evidence[row["binding_id"]] = (
+                        HumanWritingService.approved_scoring_evidence(
+                            session,
+                            source,
+                            attempt,
+                            item,
+                            row,
+                            item.max_points or _decimal(item.scoring_metadata.get("max_points")),
+                        )
+                    )
+                except RubricError as exc:
+                    raise ScoringError(f"INVALID_HUMAN_ASSESSMENT: {exc}") from exc
         rule_refs = [
             {
                 "id": str(binding.rule_version_id),
@@ -353,6 +388,7 @@ class ScoringService:
                 }
                 for binding_id, version in sorted(subjective_versions.items())
             ],
+            **({"human_writing_evidence": human_evidence} if human_evidence else {}),
             "rule_versions": rule_refs,
         }
         configuration_checksum = checksum(configuration)
@@ -417,6 +453,7 @@ class ScoringService:
         max_total = Decimal("0")
         pending = 0
         aggregates: dict[tuple[str, str], list[Any]] = {}
+        component_evidence: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for row in snapshot_json["items"]:
             item = item_map.get(str(row["question_bank_item_version_id"]))
             if item is None:
@@ -452,6 +489,10 @@ class ScoringService:
                 aggregate[2] = aggregate[2] + (
                     1 if score_status is ItemScoreStatus.PENDING_ASSESSMENT else 0
                 )
+                if row["binding_id"] in human_evidence:
+                    component_evidence.setdefault((level, source_id), []).append(
+                        human_evidence[row["binding_id"]]["component"]
+                    )
             score = ItemScore(
                 scoring_run_id=run.id,
                 exam_version_item_binding_id=uuid.UUID(row["binding_id"]),
@@ -472,6 +513,7 @@ class ScoringService:
                     if policy != QuestionBankScoringPolicy.OBJECTIVE_KEYED.value
                     and subjective is not None
                     else None,
+                    **human_evidence.get(row["binding_id"], {}),
                 },
                 created_at=now,
             )
@@ -486,7 +528,14 @@ class ScoringService:
                     status=ItemScoreStatus.PENDING_ASSESSMENT
                     if pending_count
                     else ItemScoreStatus.SCORED,
-                    provenance={"standard_pack_version_id": str(pack.id)},
+                    provenance={
+                        "standard_pack_version_id": str(pack.id),
+                        **(
+                            {"assessment_components": component_evidence[(level, source_id)]}
+                            if (level, source_id) in component_evidence
+                            else {}
+                        ),
+                    },
                     created_at=now,
                 )
             )
@@ -606,6 +655,37 @@ class ScoringService:
         _audit(session, context, "result.version.created", rv)
         _audit(session, context, "scoring.run.completed", run, {"result_version_id": str(rv.id)})
         return run
+
+    @staticmethod
+    def assessment_components(run: ScoringRun | None) -> list[dict[str, Any]]:
+        """Safe snapshot projection from this exact run, never a latest assessment lookup."""
+        if run is None:
+            return []
+        fields = (
+            "skill",
+            "assessment_origin",
+            "subjective_assessment_version_id",
+            "subjective_assessment_checksum",
+            "rubric_version_id",
+            "rubric_checksum",
+            "candidate_response_revision_id",
+            "response_checksum",
+            "task_spec_id",
+            "approved_score",
+            "maximum_points",
+        )
+        result = []
+        for score in sorted(
+            run.item_scores, key=lambda item: str(item.exam_version_item_binding_id)
+        ):
+            component = score.scoring_metadata.get("component")
+            if (
+                isinstance(component, dict)
+                and component.get("skill") == "WRITING"
+                and component.get("assessment_origin") == "HUMAN"
+            ):
+                result.append({field: component.get(field) for field in fields})
+        return result
 
     @staticmethod
     def review_projection(session: Session, version: ResultVersion) -> dict[str, Any] | None:

@@ -43,6 +43,9 @@ def _admin_version(
         "result_version_id": str(version.id),
         "version_number": version.version_number,
         "scoring_run_id": str(version.scoring_run_id),
+        "assessment_components": ScoringService.assessment_components(
+            session.get(ScoringRun, version.scoring_run_id)
+        ),
         "review": ScoringService.review_projection(session, version),
         "attempt_id": str(result.attempt_id),
         "status": version.status.value,
@@ -105,6 +108,7 @@ def get_scoring_run(
         "status": run.status.value,
         "response_set_checksum": run.response_set_checksum,
         "scoring_engine": f"{run.scoring_engine_name}@{run.scoring_engine_version}",
+        "assessment_components": ScoringService.assessment_components(run),
         "checksum": run.checksum,
     }
 

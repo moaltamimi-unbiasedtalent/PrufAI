@@ -21,6 +21,32 @@ export PRUFAI_E2E_ARTIFACT_DIR="${PRUFAI_E2E_ARTIFACT_DIR:-$(mktemp -d /tmp/pruf
 mkdir -p "$PRUFAI_E2E_ARTIFACT_DIR"
 INTEGRATED_API_PORT="${PRUFAI_E2E_API_PORT:-8010}"
 INTEGRATED_WEB_PORT="${PRUFAI_E2E_WEB_PORT:-3010}"
+# Refuse an occupied target before touching even the isolated database. A 200
+# from an older demo must never be accepted as this runner's startup evidence.
+python3 - "$INTEGRATED_API_PORT" "$INTEGRATED_WEB_PORT" <<'PY'
+import socket
+import sys
+
+values = sys.argv[1:]
+if any(not value.isascii() or not value.isdigit() for value in values):
+    raise SystemExit("Browser acceptance ports must be decimal integers.")
+ports = [int(value) for value in values]
+if any(not 1024 <= port <= 65535 for port in ports) or len(set(ports)) != 2:
+    raise SystemExit("Browser acceptance ports must be distinct values from 1024 through 65535.")
+probes = []
+try:
+    for port in ports:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probes.append(probe)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as error:
+            raise SystemExit(f"Port {port} is unavailable; no services or database were changed.") from error
+finally:
+    for probe in probes:
+        probe.close()
+PY
 export PRUFAI_API_BASE_URL="http://127.0.0.1:$INTEGRATED_API_PORT"
 export PRUFAI_E2E_BASE_URL="http://127.0.0.1:$INTEGRATED_WEB_PORT"
 
@@ -65,8 +91,12 @@ wait_ready() {
       cat "$log_file" >&2
       return 1
     fi
-    if curl --fail --silent "$endpoint" >/dev/null; then
-      return 0
+    if curl --fail --silent --connect-timeout 1 --max-time 1 "$endpoint" >/dev/null; then
+      if kill -0 "$process_id" 2>/dev/null; then
+        return 0
+      fi
+      cat "$log_file" >&2
+      return 1
     fi
     sleep 1
   done

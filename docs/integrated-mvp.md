@@ -72,7 +72,8 @@ use the existing development password or the operator's `PRUFAI_DEMO_PASSWORD`.
    official provider certificate.
 7. Submit an appeal against that exact result version. Return as the authorized
    institution actor, open the appeal, start review, inspect the pinned
-   evidence and provide a reason for a valid rejection. Reject the appeal.
+   original objective item, submitted response revision and recorded item score,
+   then provide a reason for a valid rejection. Reject the appeal.
    Returning as candidate shows the decision; the original result/release
    remain. Rejection creates no corrected result or successor release.
 8. Return as Platform Admin and filter Audit evidence for `result.released`.
@@ -106,6 +107,10 @@ with the exact API proxy target, starts real FastAPI and a production Next.js se
 only its own processes on exit. Override `PRUFAI_E2E_API_PORT` (default 8010)
 and `PRUFAI_E2E_WEB_PORT` (default 3010) to avoid other local services.
 
+Occupied, equal or invalid ports are refused before migration or seed work, and
+HTTP readiness requests have bounded connection and request timeouts. The
+runner never accepts an existing demo's response as its own startup evidence.
+
 The tests in `tests/browser/` exercise UI login, assignment, two saves,
 reload/resume, submission, deterministic scoring, human approval/release,
 statement, appeal rejection and safe platform inspection. Additional journeys
@@ -119,6 +124,19 @@ script. API PostgreSQL acceptance runs separately with the required integration
 flag. Existing real MinIO and Redis regressions are preserved in the Python
 job. Memory storage in the objective browser process is an explicit development
 setting and provides no evidence for audio persistence.
+
+Appeal evidence uses `GET O/appeals/{appeal_id}/evidence`, requiring
+`appeal.read`, `appeal.adjudicate`, `result.read` and `question_bank.read` in the
+actual organisation. It projects at most 50 objective items from the challenged
+run's exact item versions and response revisions. Raw snapshots, AI prompts,
+subjective content, private review notes and storage references are excluded.
+The UI cannot adjudicate through this bounded panel until complete evidence
+matches the appeal's result and bundle checksums. Unsupported or truncated
+evidence is described rather than presented as a complete review.
+
+Failure traces contain the synthetic login requests and temporary session
+tokens; they are private test evidence, not redacted logs. This workflow must
+only target the dedicated synthetic database and development credentials.
 
 ## Boundaries and follow-on work
 

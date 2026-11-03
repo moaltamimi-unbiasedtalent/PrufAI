@@ -116,7 +116,7 @@ export default function ReleaseDetailPage({
   }
 
   return (
-    <section>
+    <section style={{ overflowWrap: "anywhere" }}>
       <p>
         <Link href="/institution/releases">← Release queue and history</Link>
       </p>

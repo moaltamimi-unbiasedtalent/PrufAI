@@ -158,6 +158,11 @@ def test_golden_reseeding_preserves_published_checksums_reviews_and_internal_pol
     exam = session.get(ExamVersion, uuid.UUID(identifiers["golden_exam_version_id"]))
     pack = session.get(StandardPackVersion, uuid.UUID(identifiers["golden_pack_version_id"]))
     document = session.get(KnowledgeDocumentVersion, demo_id("golden-policy-document"))
+    # Compare persisted values on both sides. SQLite unit fixtures remove the
+    # timezone offset on read; comparing a freshly assigned aware value with a
+    # reloaded naive value would assert serialization rather than immutability.
+    session.flush()
+    session.expire_all()
     before = (
         exam.checksum,
         exam.published_at,

@@ -61,7 +61,7 @@ export default function CandidateReleasedResultPage({
   const effective = release?.effective_status ?? release?.status;
   const score = release ? exactReleasedScore(release) : null;
   return (
-    <section>
+    <section style={{ overflowWrap: "anywhere" }}>
       <p>
         <Link href="/candidate/results">← My released results</Link>
       </p>

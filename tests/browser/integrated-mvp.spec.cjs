@@ -345,6 +345,16 @@ test("three applications complete a real objective journey and reject its exact-
     await expect(
       page.getByText(/not an official provider certificate/i),
     ).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await screenshot(page, "candidate-result-mobile.png");
+    await page.setViewportSize({ width: 1280, height: 900 });
     await screenshot(page, "candidate-result-and-statement.png");
   });
 
@@ -379,6 +389,31 @@ test("three applications complete a real objective journey and reject its exact-
     await login(page, accounts.institution);
     await page.goto("/institution/appeals");
     await page.getByRole("link", { name: appealId, exact: true }).click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Original objective item 1",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.locator("p").filter({ hasText: /^Submitted selection:/ }),
+    ).toContainText("a: Um 9 Uhr.");
+    await expect(
+      page.locator("p").filter({ hasText: /^Expected selection:/ }),
+    ).toContainText("a: Um 9 Uhr.");
+    await expect(
+      page.locator("p").filter({ hasText: /^Recorded item score:/ }),
+    ).toHaveText(/Recorded item score:\s*1(?:\.0+)?\s*\/\s*1(?:\.0+)?/);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await screenshot(page, "institution-pinned-evidence-mobile.png");
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page
       .getByRole("button", { name: "Start review", exact: true })
       .click();

@@ -75,7 +75,7 @@ account's offline queue. No tokens or response payloads are put in URL parameter
 
 ## Demo access
 
-All six accounts use the same local-only password: `Demo-PrufAI-2026!`.
+All seven accounts use the same local-only password: `Demo-PrufAI-2026!`.
 
 | Account | Role | Walkthrough |
 | --- | --- | --- |
@@ -84,6 +84,7 @@ All six accounts use the same local-only password: `Demo-PrufAI-2026!`.
 | `admin@demo.prufai.local` | Existing INSTITUTION_ADMIN role | institution inspection and authorized governance queues |
 | `history@demo.prufai.local` | Candidate | existing genuine submitted objective attempt and practice result |
 | `golden.candidate@demo.prufai.local` | Candidate | integrated B1 journey; starts without an assignment, attempt or result |
+| `writing.candidate@demo.prufai.local` | Candidate | original human-only Writing fixture; starts without an assignment, response or assessment |
 | `platform.admin@demo.prufai.local` | Existing PRUFAI_SUPER_ADMIN platform role | read-only Control Centre; no tenant membership or candidate impersonation |
 
 These credentials are synthetic and must never be reused outside local development.
@@ -91,6 +92,12 @@ Operators can set `PRUFAI_DEMO_PASSWORD` when seeding. Passwords are not printed
 the seed, persisted in browser token storage, or filled into the login form.
 The default guide describes the default local password; with a custom seed
 password, use the operator-provided value instead.
+
+The [governed human Writing foundation](writing-human-foundation.md) adds a
+separate original B1 Writing task and a **draft** rubric. Admin and Reviewer must
+request review, approve and publish the rubric through authenticated actions
+before assigning and marking that task. Its independent human review does not
+create an AI proposal, release a result or issue a certificate.
 
 ### Integrated B1 seed fixture
 

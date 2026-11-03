@@ -122,7 +122,14 @@ export default function ReleaseDetailPage({
       </p>
       <h1>Result release detail</h1>
       {message && <p role="status">{message}</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          <p>{error}</p>
+          <button onClick={() => setReload((value) => value + 1)}>
+            Refresh release
+          </button>
+        </div>
+      )}
       {release && (
         <>
           <p>
@@ -228,6 +235,9 @@ function ArtifactList({
         <li key={artifact.id}>
           <p>Artifact: {artifact.id}</p>
           <p>Recorded status: {artifact.status}</p>
+          {artifact.issued_at && (
+            <p>Issued: {new Date(artifact.issued_at).toLocaleString()}</p>
+          )}
           <p>
             Current validity:{" "}
             {releaseStatus !== "RELEASED" || artifact.currently_valid === false

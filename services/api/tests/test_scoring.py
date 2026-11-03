@@ -11,6 +11,7 @@ from app.models.enums import (
     PackResponseMode,
     QuestionBankScoringPolicy,
     ScoringRunStatus,
+    SubjectiveAssessmentStatus,
 )
 from app.scoring.service import ScoringError, ScoringService, checksum, objective_award
 
@@ -178,3 +179,59 @@ def test_candidate_safe_result_projection_has_no_internal_or_response_fields():
     assert "answer_key" not in serialized
     assert "rule_provenance" not in serialized
     assert "payload" not in serialized
+
+
+def test_current_subjective_selection_is_order_independent_and_never_reuses_older_approval():
+    binding = uuid.uuid4()
+    old = SimpleNamespace(
+        exam_version_item_binding_id=binding,
+        version_number=1,
+        status=SubjectiveAssessmentStatus.APPROVED,
+    )
+    current = SimpleNamespace(
+        exam_version_item_binding_id=binding,
+        version_number=2,
+        status=SubjectiveAssessmentStatus.IN_REVIEW,
+    )
+    for versions in ([old, current], [current, old]):
+        assert ScoringService._current_approved_subjective_versions(versions) == {}
+    current.status = SubjectiveAssessmentStatus.APPROVED
+    for versions in ([old, current], [current, old]):
+        assert ScoringService._current_approved_subjective_versions(versions) == {
+            str(binding): current
+        }
+
+
+def test_assessment_component_projection_is_pinned_and_excludes_internal_judgments():
+    component = {
+        "skill": "WRITING",
+        "assessment_origin": "HUMAN",
+        "subjective_assessment_version_id": str(uuid.uuid4()),
+        "approved_score": "4.0000",
+        "maximum_points": "6.0000",
+        "rationale": "PRIVATE_RATIONALE",
+        "evidence": [{"quote": "PRIVATE_CANDIDATE_TEXT"}],
+        "ai_confidence": "HIGH",
+    }
+    run = SimpleNamespace(
+        item_scores=[
+            SimpleNamespace(
+                exam_version_item_binding_id=uuid.uuid4(),
+                scoring_metadata={
+                    "component": component,
+                    "approved_criteria": [{"rationale": "PRIVATE_NESTED"}],
+                },
+            )
+        ]
+    )
+    projection = ScoringService.assessment_components(run)
+    assert (
+        projection[0]["subjective_assessment_version_id"]
+        == component["subjective_assessment_version_id"]
+    )
+    assert projection[0]["approved_score"] == "4.0000"
+    serialized = str(projection)
+    assert not any(
+        value in serialized for value in ("PRIVATE_", "rationale", "evidence", "ai_confidence")
+    )
+    assert ScoringService.assessment_components(None) == []

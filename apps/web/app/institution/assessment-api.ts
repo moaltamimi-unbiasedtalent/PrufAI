@@ -1,4 +1,5 @@
 import { authenticatedFetch } from "../../lib/api";
+import type { AssessmentComponent } from "./assessment-evidence";
 
 export type HumanResultReview = {
   id: string;
@@ -64,6 +65,7 @@ export type ResultVersion = {
   created_at: string;
   released_at: string | null;
   review: HumanResultReview | null;
+  assessment_components?: AssessmentComponent[];
 };
 export type ScoringRun = {
   id: string;
@@ -168,4 +170,15 @@ export function resultActions(
       version.status === "APPROVED" &&
       permissions.includes("result.release"),
   };
+}
+
+export function canScoreAttempt(
+  attempt: { status: string; result: { status: string } | null },
+  permissions: string[],
+) {
+  return (
+    permissions.includes("scoring.run") &&
+    attempt.status === "SUBMITTED" &&
+    (!attempt.result || attempt.result.status === "INCOMPLETE")
+  );
 }

@@ -98,6 +98,9 @@ separate original B1 Writing task and a **draft** rubric. Admin and Reviewer mus
 request review, approve and publish the rubric through authenticated actions
 before assigning and marking that task. Its independent human review does not
 create an AI proposal, release a result or issue a certificate.
+The [integrated human Writing walkthrough](integrated-writing.md) continues from
+that approval through real scoring, separate result review/release and a
+candidate-visible practice Statement of Results.
 
 ### Integrated B1 seed fixture
 

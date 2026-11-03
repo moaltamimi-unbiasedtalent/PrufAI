@@ -12,6 +12,7 @@ import {
 } from "../../assessment-api";
 import { releaseApi, type ResultRelease } from "../../releases/release-api";
 import css from "../../assessment.module.css";
+import { AssessmentEvidence } from "../../assessment-evidence";
 
 export default function ResultReviewPage({
   params,
@@ -260,6 +261,7 @@ export default function ResultReviewPage({
                   Refresh evidence
                 </button>
               </section>
+              <AssessmentEvidence components={version.assessment_components} />
               <details className={css.card}>
                 <summary>Governed rules and scoring provenance</summary>
                 <pre className={css.evidence}>

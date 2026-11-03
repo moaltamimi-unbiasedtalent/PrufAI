@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useAuth } from "../../../../../lib/auth";
+import { AssessmentEvidence } from "../../../../institution/assessment-evidence";
 import {
   releaseApi,
   releaseStateMessage,
   exactReleasedScore,
+  ReleaseApiError,
+  statementMatchesRelease,
+  statementProvenanceFields,
   type ReleaseArtifact,
   type ReleaseDetail,
 } from "../../../../institution/releases/release-api";
@@ -15,33 +20,66 @@ export default function CandidateReleasedResultPage({
 }: {
   params: Promise<{ releaseId: string }>;
 }) {
+  const { organisationId, user } = useAuth();
+  const context =
+    organisationId && user ? `${organisationId}:${user.id}` : null;
+  const [loadedContext, setLoadedContext] = useState<string | null>(null);
   const [release, setRelease] = useState<ReleaseDetail | null>(null);
   const [statement, setStatement] = useState<ReleaseArtifact | null>(null);
   const [message, setMessage] = useState("Loading your released result…");
   const [error, setError] = useState<string | null>(null);
   const [statementMessage, setStatementMessage] = useState("");
+  const [statementError, setStatementError] = useState<string | null>(null);
+  const [statementLoading, setStatementLoading] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setRelease(null);
+    setLoadedContext(null);
     setStatement(null);
     setError(null);
     setStatementMessage("");
+    setStatementError(null);
+    setStatementLoading(false);
+    if (!context) {
+      setMessage(
+        "Sign in with an active candidate membership to inspect your released result.",
+      );
+      return;
+    }
     setMessage("Loading your released result…");
     void params
       .then(async ({ releaseId }) => {
         const item = await releaseApi.candidateDetail(releaseId);
         if (cancelled) return;
         setRelease(item);
+        setLoadedContext(context);
         setMessage("");
+        setStatementLoading(true);
         try {
           const artifact = await releaseApi.candidateStatement(releaseId);
-          if (!cancelled) setStatement(artifact);
-        } catch {
-          if (!cancelled)
-            setStatementMessage(
-              "A Statement of Results is not available for this release. Contact your institution if you need assistance.",
-            );
+          if (!cancelled) {
+            if (!statementMatchesRelease(artifact, item)) {
+              setStatementError(
+                "The statement provenance does not match this exact release. Refresh or contact your institution.",
+              );
+            } else setStatement(artifact);
+          }
+        } catch (cause) {
+          if (!cancelled) {
+            if (cause instanceof ReleaseApiError && cause.status === 404)
+              setStatementMessage(
+                "A Statement of Results is not available for this release. Contact your institution if you need assistance.",
+              );
+            else
+              setStatementError(
+                cause instanceof Error
+                  ? cause.message
+                  : "The statement could not be loaded. Retry the connection.",
+              );
+          }
+        } finally {
+          if (!cancelled) setStatementLoading(false);
         }
       })
       .catch((cause: unknown) => {
@@ -57,9 +95,10 @@ export default function CandidateReleasedResultPage({
     return () => {
       cancelled = true;
     };
-  }, [params, reload]);
+  }, [params, reload, context]);
   const effective = release?.effective_status ?? release?.status;
-  const score = release ? exactReleasedScore(release) : null;
+  const score =
+    release && loadedContext === context ? exactReleasedScore(release) : null;
   return (
     <section style={{ overflowWrap: "anywhere" }}>
       <p>
@@ -75,7 +114,7 @@ export default function CandidateReleasedResultPage({
           </button>
         </div>
       )}
-      {release && (
+      {release && loadedContext === context && (
         <>
           <p>
             <strong>Recorded status:</strong> {release.status}
@@ -106,17 +145,36 @@ export default function CandidateReleasedResultPage({
               The score summary is unavailable for this exact release version.
             </p>
           )}
+          <AssessmentEvidence components={score?.assessment_components} />
           <p>Released: {new Date(release.released_at).toLocaleString()}</p>
           <p>
             Result version: <code>{release.result_version_id}</code>
           </p>
           <h2>Statement of Results</h2>
+          {statementLoading && (
+            <p role="status">Loading your Statement of Results…</p>
+          )}
           {statementMessage && <p role="status">{statementMessage}</p>}
+          {statementError && <p role="alert">{statementError}</p>}
+          {(statementMessage || statementError) && (
+            <button onClick={() => setReload((value) => value + 1)}>
+              Retry statement
+            </button>
+          )}
           {statement && (
             <article>
               <p>Statement: {statement.id}</p>
               <p>Recorded status: {statement.status ?? "Recorded"}</p>
               <p>Statement checksum: {statement.checksum ?? "Unavailable"}</p>
+              <p>
+                Statement issued:{" "}
+                {statement.issued_at
+                  ? new Date(statement.issued_at).toLocaleString()
+                  : "Not available in this historical projection"}
+              </p>
+              {statement.payload?.assessment_components?.some(
+                (component) => component.skill === "WRITING",
+              ) && <p>Assessment: Writing</p>}
               <p>
                 Statement issuer reference:{" "}
                 {String(
@@ -129,15 +187,11 @@ export default function CandidateReleasedResultPage({
                 <p>This is historical evidence and is not currently valid.</p>
               )}
               <dl>
-                {Object.entries(statement.payload ?? {}).map(
-                  ([name, value]) => (
-                    <div key={name}>
-                      <dt>{name.replaceAll("_", " ")}</dt>
-                      <dd style={{ overflowWrap: "anywhere" }}>
-                        {typeof value === "object"
-                          ? JSON.stringify(value)
-                          : String(value)}
-                      </dd>
+                {statementProvenanceFields(statement).map(
+                  ({ label, value }) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd style={{ overflowWrap: "anywhere" }}>{value}</dd>
                     </div>
                   ),
                 )}

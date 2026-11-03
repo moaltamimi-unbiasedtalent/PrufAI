@@ -11,7 +11,7 @@ const SUBMITTED_TEXT =
   "Liebe Frau Sommer,\nam Dienstag kann ich leider nicht zum Deutschkurs kommen, weil ich einen wichtigen Termin beim Arzt habe. Können Sie mir bitte die Hausaufgaben per E-Mail schicken? Ich möchte zu Hause weiterlernen und die Übungen vor dem nächsten Unterricht machen. Am Donnerstag bin ich wieder im Kurs. Vielen Dank für Ihre Hilfe und Ihr Verständnis.\nMit freundlichen Grüßen\nMira Beispiel";
 const QUOTE = "Am Donnerstag bin ich wieder im Kurs.";
 
-test("humans publish a rubric and independently approve exact Writing evidence without AI", async ({
+test("three applications complete an independently approved human Writing result and statement without AI", async ({
   page,
   context,
 }) => {
@@ -32,6 +32,35 @@ test("humans publish a rubric and independently approve exact Writing evidence w
   let assessmentId;
   let versionId;
   let createdChecksum;
+  let institution;
+  let pendingRun;
+  let pendingResult;
+  let result;
+  let releaseId;
+  let statement;
+
+  async function versionsFor(resultId) {
+    const org = institution.profile.memberships[0].organisation_id;
+    const response = await page.request.get(
+      `/api/v1/organisations/${org}/results/${resultId}/versions`,
+      {
+        headers: {
+          Authorization: `Bearer ${institution.token}`,
+          "X-PrufAI-Organisation-ID": org,
+        },
+      },
+    );
+    expect(response.status()).toBe(200);
+    return (await response.json()).sort(
+      (a, b) => b.version_number - a.version_number,
+    );
+  }
+
+  function writingAssignment() {
+    return page
+      .getByRole("article")
+      .filter({ hasText: "Human Writing Practice Candidate" });
+  }
 
   await test.step("authorized requester submits the draft rubric for independent review", async () => {
     const actor = await login(page, ADMIN);
@@ -51,7 +80,8 @@ test("humans publish a rubric and independently approve exact Writing evidence w
     const requested = apiResponse(page, "/request-review", "POST");
     await page
       .getByRole("button", { name: "Request rubric review", exact: true })
-      .click();
+      .focus();
+    await page.keyboard.press("Enter");
     const response = await requested;
     expect(response.status()).toBe(200);
     rubric = await response.json();
@@ -95,11 +125,40 @@ test("humans publish a rubric and independently approve exact Writing evidence w
     await page
       .getByRole("button", { name: "Publish approved rubric", exact: true })
       .click();
-    expect((await published).status()).toBe(200);
+    const publishedResponse = await published;
+    expect(publishedResponse.status()).toBe(200);
+    rubric = await publishedResponse.json();
+    expect(rubric.language).toBe("de");
+    expect(rubric.cefr_levels).toEqual(["B1"]);
     await expect(
       page.getByText("Status: PUBLISHED", { exact: true }),
     ).toBeVisible();
     await screenshot(page, "writing-rubric-published.png");
+    await logout(page);
+  });
+
+  await test.step("platform inspects the exact published Writing Standard Pack", async () => {
+    await login(page, "platform.admin@demo.prufai.local");
+    await page
+      .getByRole("link", { name: "Standards & packs", exact: true })
+      .click();
+    const row = page.getByRole("row").filter({
+      has: page.getByRole("cell", {
+        name: rubric.standard_pack_version_id,
+        exact: true,
+      }),
+    });
+    await expect(row).toBeVisible();
+    await expect(
+      row.getByRole("cell", { name: "de", exact: true }),
+    ).toBeVisible();
+    await expect(
+      row.getByRole("cell", { name: "B1", exact: true }),
+    ).toBeVisible();
+    await expect(
+      row.getByRole("cell", { name: "PRACTICE", exact: true }),
+    ).toBeVisible();
+    await screenshot(page, "writing-platform-pack-provenance.png");
     await logout(page);
   });
 
@@ -151,12 +210,12 @@ test("humans publish a rubric and independently approve exact Writing evidence w
       exact: true,
     });
     await writing.fill(INITIAL_TEXT);
-    await page.getByRole("heading", { name: "Question", exact: true }).click();
+    await writing.press("Tab");
     await expect(
       page.getByText("Saved response revision: 1", { exact: true }),
     ).toBeVisible();
     await writing.fill(SUBMITTED_TEXT);
-    await page.getByRole("heading", { name: "Question", exact: true }).click();
+    await writing.press("Tab");
     await expect(
       page.getByText("Saved response revision: 2", { exact: true }),
     ).toBeVisible();
@@ -325,6 +384,53 @@ test("humans publish a rubric and independently approve exact Writing evidence w
 
   await test.step("an independent authorized human approves the exact assessment version", async () => {
     const actor = await login(page, ADMIN);
+    institution = actor;
+    const org = actor.profile.memberships[0].organisation_id;
+    await page.goto("/institution/overview");
+    const pending = apiResponse(
+      page,
+      `/exam-attempts/${attemptId}/score`,
+      "POST",
+    );
+    await writingAssignment()
+      .getByRole("button", { name: "Score submitted attempt", exact: true })
+      .click();
+    const pendingResponse = await pending;
+    expect(pendingResponse.status()).toBe(200);
+    pendingRun = await pendingResponse.json();
+    await writingAssignment()
+      .getByRole("link", {
+        name: "Inspect score, review and release →",
+        exact: true,
+      })
+      .click();
+    await expect(page).toHaveURL(/\/institution\/results\/[0-9a-f-]+$/);
+    [pendingResult] = await versionsFor(
+      new URL(page.url()).pathname.split("/").pop(),
+    );
+    expect(pendingResult.status).toBe("INCOMPLETE");
+    expect(pendingResult.incomplete_reason).toBe("PENDING_ASSESSMENT");
+    expect(pendingResult.scoring_run_id).toBe(pendingRun.id);
+    for (const action of ["request-review", "release"]) {
+      const denied = await page.request.post(
+        `/api/v1/organisations/${org}/result-versions/${pendingResult.result_version_id}/${action}`,
+        {
+          headers: {
+            Authorization: `Bearer ${actor.token}`,
+            "X-PrufAI-Organisation-ID": org,
+          },
+          data:
+            action === "release" ? { operation_id: randomUUID() } : undefined,
+        },
+      );
+      expect(denied.status()).toBe(409);
+    }
+    await expect(
+      page.getByRole("button", {
+        name: "Release approved result",
+        exact: true,
+      }),
+    ).toHaveCount(0);
     await page.goto(`/institution/writing-reviews/${assessmentId}`);
     await page
       .getByRole("button", {
@@ -332,7 +438,6 @@ test("humans publish a rubric and independently approve exact Writing evidence w
         exact: true,
       })
       .waitFor({ state: "visible" });
-    const org = actor.profile.memberships[0].organisation_id;
     const stale = await page.request.post(
       `/api/v1/organisations/${org}/subjective-assessments/${versionId}/human-approve`,
       {
@@ -393,6 +498,228 @@ test("humans publish a rubric and independently approve exact Writing evidence w
     await page.setViewportSize({ width: 1280, height: 900 });
     await screenshot(page, "writing-human-approved.png");
     expect(aiRequests).toEqual([]);
+  });
+
+  await test.step("approved human Writing creates a new exact score and result through the product", async () => {
+    await page
+      .getByRole("link", {
+        name: "Inspect submitted attempt and scoring →",
+        exact: true,
+      })
+      .click();
+    const scored = apiResponse(
+      page,
+      `/exam-attempts/${attemptId}/score`,
+      "POST",
+    );
+    await writingAssignment()
+      .getByRole("button", { name: "Rescore incomplete attempt", exact: true })
+      .click();
+    const response = await scored;
+    expect(response.status()).toBe(200);
+    const run = await response.json();
+    expect(run.id).not.toBe(pendingRun.id);
+    await writingAssignment()
+      .getByRole("link", {
+        name: "Inspect score, review and release →",
+        exact: true,
+      })
+      .click();
+    await expect(page).toHaveURL(/\/institution\/results\/[0-9a-f-]+$/);
+    const versions = await versionsFor(
+      new URL(page.url()).pathname.split("/").pop(),
+    );
+    [result] = versions;
+    expect(result.scoring_run_id).toBe(run.id);
+    expect(result.status).toBe("REVIEW_REQUIRED");
+    expect(result.outcome).toBe("UNDETERMINED");
+    expect(Number(result.raw_awarded_points)).toBe(5);
+    expect(Number(result.raw_maximum_points)).toBe(6);
+    expect(
+      versions.find(
+        (version) =>
+          version.result_version_id === pendingResult.result_version_id,
+      )?.checksum,
+    ).toBe(pendingResult.checksum);
+    await expect(
+      page.locator("p").filter({ hasText: /^Raw score:/ }),
+    ).toHaveText(/Raw score:\s*5(?:\.0+)?\s*\/\s*6(?:\.0+)?/);
+    await page
+      .getByRole("region", { name: "Assessment provenance", exact: true })
+      .getByText("Exact approved assessment provenance", { exact: true })
+      .first()
+      .click();
+    await expect(
+      page.getByText(versionId, { exact: true }).first(),
+    ).toBeVisible();
+    const org = institution.profile.memberships[0].organisation_id;
+    const replay = await page.request.post(
+      `/api/v1/organisations/${org}/exam-attempts/${attemptId}/score`,
+      {
+        headers: {
+          Authorization: `Bearer ${institution.token}`,
+          "X-PrufAI-Organisation-ID": org,
+        },
+      },
+    );
+    expect(replay.status()).toBe(200);
+    expect((await replay.json()).id).toBe(run.id);
+  });
+
+  await test.step("result review and release remain separate authorized actions", async () => {
+    const org = institution.profile.memberships[0].organisation_id;
+    const unapproved = await page.request.post(
+      `/api/v1/organisations/${org}/result-versions/${result.result_version_id}/release`,
+      {
+        headers: {
+          Authorization: `Bearer ${institution.token}`,
+          "X-PrufAI-Organisation-ID": org,
+        },
+        data: { operation_id: randomUUID() },
+      },
+    );
+    expect(unapproved.status()).toBe(409);
+    const requested = apiResponse(
+      page,
+      `/result-versions/${result.result_version_id}/request-review`,
+      "POST",
+    );
+    await page
+      .getByRole("button", { name: "Request human result review", exact: true })
+      .click();
+    expect((await requested).status()).toBe(200);
+    await page.reload();
+    const approved = apiResponse(
+      page,
+      `/result-versions/${result.result_version_id}/approve`,
+      "POST",
+    );
+    await page
+      .getByRole("button", { name: "Approve reviewed result", exact: true })
+      .click();
+    expect((await approved).status()).toBe(200);
+    const released = apiResponse(
+      page,
+      `/result-versions/${result.result_version_id}/release`,
+      "POST",
+    );
+    await page
+      .getByRole("button", { name: "Release approved result", exact: true })
+      .click();
+    const response = await released;
+    expect(response.status()).toBe(200);
+    releaseId = (await response.json()).release_id;
+    await expect(page).toHaveURL(
+      new RegExp(`/institution/releases/${releaseId}$`),
+    );
+    const issued = apiResponse(
+      page,
+      `/releases/${releaseId}/statement`,
+      "POST",
+    );
+    await page
+      .getByRole("button", { name: "Issue Statement of Results", exact: true })
+      .click();
+    const artifact = await issued;
+    expect(artifact.status()).toBe(200);
+    statement = await artifact.json();
+    expect(statement.payload.classification).toBe("PRACTICE");
+    expect(statement.payload.result_version_id).toBe(result.result_version_id);
+    expect(statement.payload.scoring_run_id).toBe(result.scoring_run_id);
+    expect(statement.payload.standard_pack_version_id).toBe(
+      rubric.standard_pack_version_id,
+    );
+    expect(statement.payload.attempt_id).toBe(attemptId);
+    expect(statement.payload.candidate_user_id).toBe(candidate.profile.id);
+    expect(statement.payload.issued_by_user_id).toBe(institution.profile.id);
+    expect(Number.isNaN(Date.parse(statement.issued_at))).toBe(false);
+    expect(Date.parse(statement.payload.issued_at)).toBe(
+      Date.parse(statement.issued_at),
+    );
+    expect(statement.payload.assessment_components).toHaveLength(1);
+    expect(statement.payload.assessment_components[0]).toMatchObject({
+      skill: "WRITING",
+      assessment_origin: "HUMAN",
+      subjective_assessment_version_id: versionId,
+      rubric_version_id: rubric.id,
+      rubric_checksum: rubric.checksum,
+    });
+    expect(statement.checksum).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(statement)).not.toMatch(
+      /quoted original response supports|PRIVATE SYNTHETIC OFFLINE DRAFT|Liebe Frau Sommer/,
+    );
+    await logout(page);
+  });
+
+  await test.step("candidate reads the exact released human Writing practice statement", async () => {
+    await login(page, CANDIDATE);
+    await page
+      .getByRole("link", { name: "View released results", exact: true })
+      .click();
+    await page
+      .getByRole("link", {
+        name: "View result and Statement of Results",
+        exact: true,
+      })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`/candidate/results/releases/${releaseId}$`),
+    );
+    await expect(
+      page.getByRole("heading", { name: "Statement of Results", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/not an official provider certificate/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(result.scoring_run_id, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(statement.checksum, { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByText(/Writing/).first()).toBeVisible();
+    await expect(page.getByText(/HUMAN/).first()).toBeVisible();
+    await expect(
+      page.getByText(
+        /quoted original response supports|PRIVATE SYNTHETIC OFFLINE DRAFT|Liebe Frau Sommer/,
+      ),
+    ).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    await screenshot(page, "writing-candidate-statement-mobile.png");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await screenshot(page, "writing-candidate-statement.png");
+    await logout(page);
+  });
+
+  await test.step("another candidate cannot read the Writing attempt, assessment or statement", async () => {
+    const other = await login(page, "candidate@demo.prufai.local");
+    const org = other.profile.memberships[0].organisation_id;
+    const headers = {
+      Authorization: `Bearer ${other.token}`,
+      "X-PrufAI-Organisation-ID": org,
+    };
+    for (const path of [
+      `/candidate/exam-attempts/${attemptId}/runtime`,
+      `/candidate/releases/${releaseId}`,
+      `/candidate/releases/${releaseId}/statement`,
+      `/organisations/${org}/subjective-assessments/${assessmentId}`,
+    ]) {
+      const denied = await page.request.get(`/api/v1${path}`, { headers });
+      expect([403, 404]).toContain(denied.status());
+      expect(await denied.text()).not.toContain(SUBMITTED_TEXT);
+    }
+    await page.goto(`/candidate/results/releases/${releaseId}`);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(
+      page.getByText(statement.checksum, { exact: false }),
+    ).toHaveCount(0);
     await logout(page);
   });
 
@@ -401,37 +728,95 @@ test("humans publish a rubric and independently approve exact Writing evidence w
     await page
       .getByRole("link", { name: "Audit evidence", exact: true })
       .click();
-    await page
-      .getByRole("textbox", { name: "Exact event type", exact: true })
-      .fill("subjective_assessment.human_approved");
-    const filteredAudit = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return (
-        url.pathname.endsWith("/platform/control-center/audit") &&
-        url.searchParams.get("event_type") ===
-          "subjective_assessment.human_approved" &&
-        response.request().method() === "GET"
+    for (const [event, entityId] of [
+      ["rubric.published", rubric.id],
+      ["subjective_assessment.human_initialized", versionId],
+      ["subjective_assessment.human_proposed", versionId],
+      ["subjective_assessment.human_approved", versionId],
+      ["scoring.run.completed", result.scoring_run_id],
+      ["result.version.created", result.result_version_id],
+      ["result.release_created", releaseId],
+      ["result.released", result.result_version_id],
+      ["statement.created", statement.id],
+    ]) {
+      await page
+        .getByRole("textbox", { name: "Exact event type", exact: true })
+        .fill(event);
+      const filteredAudit = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname.endsWith("/platform/control-center/audit") &&
+          url.searchParams.get("event_type") === event &&
+          response.request().method() === "GET"
+        );
+      });
+      await page
+        .getByRole("button", { name: "Apply filters", exact: true })
+        .click();
+      const response = await filteredAudit;
+      expect(response.ok()).toBe(true);
+      expect(JSON.stringify(await response.json())).not.toMatch(
+        /Liebe Frau Sommer|PRIVATE SYNTHETIC OFFLINE DRAFT|quoted original response supports/,
       );
-    });
-    await page
-      .getByRole("button", { name: "Apply filters", exact: true })
-      .click();
-    expect((await filteredAudit).ok()).toBe(true);
-    await expect(
-      page
-        .getByRole("row")
-        .filter({ hasText: "subjective_assessment.human_approved" })
-        .getByRole("cell", { name: versionId, exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText(SUBMITTED_TEXT, { exact: true })).toHaveCount(
-      0,
-    );
-    await expect(
-      page.getByText(
-        /PRIVATE SYNTHETIC OFFLINE DRAFT|quoted original response supports/,
-      ),
-    ).toHaveCount(0);
+      await expect(
+        page
+          .getByRole("row")
+          .filter({ hasText: event })
+          .getByRole("cell", { name: entityId, exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText(
+          /PRIVATE SYNTHETIC OFFLINE DRAFT|quoted original response supports|Liebe Frau Sommer/,
+        ),
+      ).toHaveCount(0);
+    }
+    await screenshot(page, "writing-platform-safe-audit.png");
     await logout(page);
   });
   expect(attemptId).toBeTruthy();
+});
+
+test("candidate has no rubric activation or human Writing review authority in UI or API", async ({
+  page,
+}) => {
+  const candidate = await login(page, CANDIDATE);
+  const org = candidate.profile.memberships[0].organisation_id;
+  const headers = {
+    Authorization: `Bearer ${candidate.token}`,
+    "X-PrufAI-Organisation-ID": org,
+  };
+  for (const route of [
+    "/institution/rubrics",
+    "/institution/writing-reviews",
+  ]) {
+    await page.goto(route);
+    await expect(
+      page.getByRole("heading", { name: "Access restricted", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: /Request rubric review|Initialize human Writing assessment|Approve human Writing assessment/,
+      }),
+    ).toHaveCount(0);
+  }
+  for (const path of [
+    "rubrics",
+    "writing-review-options",
+    "subjective-assessments",
+  ]) {
+    const denied = await page.request.get(
+      `/api/v1/organisations/${org}/${path}`,
+      { headers },
+    );
+    expect(denied.status()).toBe(403);
+  }
+  const approval = await page.request.post(
+    `/api/v1/organisations/${org}/subjective-assessments/${randomUUID()}/human-approve`,
+    {
+      headers,
+      data: { operation_id: randomUUID(), expected_checksum: "0".repeat(64) },
+    },
+  );
+  expect(approval.status()).toBe(403);
+  await logout(page);
 });

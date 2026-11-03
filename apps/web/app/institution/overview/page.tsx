@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authenticatedFetch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
-import { assessmentApi } from "../assessment-api";
+import { assessmentApi, canScoreAttempt } from "../assessment-api";
 
 type ResultSummary = {
   id: string;
@@ -34,20 +34,33 @@ type AssignmentInspection = {
 };
 
 export default function InstitutionOverviewPage() {
-  const { organisationId, permissions } = useAuth();
+  const { organisationId, permissions, user } = useAuth();
   const [assignments, setAssignments] = useState<AssignmentInspection[]>([]);
   const [message, setMessage] = useState("Loading institution assignments…");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [scoring, setScoring] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [loadedProjection, setLoadedProjection] = useState<string | null>(null);
   const allowed = permissions.includes("exam_assignment.read");
+  const projectionKey =
+    allowed && organisationId && user
+      ? JSON.stringify([organisationId, user.id, [...permissions].sort()])
+      : null;
+  const currentProjection = useRef(projectionKey);
+  currentProjection.current = projectionKey;
+
+  useEffect(() => {
+    setScoring(null);
+    setActionMessage(null);
+  }, [projectionKey]);
 
   useEffect(() => {
     let cancelled = false;
     setAssignments([]);
+    setLoadedProjection(null);
     setError(null);
-    if (!organisationId || !allowed) {
+    if (!organisationId || !projectionKey) {
       setMessage(
         "Select an active institution with assignment inspection permission.",
       );
@@ -73,6 +86,7 @@ export default function InstitutionOverviewPage() {
       .then((rows) => {
         if (!cancelled) {
           setAssignments(rows);
+          setLoadedProjection(projectionKey);
           setMessage(
             rows.length
               ? ""
@@ -93,28 +107,54 @@ export default function InstitutionOverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [allowed, organisationId, reload]);
+  }, [projectionKey, organisationId, reload]);
+
+  useEffect(() => {
+    if (
+      !projectionKey ||
+      loadedProjection !== projectionKey ||
+      !assignments.length
+    )
+      return;
+    const target = window.location.hash.slice(1);
+    if (!target.startsWith("attempt-")) return;
+    const section = document.getElementById(target);
+    section?.scrollIntoView({ block: "start" });
+    section?.focus({ preventScroll: true });
+  }, [assignments, loadedProjection, projectionKey]);
 
   async function score(attemptId: string) {
-    if (!organisationId || !permissions.includes("scoring.run") || scoring)
+    const attempt = assignments
+      .flatMap((row) => row.attempts)
+      .find((row) => row.id === attemptId);
+    if (
+      !organisationId ||
+      !projectionKey ||
+      loadedProjection !== projectionKey ||
+      !attempt ||
+      !canScoreAttempt(attempt, permissions) ||
+      scoring
+    )
       return;
     setScoring(attemptId);
     setError(null);
     setActionMessage(null);
     try {
       const run = await assessmentApi.score(organisationId, attemptId);
+      if (currentProjection.current !== projectionKey) return;
       setActionMessage(
         `Scoring run ${run.id} completed with state ${run.status}. Inspect the persisted result below before requesting human review.`,
       );
       setReload((value) => value + 1);
     } catch (cause) {
+      if (currentProjection.current !== projectionKey) return;
       setError(
         cause instanceof Error
           ? cause.message
           : "Scoring could not be confirmed. Reload before retrying.",
       );
     } finally {
-      setScoring(null);
+      if (currentProjection.current === projectionKey) setScoring(null);
     }
   }
 
@@ -156,7 +196,10 @@ export default function InstitutionOverviewPage() {
         aria-label="Institution exam assignments"
         style={{ padding: 0, listStyle: "none" }}
       >
-        {assignments.map((assignment) => (
+        {(projectionKey && loadedProjection === projectionKey
+          ? assignments
+          : []
+        ).map((assignment) => (
           <li key={assignment.id} style={{ marginTop: "1rem" }}>
             <article
               style={{
@@ -186,6 +229,8 @@ export default function InstitutionOverviewPage() {
               {assignment.attempts.map((attempt) => (
                 <section
                   key={attempt.id}
+                  id={`attempt-${attempt.id}`}
+                  tabIndex={-1}
                   aria-label={`Attempt ${attempt.attempt_number}`}
                   style={{
                     borderTop: "1px solid #dce2ee",
@@ -240,20 +285,27 @@ export default function InstitutionOverviewPage() {
                       No result is available to this account for this attempt.
                     </p>
                   )}
-                  {!attempt.result &&
-                    attempt.status === "SUBMITTED" &&
-                    permissions.includes("scoring.run") && (
-                      <p>
-                        <button
-                          disabled={scoring !== null}
-                          onClick={() => void score(attempt.id)}
-                        >
-                          {scoring === attempt.id
-                            ? "Scoring submitted attempt…"
+                  {canScoreAttempt(attempt, permissions) && (
+                    <p>
+                      {attempt.result?.status === "INCOMPLETE" && (
+                        <span>
+                          This result is incomplete. Complete the required
+                          assessment approval, then run scoring again; earlier
+                          evidence is retained.{" "}
+                        </span>
+                      )}
+                      <button
+                        disabled={scoring !== null}
+                        onClick={() => void score(attempt.id)}
+                      >
+                        {scoring === attempt.id
+                          ? "Scoring submitted attempt…"
+                          : attempt.result?.status === "INCOMPLETE"
+                            ? "Rescore incomplete attempt"
                             : "Score submitted attempt"}
-                        </button>
-                      </p>
-                    )}
+                      </button>
+                    </p>
+                  )}
                 </section>
               ))}
             </article>

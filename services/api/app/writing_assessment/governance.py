@@ -17,7 +17,12 @@ from app.models import (
     CandidateResponseRevision,
     ExamVersionItemBinding,
     HumanReviewRequest,
+    ItemScore,
     QuestionBankItemVersion,
+    ResultAppeal,
+    ResultAppealVersion,
+    ResultCorrection,
+    ResultVersion,
     RubricVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -25,6 +30,9 @@ from app.models import (
     WritingGovernanceOperation,
 )
 from app.models.enums import (
+    AppealDecision,
+    CorrectionStatus,
+    CorrectionType,
     HumanReviewStatus,
     QuestionBankSkill,
     RubricVersionStatus,
@@ -269,6 +277,183 @@ class RubricGovernanceService:
 
 class HumanWritingService:
     @staticmethod
+    def normalize_correction_input(
+        rubric: RubricVersion, corrections: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        known_codes = {str(row["code"]) for row in rubric.criteria}
+        normalized: dict[str, dict[str, Any]] = {}
+        for code, value in corrections.items():
+            if (
+                code not in known_codes
+                or not isinstance(value, dict)
+                or not set(value) <= {"approved_points", "approved_level"}
+            ):
+                raise RubricError("HUMAN correction contains unknown criterion values")
+            normalized[code] = {}
+            if "approved_points" in value:
+                points = _decimal(value["approved_points"])
+                if points != points.quantize(Decimal("0.0001")):
+                    raise RubricError("HUMAN correction supports at most four decimal places")
+                normalized[code]["approved_points"] = format(points, ".4f")
+            if "approved_level" in value:
+                normalized[code]["approved_level"] = str(value["approved_level"])
+        return normalized
+
+    @staticmethod
+    def authorize_correction_actor(
+        context: TenantContext, source: SubjectiveAssessmentVersion
+    ) -> None:
+        _permission(context, "subjective.review")
+        _permission(context, "appeal.correct")
+        if context.organisation_id != source.assessment.organisation_id:
+            raise PermissionError("HUMAN correction is outside this organisation")
+        assessor = source.provenance.get("assessed_by")
+        if (
+            not assessor
+            or str(context.user_id) == assessor
+            or context.user_id == source.assessment.candidate_user_id
+        ):
+            raise PermissionError("HUMAN correction requires an independent authorized reviewer")
+
+    @staticmethod
+    def correction_record(
+        session: Session, source: SubjectiveAssessmentVersion, correction_id: uuid.UUID
+    ) -> ResultCorrection:
+        """Resolve only the existing upheld correction chain for this exact source."""
+        correction = session.get(ResultCorrection, correction_id)
+        appeal = session.get(ResultAppeal, correction.appeal_id) if correction else None
+        decision = (
+            session.get(ResultAppealVersion, correction.appeal_version_id) if correction else None
+        )
+        result = (
+            session.get(ResultVersion, correction.source_result_version_id) if correction else None
+        )
+        if (
+            correction is None
+            or appeal is None
+            or decision is None
+            or result is None
+            or correction.correction_type is not CorrectionType.WRITING_REASSESSMENT
+            or correction.organisation_id != source.assessment.organisation_id
+            or appeal.organisation_id != source.assessment.organisation_id
+            or appeal.candidate_user_id != source.assessment.candidate_user_id
+            or appeal.attempt_id != source.attempt_id
+            or correction.source_result_version_id != appeal.challenged_result_version_id
+            or correction.source_result_checksum != result.checksum
+            or result.checksum != appeal.challenged_result_checksum
+            or decision.appeal_id != appeal.id
+            or decision.decision not in {AppealDecision.UPHOLD, AppealDecision.PARTIALLY_UPHOLD}
+        ):
+            raise RubricError("HUMAN correction requires an exact upheld appeal chain")
+        score = session.scalar(
+            select(ItemScore).where(
+                ItemScore.scoring_run_id == result.scoring_run_id,
+                ItemScore.exam_version_item_binding_id == source.exam_version_item_binding_id,
+            )
+        )
+        if (
+            score is None
+            or score.scoring_metadata.get("subjective_assessment_version_id") != str(source.id)
+            or score.scoring_metadata.get("subjective_assessment_checksum") != source.checksum
+        ):
+            raise RubricError("HUMAN correction source was not used by the challenged result")
+        return correction
+
+    @classmethod
+    def authorize_correction(
+        cls,
+        session: Session,
+        context: TenantContext,
+        source: SubjectiveAssessmentVersion,
+        review: HumanReviewRequest,
+        correction_id: uuid.UUID | None,
+    ) -> None:
+        cls.authorize_correction_actor(context, source)
+        if correction_id is None:
+            raise RubricError("HUMAN correction requires a governed ResultCorrection")
+        correction = cls.correction_record(session, source, correction_id)
+        if (
+            correction.status is not CorrectionStatus.IN_PROGRESS
+            or correction.created_by_user_id != context.user_id
+            or source.status is not SubjectiveAssessmentStatus.APPROVED
+            or review.review_type != "RESULT_CORRECTION"
+            or review.entity_id != source.id
+            or review.entity_type != "SUBJECTIVE_ASSESSMENT_VERSION"
+            or review.status is not HumanReviewStatus.PENDING
+            or review.requested_by != context.user_id
+            or review.reviewed_checksum != source.checksum
+        ):
+            raise RubricError("HUMAN correction review does not match its governed source")
+
+    @classmethod
+    def validate_corrected_approval(
+        cls, session: Session, version: SubjectiveAssessmentVersion
+    ) -> None:
+        try:
+            correction_id = uuid.UUID(str(version.provenance["result_correction_id"]))
+            review_id = uuid.UUID(str(version.provenance["correction_review_id"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RubricError("HUMAN correction provenance is incomplete") from exc
+        source = session.get(SubjectiveAssessmentVersion, version.supersedes_version_id)
+        review = session.get(HumanReviewRequest, review_id)
+        if source is None or source.assessment_origin != "HUMAN":
+            raise RubricError("HUMAN correction source is unavailable")
+        correction = cls.correction_record(session, source, correction_id)
+        if (
+            correction.status
+            not in {CorrectionStatus.READY_FOR_RESCORING, CorrectionStatus.RESCORED}
+            or correction.new_component_version_id != version.id
+            or source.status is not SubjectiveAssessmentStatus.SUPERSEDED
+            or version.provenance.get("source_version_id") != str(source.id)
+            or version.provenance.get("source_checksum") != source.checksum
+            or review is None
+            or review.review_type != "RESULT_CORRECTION"
+            or review.entity_type != "SUBJECTIVE_ASSESSMENT_VERSION"
+            or review.entity_id != source.id
+            or review.status is not HumanReviewStatus.APPROVED
+            or review.reviewed_checksum != source.checksum
+            or review.decided_by != correction.created_by_user_id
+            or review.requested_by != correction.created_by_user_id
+            or str(review.decided_by) != version.provenance.get("reviewed_by")
+            or str(review.decided_by) == source.provenance.get("assessed_by")
+            or review.decided_by == source.assessment.candidate_user_id
+        ):
+            raise RubricError("HUMAN correction lacks independent upheld approval provenance")
+        identity_fields = (
+            "subjective_assessment_id",
+            "attempt_id",
+            "exam_version_id",
+            "exam_version_item_binding_id",
+            "question_bank_item_version_id",
+            "candidate_response_id",
+            "candidate_response_revision_id",
+            "rubric_version_id",
+            "standard_pack_version_id",
+            "response_checksum",
+            "rubric_checksum",
+        )
+        if any(getattr(source, field) != getattr(version, field) for field in identity_fields):
+            raise RubricError("HUMAN correction changed the pinned assessment evidence")
+        expected = canonical_checksum(
+            {
+                "source_checksum": source.checksum,
+                "approved_score": str(version.approved_score),
+                "corrections": version.provenance.get("correction_input"),
+                "supersedes_version_id": str(source.id),
+            }
+        )
+        if version.checksum != expected:
+            raise RubricError("HUMAN correction checksum does not match")
+
+    @staticmethod
+    def assert_human_mode(rubric: RubricVersion) -> None:
+        if (
+            rubric.ai_assessment_policy.get("mode") != "HUMAN_ONLY"
+            or rubric.ai_assessment_policy.get("enabled") is not False
+        ):
+            raise RubricError("rubric does not explicitly authorize HUMAN_ONLY assessment")
+
+    @staticmethod
     def _version(
         session: Session, context: TenantContext, version_id: uuid.UUID, permission: str
     ) -> SubjectiveAssessmentVersion:
@@ -311,6 +496,7 @@ class HumanWritingService:
             raise RubricError("rubric is not available in the assessment organisation")
         if rubric.status not in {RubricVersionStatus.PUBLISHED, RubricVersionStatus.ACTIVE}:
             raise RubricError("human assessment requires a published rubric")
+        HumanWritingService.assert_human_mode(rubric)
         if (
             rubric.checksum != version.rubric_checksum
             or canonical_checksum(RubricService.checksum_payload(rubric)) != version.rubric_checksum
@@ -344,6 +530,147 @@ class HumanWritingService:
         if binding.task.section.module.exam_version_id != version.exam_version_id:
             raise RubricError("pinned Writing task does not match the exact exam version")
         return rubric, revision
+
+    @classmethod
+    def approved_scoring_evidence(
+        cls,
+        session: Session,
+        version: SubjectiveAssessmentVersion,
+        attempt: CandidateExamAttempt,
+        item: QuestionBankItemVersion,
+        response: dict[str, Any],
+        maximum: Decimal,
+    ) -> dict[str, Any]:
+        """Validate pinned HUMAN evidence without disclosing rationale or quotes."""
+        if (
+            version.assessment_origin != "HUMAN"
+            or version.status is not SubjectiveAssessmentStatus.APPROVED
+        ):
+            raise RubricError("Writing scoring requires an approved HUMAN assessment")
+        if any(
+            (
+                version.ai_run_id,
+                version.workflow_version_id,
+                version.agent_version_id,
+                version.prompt_version_id,
+                version.model_profile_id,
+                version.ai_proposal,
+            )
+        ):
+            raise RubricError("HUMAN Writing scoring cannot consume AI provenance")
+        if (
+            version.attempt_id != attempt.id
+            or version.exam_version_id != attempt.exam_version_id
+            or version.assessment.organisation_id != attempt.organisation_id
+            or version.assessment.candidate_user_id != attempt.candidate_user_id
+            or version.question_bank_item_version_id != item.id
+            or str(version.standard_pack_version_id)
+            != str(attempt.runtime_plan.get("standard_pack_version_id"))
+            or str(version.candidate_response_id) != response.get("response_id")
+            or str(version.candidate_response_revision_id) != response.get("response_revision_id")
+            or version.response_checksum != response.get("payload_checksum")
+        ):
+            raise RubricError("approved HUMAN Writing evidence does not match the scored response")
+        rubric, revision = cls._pins(session, version)
+        if (
+            rubric.skill is not QuestionBankSkill.WRITING
+            or item.skill is not QuestionBankSkill.WRITING
+        ):
+            raise RubricError("HUMAN scoring integration supports Writing only")
+        if any(
+            row.status is not SubjectiveCriterionStatus.APPROVED
+            or row.approved_points is None
+            or row.approved_level is None
+            or row.confidence is not None
+            or row.ai_run_step_id is not None
+            for row in version.criterion_assessments
+        ):
+            raise RubricError("HUMAN Writing requires complete approved criterion values")
+        entries, values = cls.validate_entries(
+            rubric,
+            str(revision.payload.get("text", "")),
+            [
+                {
+                    "criterion_code": row.criterion_code,
+                    "level": row.approved_level,
+                    "points": str(row.approved_points),
+                    "rationale": row.rationale,
+                    "evidence": row.evidence,
+                }
+                for row in version.criterion_assessments
+            ],
+        )
+        aggregate = SubjectiveAssessmentService._aggregate(rubric, values)
+        if (
+            version.approved_score is None
+            or not aggregate.is_finite()
+            or aggregate != version.approved_score
+            or aggregate < 0
+            or aggregate > maximum
+        ):
+            raise RubricError("approved HUMAN aggregate does not match its criterion values")
+        approved_values = {
+            entry["criterion_code"]: {"level": entry["level"], "points": entry["points"]}
+            for entry in entries
+        }
+        if approved_values != version.human_approved_values:
+            raise RubricError("approved HUMAN criterion provenance does not match")
+        if version.provenance.get("human_correction"):
+            cls.validate_corrected_approval(session, version)
+        else:
+            cls.validate_initial_approval(session, version)
+        return {
+            "subjective_assessment_checksum": version.checksum,
+            "component": {
+                "skill": "WRITING",
+                "assessment_origin": "HUMAN",
+                "subjective_assessment_version_id": str(version.id),
+                "subjective_assessment_checksum": version.checksum,
+                "rubric_version_id": str(rubric.id),
+                "rubric_checksum": version.rubric_checksum,
+                "candidate_response_revision_id": str(version.candidate_response_revision_id),
+                "response_checksum": version.response_checksum,
+                "task_spec_id": str(rubric.task_spec_id),
+                "approved_score": str(aggregate),
+                "maximum_points": str(maximum),
+            },
+            "approved_criteria": [
+                {
+                    "criterion_code": entry["criterion_code"],
+                    "level": entry["level"],
+                    "points": entry["points"],
+                }
+                for entry in entries
+            ],
+        }
+
+    @staticmethod
+    def validate_initial_approval(session: Session, version: SubjectiveAssessmentVersion) -> None:
+        review = review_for(
+            session,
+            "SUBJECTIVE_ASSESSMENT_VERSION",
+            version.id,
+            review_type="HUMAN_WRITING_ASSESSMENT",
+        )
+        if (
+            review is None
+            or review.status is not HumanReviewStatus.APPROVED
+            or review.decided_by is None
+            or review.decided_by == review.requested_by
+            or str(review.decided_by) != version.provenance.get("reviewed_by")
+        ):
+            raise RubricError("HUMAN Writing requires the exact independent approval")
+        expected_checksum = canonical_checksum(
+            {
+                "reviewed_checksum": review.reviewed_checksum,
+                "decision": "APPROVED",
+                "approved_values": version.human_approved_values,
+                "approved_score": str(version.approved_score),
+                "provenance": version.provenance,
+            }
+        )
+        if version.checksum != expected_checksum:
+            raise RubricError("approved HUMAN assessment checksum does not match")
 
     @classmethod
     def initialize(

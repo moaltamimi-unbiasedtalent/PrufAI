@@ -388,7 +388,13 @@ export default function WritingReviewWorkspacePage({
                   version is immutable and may be consumed by the existing
                   scoring service.{" "}
                   {permissions.includes("exam_assignment.read") && (
-                    <Link href="/institution/overview">
+                    <Link
+                      href={
+                        review.attempt_id
+                          ? `/institution/overview#attempt-${encodeURIComponent(review.attempt_id)}`
+                          : "/institution/overview"
+                      }
+                    >
                       Inspect submitted attempt and scoring →
                     </Link>
                   )}

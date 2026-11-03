@@ -1,4 +1,5 @@
 import { authenticatedFetch } from "../../../lib/api";
+import type { AssessmentComponent } from "../assessment-evidence";
 
 export type ResultRelease = {
   id: string;
@@ -22,7 +23,10 @@ export type ReleaseArtifact = {
   currently_valid?: boolean;
   checksum?: string;
   serial?: string;
-  payload?: Record<string, unknown>;
+  issued_at?: string;
+  payload?: Record<string, unknown> & {
+    assessment_components?: AssessmentComponent[];
+  };
 };
 
 export type ReleaseDetail = ResultRelease & {
@@ -42,6 +46,7 @@ export type ReleasedScore = {
   raw_maximum_points: string | null;
   outcome: string | null;
   result_checksum: string;
+  assessment_components?: AssessmentComponent[];
 };
 
 export type ReleaseQueueItem = {
@@ -179,9 +184,57 @@ export const releaseApi = {
 export function exactReleasedScore(
   release: ReleaseDetail,
 ): ReleasedScore | null {
-  return release.result?.result_version_id === release.result_version_id
+  return release.result?.result_version_id === release.result_version_id &&
+    (!release.result_checksum ||
+      release.result.result_checksum === release.result_checksum)
     ? release.result
     : null;
+}
+
+export function statementMatchesRelease(
+  statement: ReleaseArtifact,
+  release: ReleaseDetail,
+): boolean {
+  const payload = statement.payload;
+  if (
+    !payload ||
+    payload.result_release_id !== release.id ||
+    payload.result_version_id !== release.result_version_id
+  )
+    return false;
+  return [
+    ["scoring_run_id", release.scoring_run_id],
+    ["standard_pack_version_id", release.standard_pack_version_id],
+    ["attempt_id", release.attempt_id],
+    ["candidate_user_id", release.candidate_user_id],
+    ["release_checksum", release.checksum],
+    ["result_checksum", release.result_checksum],
+  ].every(([key, expected]) => !expected || payload[key!] === expected);
+}
+
+export function statementProvenanceFields(statement: ReleaseArtifact) {
+  const fields = [
+    "statement_type",
+    "classification",
+    "raw_awarded_points",
+    "raw_maximum_points",
+    "outcome",
+    "result_release_id",
+    "result_version_id",
+    "scoring_run_id",
+    "standard_pack_version_id",
+    "candidate_user_id",
+    "organisation_id",
+    "attempt_id",
+    "release_checksum",
+    "result_checksum",
+  ];
+  return fields.flatMap((name) => {
+    const value = statement.payload?.[name];
+    return typeof value === "string" || typeof value === "number"
+      ? [{ label: name.replaceAll("_", " "), value: String(value) }]
+      : [];
+  });
 }
 
 export function releaseStateMessage(status: string): string {

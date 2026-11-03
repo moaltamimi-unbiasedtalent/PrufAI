@@ -11,6 +11,7 @@ import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from threading import Barrier, Lock
 from typing import Any, Iterator
@@ -36,8 +37,11 @@ from app.models import (
     MembershipRole,
     Organisation,
     OrganisationMembership,
+    Permission,
+    PlatformRoleAssignment,
     QuestionBankItemVersion,
     Role,
+    RolePermission,
     RubricVersion,
     SubjectiveAssessmentVersion,
     SubjectiveCriterionAssessment,
@@ -116,6 +120,69 @@ class WritingJourney:
         response = self.client.request(method, path, headers=headers, **kwargs)
         assert response.status_code == expected, (method, path, response.status_code, response.text)
         return response.json() if response.content else None
+
+    def assert_generic_ai_cannot_decide(self, review_id: uuid.UUID) -> None:
+        """Real JWT authority contains ai.review, without institution permissions."""
+        reviewer = IdentityService.create_user(
+            self.session, email=f"ai-review-only-{uuid.uuid4()}@example.test"
+        )
+        AuthenticationService(Settings(_env_file=None, environment="test")).set_password(
+            self.session, reviewer, PASSWORD
+        )
+        role = Role(key="AI_REVIEW_ONLY_" + uuid.uuid4().hex, scope=RoleScope.PLATFORM)
+        self.session.add(role)
+        self.session.flush()
+        permission = self.session.scalar(
+            select(Permission).where(
+                Permission.key == "ai.review",
+                Permission.scope == RoleScope.PLATFORM,
+            )
+        )
+        assert permission is not None
+        self.session.add_all(
+            [
+                RolePermission(role_id=role.id, permission_id=permission.id),
+                PlatformRoleAssignment(user_id=reviewer.id, role_id=role.id),
+            ]
+        )
+        self.session.commit()
+        context = build_tenant_context(self.session, reviewer.id)
+        assert context.platform_permissions == frozenset({"ai.review"})
+        assert not context.permissions and context.organisation_id is None
+        headers = self.login(reviewer.email, tenant=False)
+        for action in ("approve", "reject", "request-changes", "decision"):
+            kwargs = {"json": {"decision": "APPROVED"}} if action == "decision" else {}
+            response = self.request(
+                "POST",
+                f"/api/v1/platform/ai/reviews/{review_id}/{action}",
+                headers,
+                expected=409,
+                **kwargs,
+            )
+            assert response["detail"] == "review requires a domain governed decision"
+            self.session.expire_all()
+            pending = self.session.get(HumanReviewRequest, review_id)
+            assert pending.status.value == "PENDING"
+            assert pending.decided_by is pending.decided_at is pending.decision is None
+
+    def malicious_newer_ai_review(
+        self, domain_review_id: uuid.UUID, requested_by_email: str
+    ) -> uuid.UUID:
+        """Adversarial review-envelope injection, never an AI execution fixture."""
+        domain = self.session.get(HumanReviewRequest, domain_review_id)
+        other_actor = self.session.scalar(select(User).where(User.email == requested_by_email))
+        injected = HumanReviewRequest(
+            review_type="AI_PROPOSAL",
+            entity_type=domain.entity_type,
+            entity_id=domain.entity_id,
+            status=domain.status,
+            requested_by=other_actor.id,
+            requested_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+            reviewed_checksum=domain.reviewed_checksum,
+        )
+        self.session.add(injected)
+        self.session.commit()
+        return injected.id
 
     def rubric(self) -> dict[str, Any]:
         admin = self.login("admin@demo.prufai.local")
@@ -483,6 +550,11 @@ def test_rubric_human_lifecycle_is_exact_idempotent_and_separates_duties(writing
     review = writing.request("POST", path + "/request-review", admin, json=body)
     assert review["status"] == "HUMAN_REVIEW"
     assert writing.request("POST", path + "/request-review", admin, json=body) == review
+    writing.assert_generic_ai_cannot_decide(uuid.UUID(review["review"]["id"]))
+    injected_id = writing.malicious_newer_ai_review(
+        uuid.UUID(review["review"]["id"]), "reviewer@demo.prufai.local"
+    )
+    assert writing.request("GET", path, reviewer)["review"]["id"] == review["review"]["id"]
     writing.request(
         "POST",
         path + "/approve",
@@ -494,6 +566,8 @@ def test_rubric_human_lifecycle_is_exact_idempotent_and_separates_duties(writing
         "POST", path + "/approve", reviewer, json={**body, "operation_id": str(uuid.uuid4())}
     )
     assert approved["status"] == "APPROVED"
+    writing.session.expire_all()
+    assert writing.session.get(HumanReviewRequest, injected_id).status.value == "PENDING"
     published = writing.request(
         "POST", path + "/publish", reviewer, json={**body, "operation_id": str(uuid.uuid4())}
     )
@@ -502,6 +576,26 @@ def test_rubric_human_lifecycle_is_exact_idempotent_and_separates_duties(writing
     writing.session.expire_all()
     persisted = writing.session.get(RubricVersion, uuid.UUID(draft["id"]))
     assert persisted.approved_at is not None and persisted.published_at is not None
+    expected_metadata = {
+        "language": persisted.language,
+        "assessment_family": persisted.assessment_family.value,
+        "cefr_levels": persisted.cefr_levels,
+    }
+    assert expected_metadata == {
+        "language": "de",
+        "assessment_family": "LANGUAGE",
+        "cefr_levels": ["B1"],
+    }
+    detail = writing.request("GET", path, reviewer)
+    listed = writing.request("GET", writing.org + "/rubrics", reviewer)
+    listed_version = next(
+        version
+        for rubric in listed
+        for version in rubric["versions"]
+        if version["id"] == str(persisted.id)
+    )
+    for projection in (published, detail, listed_version):
+        assert {key: projection[key] for key in expected_metadata} == expected_metadata
     with pytest.raises(ValueError, match="immutable"):
         persisted.criteria = [{**persisted.criteria[0], "max_points": "100"}]
         writing.session.flush()
@@ -540,6 +634,12 @@ def test_submitted_writing_human_proposal_and_distinct_approval_have_no_ai_evide
     )
     assert pending is not None and pending.status.value == "PENDING"
     assert pending.reviewed_checksum == proposed["checksum"]
+    writing.assert_generic_ai_cannot_decide(pending.id)
+    injected_id = writing.malicious_newer_ai_review(pending.id, "admin@demo.prufai.local")
+    workspace = writing.request(
+        "GET", writing.org + f"/subjective-assessments/{created['id']}", reviewer
+    )
+    assert workspace["review"]["id"] == str(pending.id)
     assert (
         writing.request("POST", path + "/human-proposal", reviewer, json=proposal_body) == proposed
     )
@@ -563,6 +663,8 @@ def test_submitted_writing_human_proposal_and_distinct_approval_have_no_ai_evide
         },
     )
     assert approved["status"] == "APPROVED" and Decimal(approved["approved_score"]) == Decimal("4")
+    writing.session.expire_all()
+    assert writing.session.get(HumanReviewRequest, injected_id).status.value == "PENDING"
     writing.request(
         "POST", writing.org + "/subjective-assessments", reviewer, expected=409, json=legacy_body
     )

@@ -22,6 +22,9 @@ No new role or permission grants are introduced. A platform identity does not ga
 institution marking authority merely by having platform permissions. Each write
 checks the authenticated organisation, domain permission, entity ownership and
 version state on the server.
+The generic platform AI review endpoints cannot decide these rubric or human
+Writing review requests; decisions must use the corresponding governed domain
+workflow and its independent-review checks.
 
 Rubrics follow `DRAFT → HUMAN_REVIEW → APPROVED → PUBLISHED`. Review pins the
 content checksum and records requester, deciding actor and time. Publication

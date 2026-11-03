@@ -56,9 +56,13 @@ def _failure(exc: Exception) -> HTTPException:
 
 
 def review_projection(
-    session: Session, entity_type: str, entity_id: uuid.UUID
+    session: Session,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    *,
+    review_type: str | None = None,
 ) -> dict[str, Any] | None:
-    review = review_for(session, entity_type, entity_id)
+    review = review_for(session, entity_type, entity_id, review_type=review_type)
     if review is None:
         return None
     return {
@@ -82,6 +86,9 @@ def rubric_projection(session: Session, version: RubricVersion) -> dict[str, Any
         "status": version.status.value,
         "checksum": version.checksum,
         "skill": version.skill.value,
+        "language": version.language,
+        "assessment_family": version.assessment_family.value,
+        "cefr_levels": list(version.cefr_levels),
         "standard_pack_version_id": str(version.standard_pack_version_id),
         "task_spec_id": str(version.task_spec_id) if version.task_spec_id else None,
         "criteria": version.criteria,
@@ -97,7 +104,9 @@ def rubric_projection(session: Session, version: RubricVersion) -> dict[str, Any
         if version.published_by_user_id
         else None,
         "published_at": version.published_at.isoformat() if version.published_at else None,
-        "review": review_projection(session, "RUBRIC_VERSION", version.id),
+        "review": review_projection(
+            session, "RUBRIC_VERSION", version.id, review_type="RUBRIC_PUBLICATION"
+        ),
     }
 
 

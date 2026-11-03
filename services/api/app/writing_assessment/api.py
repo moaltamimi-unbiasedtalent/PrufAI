@@ -195,7 +195,14 @@ def get_assessment_workspace(
         "approved_score": str(current.approved_score)
         if current.approved_score is not None
         else None,
-        "review": review_projection(session, "SUBJECTIVE_ASSESSMENT_VERSION", current.id),
+        "review": review_projection(
+            session,
+            "SUBJECTIVE_ASSESSMENT_VERSION",
+            current.id,
+            review_type="HUMAN_WRITING_ASSESSMENT"
+            if current.assessment_origin == "HUMAN"
+            else None,
+        ),
         "candidate_text": (revision.payload.get("text") if revision else ""),
         "rubric": {
             "id": str(rubric.id),

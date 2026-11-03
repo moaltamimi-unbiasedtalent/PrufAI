@@ -6,7 +6,7 @@ import pytest
 
 from app.ai_orchestration.service import AIOrchestrationService
 from app.authorization import TenantContext
-from app.models import AuditEvent
+from app.models import AuditEvent, HumanReviewRequest
 from app.models.enums import AIArtifactStatus, HumanReviewStatus
 
 
@@ -17,6 +17,22 @@ def _platform_context() -> TenantContext:
         membership_id=None,
         platform_permissions=frozenset({"ai.run", "ai.review"}),
     )
+
+
+@pytest.mark.parametrize("review_type", ["RUBRIC_PUBLICATION", "HUMAN_WRITING_ASSESSMENT"])
+def test_generic_ai_decision_cannot_mutate_domain_owned_human_reviews(session, review_type):
+    review = HumanReviewRequest(review_type=review_type, status=HumanReviewStatus.PENDING)
+    with pytest.raises(ValueError, match="requires a domain governed decision"):
+        AIOrchestrationService.decide_review(
+            session,
+            review,
+            decision=HumanReviewStatus.APPROVED,
+            actor_id=uuid.uuid4(),
+            context=_platform_context(),
+        )
+    assert review.status is HumanReviewStatus.PENDING
+    assert review.decided_by is review.decided_at is review.decision is None
+    assert not session.new
 
 
 def test_registries_pin_versions_and_review_is_domain_owned(session):

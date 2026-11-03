@@ -112,16 +112,19 @@ def _record(
 
 
 def review_for(
-    session: Session, entity_type: str, entity_id: uuid.UUID
+    session: Session,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    *,
+    review_type: str | None = None,
 ) -> HumanReviewRequest | None:
-    return session.scalar(
-        select(HumanReviewRequest)
-        .where(
-            HumanReviewRequest.entity_type == entity_type,
-            HumanReviewRequest.entity_id == entity_id,
-        )
-        .order_by(HumanReviewRequest.requested_at.desc())
+    query = select(HumanReviewRequest).where(
+        HumanReviewRequest.entity_type == entity_type,
+        HumanReviewRequest.entity_id == entity_id,
     )
+    if review_type is not None:
+        query = query.where(HumanReviewRequest.review_type == review_type)
+    return session.scalar(query.order_by(HumanReviewRequest.requested_at.desc()))
 
 
 class RubricGovernanceService:
@@ -184,7 +187,7 @@ class RubricGovernanceService:
             schema_version=version.schema_version,
         )
         now = datetime.now(timezone.utc)
-        review = review_for(session, "RUBRIC_VERSION", version.id)
+        review = review_for(session, "RUBRIC_VERSION", version.id, review_type="RUBRIC_PUBLICATION")
         if action == "review_requested":
             if version.status is not RubricVersionStatus.DRAFT:
                 raise RubricError("only a draft rubric can enter review")
@@ -645,7 +648,12 @@ class HumanWritingService:
         ):
             raise RubricError("stale or completed human Writing review")
         rubric, revision = cls._pins(session, version)
-        review = review_for(session, "SUBJECTIVE_ASSESSMENT_VERSION", version.id)
+        review = review_for(
+            session,
+            "SUBJECTIVE_ASSESSMENT_VERSION",
+            version.id,
+            review_type="HUMAN_WRITING_ASSESSMENT",
+        )
         if (
             review is None
             or review.status is not HumanReviewStatus.PENDING

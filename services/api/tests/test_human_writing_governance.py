@@ -115,6 +115,46 @@ def test_authorized_rubric_action_is_audited_without_audit_read_permission(sessi
     assert event.metadata_json == {"operation_id": str(operation_id)}
 
 
+def test_rubric_read_api_returns_persisted_language_family_and_levels(session):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.auth.api import Principal, get_principal
+    from app.db import get_db_session
+    from app.writing_assessment.api import writing_router
+
+    ids = reconcile_demo(session, Settings(_env_file=None, environment="development"), enabled=True)
+    org = uuid.UUID(ids["organisation_id"])
+    admin = session.scalar(select(User).where(User.email == "admin@demo.prufai.local"))
+    version = session.get(RubricVersion, uuid.UUID(ids["writing_rubric_version_id"]))
+    principal = Principal(
+        admin, SimpleNamespace(id=uuid.uuid4()), build_tenant_context(session, admin.id, org)
+    )
+    application = FastAPI()
+    application.include_router(writing_router)
+    application.dependency_overrides[get_db_session] = lambda: session
+    application.dependency_overrides[get_principal] = lambda: principal
+    with TestClient(application) as client:
+        detail = client.get(
+            f"/api/v1/organisations/{org}/rubrics/{version.rubric_id}/versions/{version.id}"
+        )
+        listing = client.get(f"/api/v1/organisations/{org}/rubrics")
+    assert detail.status_code == listing.status_code == 200
+    listed_version = next(
+        entry
+        for rubric in listing.json()
+        for entry in rubric["versions"]
+        if entry["id"] == str(version.id)
+    )
+    expected = {
+        "language": version.language,
+        "assessment_family": version.assessment_family.value,
+        "cefr_levels": version.cefr_levels,
+    }
+    for response in (detail.json(), listed_version):
+        assert {key: response[key] for key in expected} == expected
+
+
 def _published(session):
     ids = reconcile_demo(session, Settings(_env_file=None, environment="development"), enabled=True)
     org = uuid.UUID(ids["organisation_id"])
@@ -178,3 +218,150 @@ def test_published_rubric_history_rejects_nested_replacement_downgrade_and_delet
     session.expire_all()
     assert version.criteria == original
     assert version.status is RubricVersionStatus.PUBLISHED
+
+
+def test_legacy_ai_review_correction_builds_immutable_approved_successor(session):
+    """Compatibility of an existing legacy proposal; no inference is performed."""
+    from datetime import datetime, timezone
+
+    from app.models import (
+        HumanReviewRequest,
+        SubjectiveAssessment,
+        SubjectiveAssessmentVersion,
+        SubjectiveCriterionAssessment,
+    )
+    from app.models.enums import (
+        HumanReviewStatus,
+        SubjectiveAssessmentStatus,
+        SubjectiveConfidence,
+        SubjectiveCriterionStatus,
+    )
+    from app.runtime.service import CandidateRuntimeService
+
+    ids = reconcile_demo(session, Settings(_env_file=None, environment="development"), enabled=True)
+    rubric_version = _published(session)
+    org = uuid.UUID(ids["organisation_id"])
+    admin = session.scalar(select(User).where(User.email == "admin@demo.prufai.local"))
+    reviewer = session.scalar(select(User).where(User.email == "reviewer@demo.prufai.local"))
+    candidate = session.get(User, uuid.UUID(ids["writing_candidate_user_id"]))
+    admin_context = build_tenant_context(session, admin.id, org)
+    candidate_context = build_tenant_context(session, candidate.id, org)
+    assignment = CandidateRuntimeService.create_assignment(
+        session,
+        admin_context,
+        candidate_user_id=candidate.id,
+        exam_version_id=uuid.UUID(ids["writing_exam_version_id"]),
+    )
+    attempt = CandidateRuntimeService.create_attempt(session, candidate_context, assignment.id)
+    CandidateRuntimeService.start(session, candidate_context, attempt.id)
+    item = attempt.runtime_plan["modules"][0]["sections"][0]["tasks"][0]["items"][0]
+    binding_id = uuid.UUID(item["binding_id"])
+    CandidateRuntimeService.save_response(
+        session,
+        candidate_context,
+        attempt.id,
+        binding_id,
+        payload={"text": "Ich möchte einen neuen Termin vereinbaren."},
+        expected_revision=0,
+        client_operation_id=uuid.uuid4(),
+    )
+    CandidateRuntimeService.submit(session, candidate_context, attempt.id)
+    # Historical UNSPECIFIED origin is retained. This proposal envelope models
+    # existing stored review data; it is not a provider or execution claim.
+    now = datetime.now(timezone.utc)
+    assessment = SubjectiveAssessment(
+        attempt_id=attempt.id,
+        exam_version_id=attempt.exam_version_id,
+        exam_version_item_binding_id=binding_id,
+        question_bank_item_version_id=uuid.UUID(ids["writing_item_version_id"]),
+        candidate_user_id=candidate.id,
+        organisation_id=org,
+        created_at=now,
+    )
+    session.add(assessment)
+    session.flush()
+    response = attempt.responses[0]
+    revision = response.revisions[0]
+    source = SubjectiveAssessmentVersion(
+        subjective_assessment_id=assessment.id,
+        version_number=1,
+        assessment_origin="UNSPECIFIED",
+        attempt_id=attempt.id,
+        exam_version_id=attempt.exam_version_id,
+        exam_version_item_binding_id=binding_id,
+        question_bank_item_version_id=uuid.UUID(ids["writing_item_version_id"]),
+        candidate_response_id=response.id,
+        candidate_response_revision_id=revision.id,
+        rubric_version_id=rubric_version.id,
+        standard_pack_version_id=rubric_version.standard_pack_version_id,
+        status=SubjectiveAssessmentStatus.AI_PROPOSED,
+        response_checksum=revision.payload_checksum,
+        rubric_checksum=rubric_version.checksum,
+        checksum="1" * 64,
+        created_at=now,
+    )
+    session.add(source)
+    session.flush()
+    source.proposed_score = Decimal("2")
+    source.ai_proposal = {"legacy_test_proposal": True}
+    for criterion in rubric_version.criteria:
+        source.criterion_assessments.append(
+            SubjectiveCriterionAssessment(
+                criterion_code=criterion["code"],
+                proposed_level="BASIC",
+                proposed_points=Decimal("1"),
+                confidence=SubjectiveConfidence.MEDIUM,
+                evidence=[],
+                rationale="Legacy fixture proposal.",
+                uncertainties=[],
+                disagreement={},
+                status=SubjectiveCriterionStatus.PROPOSED,
+            )
+        )
+    session.add(
+        HumanReviewRequest(
+            review_type="SUBJECTIVE_ASSESSMENT",
+            entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
+            entity_id=source.id,
+            status=HumanReviewStatus.PENDING,
+            requested_by=reviewer.id,
+            requested_at=datetime.now(timezone.utc),
+            reviewed_checksum=source.checksum,
+        )
+    )
+    session.commit()
+    original_checksum = source.checksum
+    original_proposal = copy.deepcopy(source.ai_proposal)
+    approved = SubjectiveAssessmentService.approve(
+        session,
+        admin_context,
+        source.id,
+        corrections={
+            criterion["code"]: {"approved_points": "2", "approved_level": "CLEAR"}
+            for criterion in rubric_version.criteria
+        },
+    )
+    session.commit()
+    session.expire_all()
+    assert approved.id != source.id and approved.supersedes_version_id == source.id
+    assert approved.version_number == source.version_number + 1
+    assert approved.status is SubjectiveAssessmentStatus.APPROVED
+    assert approved.assessment_origin == source.assessment_origin == "UNSPECIFIED"
+    assert approved.approved_score == Decimal("4")
+    assert len(approved.criterion_assessments) == 2
+    assert all(row.approved_points == Decimal("2") for row in approved.criterion_assessments)
+    assert source.status is SubjectiveAssessmentStatus.SUPERSEDED
+    assert source.checksum == original_checksum and source.ai_proposal == original_proposal
+    assert all(
+        row.proposed_points == Decimal("1") and row.approved_points is None
+        for row in source.criterion_assessments
+    )
+    assert session.get(SubjectiveAssessmentVersion, approved.id).ai_run_id is None
+    with pytest.raises(ValueError, match="immutable"):
+        source.ai_proposal = {"rewritten": True}
+        session.commit()
+    session.rollback()
+    with pytest.raises(ValueError, match="immutable"):
+        approved.criterion_assessments[0].approved_points = Decimal("99")
+        session.commit()
+    session.rollback()

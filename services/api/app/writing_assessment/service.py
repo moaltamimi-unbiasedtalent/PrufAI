@@ -858,7 +858,7 @@ class SubjectiveAssessmentService:
             candidate_response_revision_id=source.candidate_response_revision_id,
             rubric_version_id=source.rubric_version_id,
             standard_pack_version_id=source.standard_pack_version_id,
-            status=SubjectiveAssessmentStatus.APPROVED,
+            status=SubjectiveAssessmentStatus.IN_REVIEW,
             response_checksum=source.response_checksum,
             rubric_checksum=source.rubric_checksum,
             workflow_version_id=source.workflow_version_id,
@@ -930,6 +930,8 @@ class SubjectiveAssessmentService:
                 "supersedes_version_id": str(source.id),
             }
         )
+        # Freeze only after the complete successor and its criteria are assembled.
+        successor.status = SubjectiveAssessmentStatus.APPROVED
         source.status = SubjectiveAssessmentStatus.SUPERSEDED
         review.status = HumanReviewStatus.APPROVED
         review.decided_by = context.user_id

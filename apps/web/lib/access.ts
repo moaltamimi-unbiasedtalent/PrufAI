@@ -34,6 +34,12 @@ export function canViewRoute(
   if (path.startsWith("/candidate")) return candidateMembership(membership);
   if (path.startsWith("/institution/overview"))
     return permissions.includes("exam_assignment.read");
+  if (path.startsWith("/institution/assignments"))
+    return ["exam_assignment.manage", "exam.read", "membership.read"].every(
+      (key) => permissions.includes(key),
+    );
+  if (path.startsWith("/institution/results"))
+    return permissions.includes("result.read");
   if (path.startsWith("/institution/releases"))
     return permissions.includes("result.read");
   if (
@@ -85,6 +91,7 @@ export const workspaceLinks = [
   ["My exams", "/candidate"],
   ["My released results", "/candidate/results"],
   ["Institution inspection", "/institution/overview"],
+  ["Assign practice assessment", "/institution/assignments"],
   ["Result releases", "/institution/releases"],
   ["Exam Studio preview", "/exam-studio"],
   ["Result moderation", "/institution/result-moderation"],

@@ -2,16 +2,27 @@
 
 import { useAuth } from "../../../../lib/auth";
 
-import { useEffect, useState } from "react";
-import { appealApi, type AppealDetail } from "../appeal-api";
+import Link from "next/link";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { appealActions, appealApi, type AppealDetail } from "../appeal-api";
+import css from "../../assessment.module.css";
 
 type Props = { params: Promise<{ appealId: string }> };
 
 export default function AppealWorkspacePage({ params }: Props) {
   const [appeal, setAppeal] = useState<AppealDetail | null>(null);
   const [message, setMessage] = useState("Loading appeal…");
-  const organisationId = useAuth().organisationId ?? "";
+  const { organisationId, permissions } = useAuth();
+  const [reload, setReload] = useState(0);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const operations = useRef<Record<string, string>>({});
   useEffect(() => {
+    let cancelled = false;
+    setAppeal(null);
+    setError(null);
+    setMessage("Loading appeal…");
     void params.then(({ appealId }) => {
       if (!organisationId) {
         setMessage("Organisation context is required.");
@@ -20,19 +31,74 @@ export default function AppealWorkspacePage({ params }: Props) {
       appealApi
         .detail(organisationId, appealId)
         .then((value) => {
-          setAppeal(value);
-          setMessage("");
+          if (!cancelled) {
+            setAppeal(value);
+            setMessage("");
+          }
         })
-        .catch(() => setMessage("Appeal could not be loaded."));
+        .catch((cause: unknown) => {
+          if (!cancelled) {
+            setMessage("");
+            setError(
+              cause instanceof Error
+                ? cause.message
+                : "Appeal could not be loaded.",
+            );
+          }
+        });
     });
-  }, [organisationId, params]);
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationId, params, reload]);
   async function startReview() {
-    if (!appeal || !organisationId) return;
+    if (
+      !appeal ||
+      !organisationId ||
+      busy ||
+      !appealActions(appeal, permissions).review
+    )
+      return;
+    setBusy(true);
+    setError(null);
     try {
       await appealApi.review(organisationId, appeal.id);
-      setMessage("Review started. Reload to confirm the current version.");
-    } catch {
-      setMessage("The appeal changed; refresh before continuing.");
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The appeal changed; refresh before continuing.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function reject(event: FormEvent) {
+    event.preventDefault();
+    if (
+      !appeal ||
+      !organisationId ||
+      busy ||
+      !reason.trim() ||
+      !appealActions(appeal, permissions).reject
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    const key = `${appeal.id}:${appeal.current_checksum}:${reason.trim()}`;
+    const operation = (operations.current[key] ??= crypto.randomUUID());
+    try {
+      await appealApi.reject(organisationId, appeal, reason.trim(), operation);
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Adjudication could not be confirmed. Refresh before continuing.",
+      );
+    } finally {
+      setBusy(false);
     }
   }
   return (
@@ -41,7 +107,18 @@ export default function AppealWorkspacePage({ params }: Props) {
         Institution review
       </p>
       <h1>Appeal workspace</h1>
-      {message && <p role="alert">{message}</p>}
+      <p>
+        <Link href="/institution/appeals">← Appeals queue</Link>
+      </p>
+      {message && <p role="status">{message}</p>}
+      {error && (
+        <div className={css.error} role="alert">
+          <p>{error}</p>
+          <button onClick={() => setReload((value) => value + 1)}>
+            Refresh appeal
+          </button>
+        </div>
+      )}
       {appeal && (
         <>
           <section aria-labelledby="identity">
@@ -76,9 +153,53 @@ export default function AppealWorkspacePage({ params }: Props) {
               </p>
             )}
           </section>
-          <button type="button" onClick={() => void startReview()}>
-            Start review
-          </button>
+          {appealActions(appeal, permissions).review && (
+            <button
+              disabled={busy}
+              type="button"
+              onClick={() => void startReview()}
+            >
+              Start review
+            </button>
+          )}
+          {appealActions(appeal, permissions).reject && (
+            <form
+              className={`${css.form} ${css.card}`}
+              onSubmit={(event) => void reject(event)}
+            >
+              <h2>Adjudicate reviewed appeal</h2>
+              <p>
+                This bounded workflow records a reasoned rejection against the
+                exact current appeal version and evidence checksum. It does not
+                change the score.
+              </p>
+              <label>
+                Decision reason
+                <textarea
+                  required
+                  rows={5}
+                  maxLength={10000}
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </label>
+              <button disabled={busy || !reason.trim()}>
+                Reject reviewed appeal
+              </button>
+            </form>
+          )}
+          {appeal.decision && (
+            <section className={css.card}>
+              <h2>Recorded human decision</h2>
+              <p>Decision: {appeal.decision}</p>
+              <p>Reason: {appeal.decision_reason}</p>
+              {appeal.decision === "REJECT" && (
+                <p>
+                  No correction or successor release is created by rejection.
+                </p>
+              )}
+            </section>
+          )}
         </>
       )}
     </main>

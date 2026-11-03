@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authenticatedFetch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { assessmentApi } from "../assessment-api";
 
 type ResultSummary = {
   id: string;
@@ -37,6 +39,8 @@ export default function InstitutionOverviewPage() {
   const [message, setMessage] = useState("Loading institution assignments…");
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [scoring, setScoring] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const allowed = permissions.includes("exam_assignment.read");
 
   useEffect(() => {
@@ -91,9 +95,41 @@ export default function InstitutionOverviewPage() {
     };
   }, [allowed, organisationId, reload]);
 
+  async function score(attemptId: string) {
+    if (!organisationId || !permissions.includes("scoring.run") || scoring)
+      return;
+    setScoring(attemptId);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const run = await assessmentApi.score(organisationId, attemptId);
+      setActionMessage(
+        `Scoring run ${run.id} completed with state ${run.status}. Inspect the persisted result below before requesting human review.`,
+      );
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Scoring could not be confirmed. Reload before retrying.",
+      );
+    } finally {
+      setScoring(null);
+    }
+  }
+
   return (
     <section>
       <h1>Institution inspection</h1>
+      {permissions.includes("exam_assignment.manage") &&
+        permissions.includes("exam.read") &&
+        permissions.includes("membership.read") && (
+          <p>
+            <Link href="/institution/assignments">
+              Assign a practice assessment →
+            </Link>
+          </p>
+        )}
       <p>
         Inspect assigned exams, candidate attempt status, and persisted result
         versions.
@@ -102,6 +138,12 @@ export default function InstitutionOverviewPage() {
         Result status and outcome below come directly from the governed API.
       </p>
       {message && <p role="status">{message}</p>}
+      {actionMessage && <p role="status">{actionMessage}</p>}
+      <p>
+        <button type="button" onClick={() => setReload((value) => value + 1)}>
+          Refresh assignments
+        </button>
+      </p>
       {error && (
         <div role="alert">
           <p>{error}</p>
@@ -183,12 +225,35 @@ export default function InstitutionOverviewPage() {
                           </dd>
                         </dl>
                       </details>
+                      {permissions.includes("result.read") && (
+                        <p>
+                          <Link
+                            href={`/institution/results/${attempt.result.id}`}
+                          >
+                            Inspect score, review and release →
+                          </Link>
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <p>
                       No result is available to this account for this attempt.
                     </p>
                   )}
+                  {!attempt.result &&
+                    attempt.status === "SUBMITTED" &&
+                    permissions.includes("scoring.run") && (
+                      <p>
+                        <button
+                          disabled={scoring !== null}
+                          onClick={() => void score(attempt.id)}
+                        >
+                          {scoring === attempt.id
+                            ? "Scoring submitted attempt…"
+                            : "Score submitted attempt"}
+                        </button>
+                      </p>
+                    )}
                 </section>
               ))}
             </article>

@@ -1,0 +1,94 @@
+.card {
+  border: 1px solid #dce2ee;
+  background: white;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+.form {
+  display: grid;
+  gap: 1.2rem;
+  max-width: 760px;
+}
+.form label {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+.form input,
+.form select,
+.form textarea {
+  padding: 0.7rem;
+  border: 1px solid #bbc6dc;
+  border-radius: 0.35rem;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+.form button,
+.actions button {
+  padding: 0.7rem 1rem;
+  background: #3157a6;
+  border: 1px solid #3157a6;
+  color: white;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font: inherit;
+}
+.form button:disabled,
+.actions button:disabled {
+  background: #e3e8f1;
+  color: #48546c;
+  border-color: #b4bed0;
+  cursor: default;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.error {
+  color: #8d2424;
+  background: #fff4f3;
+  border: 1px solid #e4bab4;
+  padding: 1rem;
+  border-radius: 0.4rem;
+}
+.notice {
+  background: #eaf1fc;
+  border: 1px solid #b9cbea;
+  padding: 1rem;
+  border-radius: 0.4rem;
+  line-height: 1.6;
+}
+.provenance {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) 3fr;
+  gap: 0.6rem 1rem;
+  line-height: 1.5;
+}
+.provenance dt {
+  font-weight: 600;
+}
+.provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.evidence {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+@media (max-width: 600px) {
+  .provenance {
+    grid-template-columns: 1fr;
+  }
+  .provenance dd {
+    margin-bottom: 0.6rem;
+  }
+  .card {
+    padding: 1rem;
+  }
+}

@@ -1,3 +1,6 @@
+import { authenticatedFetch } from "../../../lib/api";
+import { AssessmentApiError } from "../assessment-api";
+
 export type AppealSummary = {
   id: string;
   status: string;
@@ -8,7 +11,6 @@ export type AppealSummary = {
   current_version_number: number;
   current_checksum: string;
 };
-
 export type AppealDetail = AppealSummary & {
   grounds?: string;
   additional_information?: string | null;
@@ -23,17 +25,20 @@ export type AppealDetail = AppealSummary & {
     new_result_version_id: string | null;
   } | null;
 };
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await authenticatedFetch(path, {
-    ...init,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  if (!response.ok) throw new Error(`APPEAL_HTTP_${response.status}`);
+  const response = await authenticatedFetch(path, init);
+  if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string") detail = payload.detail;
+    } catch {
+      /* Preserve HTTP status for outages. */
+    }
+    throw new AssessmentApiError(response.status, detail);
+  }
   return (await response.json()) as T;
 }
-
 export const appealApi = {
   list: (organisationId: string) =>
     request<AppealSummary[]>(`/api/v1/organisations/${organisationId}/appeals`),
@@ -42,11 +47,53 @@ export const appealApi = {
       `/api/v1/organisations/${organisationId}/appeals/${appealId}`,
     ),
   review: (organisationId: string, appealId: string) =>
-    request(
+    request<{ id: string; status: string }>(
       `/api/v1/organisations/${organisationId}/appeals/${appealId}/review`,
+      { method: "POST" },
+    ),
+  reject: (
+    organisationId: string,
+    appeal: AppealDetail,
+    reason: string,
+    operationId: string,
+  ) =>
+    request<{ id: string; status: string }>(
+      `/api/v1/organisations/${organisationId}/appeals/${appeal.id}/adjudicate`,
       {
         method: "POST",
+        body: JSON.stringify({
+          appeal_version_number: appeal.current_version_number,
+          appeal_checksum: appeal.current_checksum,
+          evidence_bundle_checksum: appeal.evidence_bundle_checksum,
+          decision: "REJECT",
+          reason,
+          operation_id: operationId,
+        }),
       },
     ),
+  candidateList: () => request<AppealDetail[]>("/api/v1/candidate/appeals"),
+  candidateDetail: (appealId: string) =>
+    request<AppealDetail>(`/api/v1/candidate/appeals/${appealId}`),
+  submit: (
+    versionId: string,
+    category: string,
+    grounds: string,
+    operationId: string,
+  ) =>
+    request<AppealDetail>(`/api/v1/candidate/results/${versionId}/appeals`, {
+      method: "POST",
+      body: JSON.stringify({ category, grounds, operation_id: operationId }),
+    }),
 };
-import { authenticatedFetch } from "../../../lib/api";
+
+export function appealActions(appeal: AppealDetail, permissions: string[]) {
+  return {
+    review:
+      appeal.status === "SUBMITTED" &&
+      permissions.includes("appeal.adjudicate"),
+    reject:
+      appeal.status === "UNDER_REVIEW" &&
+      permissions.includes("appeal.adjudicate") &&
+      Boolean(appeal.evidence_bundle_checksum),
+  };
+}

@@ -40,6 +40,7 @@ export type RuntimeState = {
             binding_id: string;
             response_mode: string;
             content: Record<string, unknown>;
+            audio_policy?: AudioRecordingPolicy;
           }>;
         }>;
       }>;
@@ -59,7 +60,20 @@ export type AudioRecordingSession = {
   recording_started_at: string;
   recording_expires_at: string;
   attempt_number: number;
-  policy: Record<string, unknown>;
+  policy: AudioRecordingPolicy;
+  upload_expires_at: string;
+  recoverable: boolean;
+  last_error_category: string | null;
+  asset: AudioMediaAsset | null;
+};
+
+export type AudioRecordingPolicy = {
+  max_recording_seconds: number;
+  max_recording_attempts: number;
+  max_upload_bytes: number;
+  supported_mime_types: string[];
+  submission_behavior: "REQUIRE_ATTACHED";
+  upload_grace_seconds: number;
 };
 
 export type AudioMediaAsset = {
@@ -67,6 +81,17 @@ export type AudioMediaAsset = {
   status: string;
   sha256: string;
   byte_size: number;
+  duration_ms: number;
+  content_type: string;
+  validation_provenance: Record<string, unknown>;
+  saved_response_revision: number | null;
+  candidate_response_revision_id: string | null;
+  attachment_status: "UPLOADED_NOT_ATTACHED" | "ATTACHED";
+};
+
+export type AudioEvidence = {
+  policy: AudioRecordingPolicy;
+  recordings: AudioRecordingSession[];
 };
 
 export type CandidateRelease = {
@@ -112,18 +137,17 @@ async function uploadAudio(
   path: string,
   content: Blob,
   filename: string,
+  signal?: AbortSignal,
 ): Promise<AudioMediaAsset> {
   const response = await authenticatedFetch(`/api/v1/candidate${path}`, {
     method: "POST",
     credentials: "include",
     headers: {
-      "Content-Type": (content.type || "application/octet-stream").split(
-        ";",
-        1,
-      )[0],
+      "Content-Type": content.type || "application/octet-stream",
       "X-Filename": filename,
     },
     body: content,
+    signal,
   });
   if (!response.ok) {
     let code = `RUNTIME.HTTP_${response.status}`;
@@ -152,21 +176,47 @@ export const candidateApi = {
     request<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
       method: "POST",
     }),
-  startAudioRecording: (attemptId: string, bindingId: string) =>
+  startAudioRecording: (
+    attemptId: string,
+    bindingId: string,
+    operationId: string,
+    signal?: AbortSignal,
+  ) =>
     request<AudioRecordingSession>(
       `/attempts/${attemptId}/items/${bindingId}/audio-recordings`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify({ operation_id: operationId }),
+        signal,
+      },
     ),
   finalizeAudioRecording: (
     recordingSessionId: string,
     content: Blob,
     filename: string,
+    signal?: AbortSignal,
   ) =>
     uploadAudio(
       `/audio-recordings/${recordingSessionId}/finalize`,
       content,
       filename,
+      signal,
     ),
+  audioEvidence: (attemptId: string, bindingId: string, signal?: AbortSignal) =>
+    request<AudioEvidence>(
+      `/attempts/${attemptId}/items/${bindingId}/audio-evidence`,
+      { signal },
+    ),
+  recoverAudioRecording: (sessionId: string, signal?: AbortSignal) =>
+    request<AudioRecordingSession>(`/audio-recordings/${sessionId}/recover`, {
+      method: "POST",
+      signal,
+    }),
+  cancelAudioRecording: (sessionId: string, signal?: AbortSignal) =>
+    request<AudioRecordingSession>(`/audio-recordings/${sessionId}/cancel`, {
+      method: "POST",
+      signal,
+    }),
   save: (
     attemptId: string,
     bindingId: string,

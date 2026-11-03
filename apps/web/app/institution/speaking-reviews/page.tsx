@@ -1,73 +1,133 @@
 "use client";
 
-import { useAuth } from "../../../lib/auth";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { speakingReviewApi, type SpeakingReviewSummary } from "./review-api";
+import React, { useEffect, useState } from "react";
+import { useAuth } from "../../../lib/auth";
+import {
+  speakingReviewApi,
+  type SpeakingReviewSummary,
+  type AudioEvidenceAsset,
+} from "./review-api";
+import css from "../assessment.module.css";
 
 export default function SpeakingReviewQueuePage() {
-  const [reviews, setReviews] = useState<SpeakingReviewSummary[]>([]);
-  const [message, setMessage] = useState("Loading review queue…");
-  const { organisationId: activeOrganisationId, demoMode } = useAuth();
-  const organisationId = activeOrganisationId ?? "";
+  const { organisationId, permissions, user } = useAuth();
+  const allowed = permissions.includes("subjective.read");
+  const context =
+    user && organisationId && allowed
+      ? JSON.stringify([user.id, organisationId, [...permissions].sort()])
+      : null;
+  const [snapshot, setSnapshot] = useState<{
+    context: string;
+    audio: AudioEvidenceAsset[];
+    reviews: SpeakingReviewSummary[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    if (!organisationId) {
-      setMessage("Organisation context is required.");
-      return;
-    }
-    speakingReviewApi
-      .list(organisationId)
-      .then((items) => {
-        setReviews(items);
-        setMessage("");
+    setSnapshot(null);
+    setError(null);
+    if (!context || !organisationId) return;
+    const abort = new AbortController();
+    void Promise.all([
+      speakingReviewApi.audioList(organisationId, abort.signal),
+      speakingReviewApi.list(organisationId, abort.signal),
+    ])
+      .then(([audio, reviews]) => {
+        if (!abort.signal.aborted) setSnapshot({ context, audio, reviews });
       })
-      .catch(() => setMessage("Speaking review queue could not be loaded."));
-  }, [organisationId]);
+      .catch((cause: unknown) => {
+        if (!abort.signal.aborted)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Recorded evidence could not be loaded.",
+          );
+      });
+    return () => abort.abort();
+  }, [context, organisationId, refresh]);
+  const data = snapshot?.context === context ? snapshot : null;
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
-      <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
-        Institution
-      </p>
+    <section style={{ overflowWrap: "anywhere" }}>
       <h1>Speaking review queue</h1>
       <p>
-        Original audio is primary evidence. Transcriptions are derived evidence.
+        Original audio is primary evidence. Playback access does not create a
+        transcript or an assessment.
       </p>
-      {message && <p role="status">{message}</p>}
-      <table>
-        <caption className="sr-only">Pending speaking assessments</caption>
-        <thead>
-          <tr>
-            <th scope="col">Assessment</th>
-            <th scope="col">Attempt</th>
-            <th scope="col">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {!message && reviews.length === 0 && (
-            <tr>
-              <td colSpan={3}>
-                No speaking assessments are available for this organisation.
-                {demoMode &&
-                  " Recorded audio, transcripts and speaking assessments are not included in this demo."}
-              </td>
-            </tr>
+      {!context ? (
+        <p role="alert">
+          Subjective read permission in the selected institution is required.
+        </p>
+      ) : (
+        <>
+          {error && (
+            <div role="alert">
+              <p>{error}</p>
+              <button onClick={() => setRefresh((value) => value + 1)}>
+                Retry recorded evidence
+              </button>
+            </div>
           )}
-          {reviews.map((review) => (
-            <tr key={review.assessment_id}>
-              <td>
-                <Link
-                  href={`/institution/speaking-reviews/${review.assessment_id}`}
+          {!data && !error && (
+            <p role="status">Loading recorded audio evidence…</p>
+          )}
+          {data && (
+            <>
+              <h2>Recorded audio evidence</h2>
+              {!data.audio.length && (
+                <p>
+                  No submitted, bound audio evidence is available to this
+                  account.
+                </p>
+              )}
+              {data.audio.map((item) => (
+                <article
+                  className={css.card}
+                  key={item.media_asset_id}
+                  aria-label={`Recorded audio ${item.media_asset_id}`}
                 >
-                  {review.assessment_id}
-                </Link>
-              </td>
-              <td>{review.attempt_id}</td>
-              <td>{review.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+                  <p>Audio asset: {item.media_asset_id}</p>
+                  <p>Attempt: {item.attempt_id}</p>
+                  <p>Item binding: {item.binding_id}</p>
+                  <p>
+                    Verified duration: {item.duration_ms} ms ·{" "}
+                    {item.attachment_status}
+                  </p>
+                  <Link
+                    href={`/institution/speaking-reviews/audio/${item.media_asset_id}`}
+                  >
+                    Inspect recorded audio {item.media_asset_id}
+                  </Link>
+                </article>
+              ))}
+              <h2>Existing Speaking assessments</h2>
+              {!data.reviews.length && (
+                <p>
+                  No Speaking assessments have been created. Audio evidence is
+                  available separately above.
+                </p>
+              )}
+              <ul>
+                {data.reviews.map((review) => (
+                  <li key={review.assessment_id}>
+                    <Link
+                      href={`/institution/speaking-reviews/${review.assessment_id}`}
+                    >
+                      {review.assessment_id}
+                    </Link>{" "}
+                    · {review.status}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p>
+            <button onClick={() => setRefresh((value) => value + 1)}>
+              Refresh recorded evidence
+            </button>
+          </p>
+        </>
+      )}
+    </section>
   );
 }

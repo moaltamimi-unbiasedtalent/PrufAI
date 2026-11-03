@@ -29,6 +29,7 @@ import {
   type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "../../outbox";
+import type { AudioAttachmentAck } from "../../audio-contract";
 
 type Screen = "loading" | "prestart" | "runtime" | "unavailable";
 type RuntimeItem =
@@ -83,6 +84,11 @@ export default function CandidateExamRuntimePage() {
   );
   const params = useParams<{ attemptId: string }>();
   const routeId = params.attemptId;
+  const contextKey =
+    userId && organisationId ? `${userId}:${organisationId}:${routeId}` : null;
+  const currentContext = useRef(contextKey);
+  currentContext.current = contextKey;
+  const [runtimeContext, setRuntimeContext] = useState<string | null>(null);
   const assignmentId = routeId.startsWith("assignment-")
     ? routeId.slice("assignment-".length)
     : null;
@@ -100,6 +106,18 @@ export default function CandidateExamRuntimePage() {
   const [response, setResponse] = useState<Record<string, unknown>>({});
   const [starting, setStarting] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
+  const [audioPending, setAudioPending] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const navigatingRef = useRef(false);
+  useEffect(() => {
+    navigatingRef.current = false;
+    setNavigating(false);
+  }, [contextKey]);
+  const audioPendingRef = useRef(false);
+  const audioActivity = useCallback((active: boolean) => {
+    audioPendingRef.current = active;
+    setAudioPending(active);
+  }, []);
   const questionHeadingRef = useRef<HTMLHeadingElement>(null);
   const runtimeRef = useRef<RuntimeDto | null>(null);
   const saveSequence = useRef<Promise<void>>(Promise.resolve());
@@ -134,7 +152,11 @@ export default function CandidateExamRuntimePage() {
 
   const loadRuntime = useCallback(
     async (id: string, nextScreen?: Screen) => {
+      const expectedContext = currentContext.current;
       const state = await candidateApi.runtime(id);
+      if (!expectedContext || currentContext.current !== expectedContext)
+        return;
+      setRuntimeContext(expectedContext);
       setAttemptId(id);
       updateRuntime(() => state);
       const bindingId =
@@ -331,14 +353,34 @@ export default function CandidateExamRuntimePage() {
     }
   }
 
-  async function persist(payload: Record<string, unknown>) {
-    if (!attemptId || !currentItem || !editable || !accountScope) return;
+  async function persist(
+    payload: Record<string, unknown>,
+    audioOperationId?: string,
+  ): Promise<AudioAttachmentAck | void> {
+    if (
+      !attemptId ||
+      !currentItem ||
+      !editable ||
+      !accountScope ||
+      runtimeContext !== contextKey
+    ) {
+      if (audioOperationId)
+        throw new Error(
+          "This response is no longer writable. Refresh the attempt.",
+        );
+      return;
+    }
+    const expectedContext = contextKey;
     const bindingId = currentItem.binding_id;
-    const operationId = crypto.randomUUID();
+    const operationId = audioOperationId ?? crypto.randomUUID();
+    let acknowledgement: AudioAttachmentAck | null = null;
+    let failure: unknown;
     setResponse(payload);
     setPendingSave(true);
     const task = saveSequence.current
       .then(async () => {
+        if (currentContext.current !== expectedContext)
+          throw new Error("The candidate account or task changed.");
         const existing = runtimeRef.current?.responses.find(
           (item) => item.binding_id === bindingId,
         );
@@ -354,6 +396,7 @@ export default function CandidateExamRuntimePage() {
           await queueCandidateOperation(accountScope, operation);
           saveBlocked.current = true;
           setStatus("Offline — queued");
+          acknowledgement = { status: "QUEUED_RESPONSE" };
           return;
         }
         setStatus("Saving");
@@ -365,13 +408,32 @@ export default function CandidateExamRuntimePage() {
             operation.expectedRevision,
             operationId,
           );
+          if (currentContext.current !== expectedContext)
+            throw new Error("The candidate account or task changed.");
+          if (
+            audioOperationId &&
+            (saved.payload.media_asset_id !== payload.media_asset_id ||
+              !Number.isInteger(saved.revision) ||
+              saved.revision < 1)
+          )
+            throw new Error(
+              "The server did not confirm the exact audio response binding.",
+            );
           updateRuntime((current) =>
             current ? applySavedResponse(current, bindingId, saved) : current,
           );
           saveBlocked.current = false;
           setError(null);
           setStatus("Saved");
+          if (audioOperationId)
+            acknowledgement = {
+              status: "ATTACHED",
+              media_asset_id: String(payload.media_asset_id),
+              revision: saved.revision,
+            };
         } catch (cause) {
+          failure = cause;
+          if (currentContext.current !== expectedContext) return;
           saveBlocked.current = true;
           setStatus(
             cause instanceof CandidateApiError && cause.status === 409
@@ -384,20 +446,40 @@ export default function CandidateExamRuntimePage() {
           setError(safeError(cause));
         }
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
+        failure = cause;
+        if (currentContext.current !== expectedContext) return;
         saveBlocked.current = true;
         setStatus("Save failed");
         setError(
           "Your response could not be saved locally. Keep this page open and reconnect before submitting.",
         );
       })
-      .finally(() => setPendingSave(false));
+      .finally(() => {
+        if (currentContext.current === expectedContext) setPendingSave(false);
+      });
     saveSequence.current = task;
     await task;
+    if (audioOperationId) {
+      if (failure) throw failure;
+      if (acknowledgement) return acknowledgement;
+      throw new Error(
+        "Audio attachment was not confirmed. Refresh recording evidence.",
+      );
+    }
   }
 
   async function navigateTo(bindingId: string) {
-    if (!attemptId || !editable) return;
+    if (
+      !attemptId ||
+      !editable ||
+      audioPendingRef.current ||
+      navigatingRef.current
+    )
+      return;
+    const expectedContext = currentContext.current;
+    navigatingRef.current = true;
+    setNavigating(true);
     try {
       await saveSequence.current;
       if (saveBlocked.current) throw new Error("response is not synchronized");
@@ -407,11 +489,22 @@ export default function CandidateExamRuntimePage() {
       questionHeadingRef.current?.focus();
     } catch (cause) {
       setError(safeError(cause));
+    } finally {
+      if (currentContext.current === expectedContext) {
+        navigatingRef.current = false;
+        setNavigating(false);
+      }
     }
   }
 
   async function submit() {
-    if (!attemptId || !editable) return;
+    if (
+      !attemptId ||
+      !editable ||
+      audioPendingRef.current ||
+      navigatingRef.current
+    )
+      return;
     try {
       await saveSequence.current;
       if (!online || saveBlocked.current) {
@@ -430,7 +523,10 @@ export default function CandidateExamRuntimePage() {
     }
   }
 
-  if (screen === "loading")
+  if (
+    screen === "loading" ||
+    (screen === "runtime" && runtimeContext !== contextKey)
+  )
     return (
       <main>
         <p role="status">Loading exam…</p>
@@ -592,11 +688,38 @@ export default function CandidateExamRuntimePage() {
         )}
         {mode === "AUDIO" && attemptId && currentItem && (
           <AudioResponseControl
+            key={`${contextKey}:${currentItem.binding_id}`}
             attemptId={attemptId}
             bindingId={currentItem.binding_id}
-            editable={Boolean(editable)}
+            editable={Boolean(editable) && !navigating}
             currentMediaAssetId={mediaAssetId}
-            onSaved={(assetId) => persist({ media_asset_id: assetId })}
+            policy={
+              currentItem.audio_policy ?? currentItem.content.audio_policy
+            }
+            onActivityChange={audioActivity}
+            onAttachmentConfirmed={(assetId, revision) => {
+              if (currentContext.current !== contextKey) return;
+              updateRuntime((current) =>
+                current
+                  ? applySavedResponse(current, currentItem.binding_id, {
+                      payload: { media_asset_id: assetId },
+                      revision,
+                    })
+                  : current,
+              );
+              setResponse({ media_asset_id: assetId });
+              saveBlocked.current = false;
+              setStatus("Saved");
+            }}
+            onSaved={async (assetId, operationId) => {
+              const ack = await persist(
+                { media_asset_id: assetId },
+                operationId,
+              );
+              if (!ack)
+                throw new Error("The server did not confirm audio attachment.");
+              return ack;
+            }}
           />
         )}
       </section>
@@ -608,7 +731,9 @@ export default function CandidateExamRuntimePage() {
             currentIndex > 0 &&
             void navigateTo(items[currentIndex - 1].binding_id)
           }
-          disabled={!editable || currentIndex <= 0}
+          disabled={
+            !editable || audioPending || navigating || currentIndex <= 0
+          }
         >
           Previous question
         </button>
@@ -620,7 +745,11 @@ export default function CandidateExamRuntimePage() {
             void navigateTo(items[currentIndex + 1].binding_id)
           }
           disabled={
-            !editable || currentIndex < 0 || currentIndex >= items.length - 1
+            !editable ||
+            audioPending ||
+            navigating ||
+            currentIndex < 0 ||
+            currentIndex >= items.length - 1
           }
         >
           Next question
@@ -629,10 +758,16 @@ export default function CandidateExamRuntimePage() {
       <button
         type="button"
         onClick={() => void submit()}
-        disabled={!editable || pendingSave}
+        disabled={!editable || pendingSave || audioPending || navigating}
       >
         Submit attempt
       </button>
+      {audioPending && (
+        <p role="status">
+          Finish or cancel the pending audio recording and attachment before
+          navigating or submitting.
+        </p>
+      )}
     </main>
   );
 }

@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.db import get_db_session
 from app.models import SubjectiveAssessment, SubjectiveAssessmentVersion
+from app.speaking_assessment.governance_api import human_speaking_router, speaking_detail
 from app.speaking_assessment.service import SpeakingAssessmentError, SpeakingAssessmentService
-from app.writing_assessment.service import SubjectiveAssessmentService
+from app.writing_assessment.service import RubricError, SubjectiveAssessmentService
 
 router = APIRouter(prefix="/api/v1/organisations", tags=["speaking-assessment"])
+router.include_router(human_speaking_router)
 
 
 def _context(principal: Principal) -> TenantContext:
@@ -23,10 +26,13 @@ def _context(principal: Principal) -> TenantContext:
     return principal.tenant_context
 
 
-def _assert_reviewer(context: TenantContext, organisation_id: uuid.UUID) -> None:
+def _assert_reviewer(session: Session, context: TenantContext, organisation_id: uuid.UUID) -> None:
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
-    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    try:
+        require_active_tenant_permission(session, context, "subjective.read", organisation_id)
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/{organisation_id}/speaking-reviews")
@@ -36,7 +42,7 @@ def list_speaking_reviews(
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     context = _context(principal)
-    _assert_reviewer(context, organisation_id)
+    _assert_reviewer(session, context, organisation_id)
     assessments = session.scalars(
         select(SubjectiveAssessment)
         .where(
@@ -57,7 +63,10 @@ def list_speaking_reviews(
                 "assessment_version_id": str(current.id),
                 "attempt_id": str(assessment.attempt_id),
                 "status": current.status.value,
-                "review_required": current.status.value in {"AI_PROPOSED", "REVIEW_REQUIRED"},
+                "assessment_origin": current.assessment_origin,
+                "checksum": current.checksum,
+                "review_required": current.status.value
+                in {"AI_PROPOSED", "REVIEW_REQUIRED", "IN_REVIEW"},
                 "transcript_available": current.speech_transcription_version_id is not None,
                 "disagreement": current.disagreement_summary,
             }
@@ -69,11 +78,12 @@ def list_speaking_reviews(
 def get_speaking_review(
     organisation_id: uuid.UUID,
     assessment_id: uuid.UUID,
+    version_id: Optional[uuid.UUID] = None,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     context = _context(principal)
-    _assert_reviewer(context, organisation_id)
+    _assert_reviewer(session, context, organisation_id)
     assessment = session.scalar(
         select(SubjectiveAssessment)
         .where(
@@ -88,8 +98,26 @@ def get_speaking_review(
     )
     if assessment is None:
         raise HTTPException(status_code=404, detail="speaking assessment not found")
-    SubjectiveAssessmentService.assert_reviewer_access(context, assessment)
+    try:
+        SubjectiveAssessmentService.assert_reviewer_access(context, assessment)
+    except RubricError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     current = SubjectiveAssessmentService.current_version(assessment)
+    selected = (
+        next((row for row in assessment.versions if row.id == version_id), None)
+        if version_id
+        else current
+    )
+    if selected is None:
+        raise HTTPException(status_code=404, detail="speaking assessment version not found")
+    if selected.assessment_origin == "HUMAN":
+        try:
+            return speaking_detail(
+                session, assessment, selected, is_current=selected is current, context=context
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    current = selected
     if current is None or current.candidate_media_asset_id is None:
         raise HTTPException(status_code=404, detail="speaking assessment not found")
     return {
@@ -138,7 +166,7 @@ def propose_speaking_review(
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     context = _context(principal)
-    _assert_reviewer(context, organisation_id)
+    _assert_reviewer(session, context, organisation_id)
     try:
         version = SpeakingAssessmentService.propose(
             session,

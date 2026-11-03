@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -19,9 +19,12 @@ from app.models import (
     AIWorkflowCheckpoint,
     AIWorkflowDefinition,
     AIWorkflowVersion,
+    AssessmentRubric,
     HumanReviewRequest,
     PromptDefinition,
     PromptVersion,
+    RubricVersion,
+    SubjectiveAssessmentVersion,
 )
 from app.models.enums import AIArtifactStatus, AIRunStatus, HumanReviewStatus
 
@@ -40,6 +43,27 @@ class AIOrchestrationService:
         "CITATION_RESOLVE",
         "RUBRIC_READ",
     }
+
+    @staticmethod
+    def _assert_not_human_governance_target(session: Session, entity_id: uuid.UUID) -> None:
+        """Resolve the target itself; caller-supplied type labels cannot confer authority."""
+        human = session.scalar(
+            select(SubjectiveAssessmentVersion.id)
+            .where(
+                or_(
+                    SubjectiveAssessmentVersion.id == entity_id,
+                    SubjectiveAssessmentVersion.subjective_assessment_id == entity_id,
+                ),
+                SubjectiveAssessmentVersion.assessment_origin == "HUMAN",
+            )
+            .limit(1)
+        )
+        if (
+            human is not None
+            or session.get(RubricVersion, entity_id) is not None
+            or session.get(AssessmentRubric, entity_id) is not None
+        ):
+            raise ValueError("review target requires a domain governed decision")
 
     @staticmethod
     def create_model(
@@ -302,6 +326,7 @@ class AIOrchestrationService:
         checksum: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
+        AIOrchestrationService._assert_not_human_governance_target(session, entity_id)
         if run.status not in {AIRunStatus.RUNNING, AIRunStatus.WAITING_FOR_HUMAN}:
             raise ValueError("run is not reviewable")
         run.status = AIRunStatus.WAITING_FOR_HUMAN
@@ -331,8 +356,13 @@ class AIOrchestrationService:
         reason: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
-        if review.review_type in {"RUBRIC_PUBLICATION", "HUMAN_WRITING_ASSESSMENT"}:
+        if review.review_type in {
+            "RUBRIC_PUBLICATION",
+            "HUMAN_WRITING_ASSESSMENT",
+            "HUMAN_SPEAKING_ASSESSMENT",
+        }:
             raise ValueError("review requires a domain governed decision")
+        AIOrchestrationService._assert_not_human_governance_target(session, review.entity_id)
         if review.status not in {HumanReviewStatus.PENDING, HumanReviewStatus.IN_REVIEW}:
             raise ValueError("review already decided")
         if review.reviewed_checksum and checksum and review.reviewed_checksum != checksum:

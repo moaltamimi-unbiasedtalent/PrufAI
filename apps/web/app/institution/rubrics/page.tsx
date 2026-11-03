@@ -10,7 +10,7 @@ import {
 import { GovernanceError } from "../writing-reviews/governance-ui";
 import css from "../assessment.module.css";
 
-export default function WritingRubricsPage() {
+export default function InstitutionRubricsPage() {
   const { organisationId, permissions } = useAuth();
   const [rubrics, setRubrics] = useState<RubricSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,8 +42,10 @@ export default function WritingRubricsPage() {
     <section style={{ overflowWrap: "anywhere" }}>
       <p>
         <Link href="/institution/writing-reviews">← Writing review</Link>
+        {" · "}
+        <Link href="/institution/speaking-reviews">Speaking review →</Link>
       </p>
-      <h1>Writing rubric governance</h1>
+      <h1>Writing and Speaking rubric governance</h1>
       <p>
         Inspect exact rubric versions and their declared criteria before
         requesting human review, approval and publication. Published versions

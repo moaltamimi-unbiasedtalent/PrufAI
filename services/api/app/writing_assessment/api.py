@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.db import get_db_session
 from app.models import (
     AgentVersion,
@@ -48,6 +49,28 @@ def _require_read(context: TenantContext, organisation_id: uuid.UUID) -> None:
         AuthorizationService.require_permission(context, "subjective.read", organisation_id)
     except AuthorizationError as exc:
         raise _error(exc) from exc
+
+
+def _speaking_private_access(
+    session: Session,
+    context: TenantContext,
+    rubric: RubricVersion | None,
+    version: SubjectiveAssessmentVersion | None = None,
+) -> None:
+    item = (
+        session.get(QuestionBankItemVersion, version.question_bank_item_version_id)
+        if version
+        else None
+    )
+    if (
+        (rubric is not None and rubric.skill is QuestionBankSkill.SPEAKING)
+        or (version is not None and version.candidate_media_asset_id is not None)
+        or (item is not None and item.skill is QuestionBankSkill.SPEAKING)
+    ):
+        try:
+            require_active_tenant_permission(session, context, "subjective.read")
+        except AuthorizationError as exc:
+            raise _error(exc) from exc
 
 
 def _legacy_ai_review_eligible(session: Session, version: SubjectiveAssessmentVersion) -> bool:
@@ -101,6 +124,10 @@ def list_assessments(
     for item in assessments:
         current = SubjectiveAssessmentService.current_version(item)
         rubric = session.get(RubricVersion, current.rubric_version_id) if current else None
+        try:
+            _speaking_private_access(session, context, rubric, current)
+        except HTTPException:
+            continue
         result.append(
             {
                 "id": str(item.id),
@@ -148,6 +175,7 @@ def get_assessment_workspace(
         raise HTTPException(status_code=404, detail="assessment version not found")
     revision = session.get(CandidateResponseRevision, current.candidate_response_revision_id)
     rubric = session.get(RubricVersion, current.rubric_version_id)
+    _speaking_private_access(session, context, rubric, current)
     binding = session.get(ExamVersionItemBinding, current.exam_version_item_binding_id)
     task = (
         session.get(StandardPackTaskSpecification, binding.task.standard_pack_task_spec_id)
@@ -276,6 +304,8 @@ def create_rubric_version(
         pack = session.get(StandardPackVersion, uuid.UUID(str(payload["standard_pack_version_id"])))
         if rubric is None or rubric.organisation_id != organisation_id or pack is None:
             raise RubricError("rubric or StandardPackVersion is not available")
+        if payload.get("skill") == QuestionBankSkill.SPEAKING.value:
+            require_active_tenant_permission(session, context, "rubric.manage")
         version = RubricService.create_version(
             session,
             rubric=rubric,
@@ -427,6 +457,8 @@ def list_assessment_versions(
             raise HTTPException(status_code=404, detail="assessment not found")
         SubjectiveAssessmentService.assert_reviewer_access(context, assessment)
         current = SubjectiveAssessmentService.current_version(assessment)
+        rubric = session.get(RubricVersion, current.rubric_version_id) if current else None
+        _speaking_private_access(session, context, rubric, current)
         return {
             "current_version_id": str(current.id) if current else None,
             "versions": [
@@ -474,6 +506,9 @@ def diff_assessment_versions(
         ):
             raise HTTPException(status_code=404, detail="assessment version not found")
         SubjectiveAssessmentService.assert_reviewer_access(context, parent)
+        _speaking_private_access(
+            session, context, session.get(RubricVersion, left.rubric_version_id), left
+        )
         return SubjectiveAssessmentService.diff(left, right)
     except HTTPException:
         raise

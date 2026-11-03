@@ -34,6 +34,8 @@ test("three applications complete a real objective journey and reject its exact-
       .getByRole("link", { name: "Organisations", exact: true })
       .click();
     await page
+      .getByRole("row")
+      .filter({ hasText: "prufai-demo-academy-v2" })
       .getByRole("link", { name: "Exam metadata", exact: true })
       .click();
     await expect(

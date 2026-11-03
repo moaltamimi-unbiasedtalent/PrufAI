@@ -6,9 +6,11 @@ import css from "../assessment.module.css";
 export function AudioEvidenceView({
   item,
   organisationId,
+  assessmentContext = false,
 }: {
   item: AudioEvidenceAsset;
   organisationId: string;
+  assessmentContext?: boolean;
 }) {
   return (
     <section
@@ -18,8 +20,9 @@ export function AudioEvidenceView({
     >
       <h2>Original audio — primary evidence</h2>
       <p>
-        This screen provides authenticated playback only. No Speaking
-        assessment, transcript, or score is created.
+        {assessmentContext
+          ? "Listen to this exact original recording before entering or deciding human criterion judgments. Audio playback does not create a transcript or an AI proposal."
+          : "This screen provides authenticated playback only. No Speaking assessment, transcript, or score is created."}
       </p>
       <dl className={css.provenance}>
         <dt>Media asset</dt>

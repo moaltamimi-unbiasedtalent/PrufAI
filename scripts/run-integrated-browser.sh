@@ -85,7 +85,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # The test-only launcher permits scoped negative fault injection for recovery
 # acceptance; production still starts app.main directly and has no fault path.
-python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
+# All twelve journeys share one loopback IP and intentionally restore/switch
+# sessions. Give only this guarded development child a bounded test capacity;
+# product authentication defaults and security-test settings stay unchanged.
+AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
 INTEGRATED_API_PID=$!
 (
   cd apps/web

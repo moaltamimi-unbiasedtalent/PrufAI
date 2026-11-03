@@ -14,7 +14,7 @@ import {
 } from "../../../../writing-reviews/governance-ui";
 import css from "../../../../assessment.module.css";
 
-export default function WritingRubricVersionPage({
+export default function InstitutionRubricVersionPage({
   params,
 }: {
   params: Promise<{ rubricId: string; versionId: string }>;
@@ -88,7 +88,7 @@ export default function WritingRubricVersionPage({
   return (
     <section style={{ overflowWrap: "anywhere" }}>
       <p>
-        <Link href="/institution/rubrics">← Writing rubrics</Link>
+        <Link href="/institution/rubrics">← Institution rubrics</Link>
       </p>
       <h1>Rubric version governance</h1>
       {!allowed || !organisationId ? (
@@ -114,6 +114,19 @@ export default function WritingRubricVersionPage({
                 Skill: {rubric.skill} · Language:{" "}
                 {rubric.language ?? "Not specified"}
               </p>
+              <details className={css.card}>
+                <summary>Published assessment and human review policy</summary>
+                <pre className={css.evidence}>
+                  {JSON.stringify(
+                    {
+                      assessment_policy: rubric.ai_assessment_policy,
+                      human_review_policy: rubric.human_review_policy,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
               <dl className={css.provenance}>
                 <dt>Standard Pack version</dt>
                 <dd>{rubric.standard_pack_version_id}</dd>
@@ -169,8 +182,8 @@ export default function WritingRubricVersionPage({
               {["PUBLISHED", "ACTIVE"].includes(rubric.status) && (
                 <p className={css.notice}>
                   This exact rubric version is published and eligible for
-                  compatible Writing review. Its criteria and policies are
-                  immutable.
+                  compatible {rubric.skill} review. Its criteria and policies
+                  are immutable.
                 </p>
               )}
             </>

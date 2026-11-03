@@ -1,6 +1,10 @@
 import { authenticatedFetch } from "../../../lib/api";
 import { AssessmentApiError } from "../assessment-api";
 import type { AudioMediaAsset } from "../../candidate/api";
+import type {
+  RubricVersionDetail,
+  ReviewRecord,
+} from "../writing-reviews/foundation-api";
 
 export type AudioEvidenceAsset = AudioMediaAsset & {
   attempt_id: string;
@@ -19,6 +23,7 @@ export type SpeakingReviewSummary = {
   review_required: boolean;
   transcript_available: boolean;
   disagreement: Record<string, unknown>;
+  assessment_origin?: "HUMAN" | "AI" | "UNSPECIFIED";
 };
 
 export type SpeakingReview = SpeakingReviewSummary & {
@@ -34,6 +39,33 @@ export type SpeakingReview = SpeakingReviewSummary & {
   confidence: Record<string, unknown>;
   consistency: Record<string, unknown>;
   criteria: Array<Record<string, unknown>>;
+  version_id?: string;
+  checksum?: string;
+  assessment_origin?: "HUMAN" | "AI" | "UNSPECIFIED";
+  assessor_id?: string | null;
+  reviewer_id?: string | null;
+  approved_score?: string | null;
+  rubric?: RubricVersionDetail | null;
+  review?:
+    | (ReviewRecord & { decision?: string | null; reason?: string | null })
+    | null;
+  candidate_response_revision_id?: string;
+  response_checksum?: string;
+  question_bank_item_version_id?: string;
+  standard_pack_version_id?: string;
+  task_label?: string;
+  task_prompt?: string | Record<string, unknown> | null;
+  task_prompt_available?: boolean;
+  is_current_version?: boolean;
+  current_version_id?: string | null;
+  provenance?: Record<string, unknown>;
+  history?: Array<{
+    id: string;
+    version_number: number;
+    status: string;
+    checksum: string;
+  }>;
+  audio?: AudioEvidenceAsset;
 };
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -66,9 +98,10 @@ export const speakingReviewApi = {
     organisationId: string,
     assessmentId: string,
     signal?: AbortSignal,
+    versionId?: string,
   ) =>
     request<SpeakingReview>(
-      `/api/v1/organisations/${organisationId}/speaking-reviews/${assessmentId}`,
+      `/api/v1/organisations/${organisationId}/speaking-reviews/${assessmentId}${versionId ? `?version_id=${encodeURIComponent(versionId)}` : ""}`,
       signal,
     ),
 };

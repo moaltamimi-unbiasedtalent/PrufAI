@@ -287,6 +287,9 @@ class ControlCenterService:
             raise ValueError("event_type must be a bounded event key")
         page = ControlCenterRepository.audit(session, offset, limit, organisation_id, event_type)
         for row in page["items"]:
+            source_version_id = safe_reference(row.pop("source_version_id", None))
+            if source_version_id is not None:
+                row["source_version_id"] = source_version_id
             for key in ("entity_id", "operation_id", "request_id", "workflow_id"):
                 row[key] = safe_reference(row[key])
             event = row["event_type"]

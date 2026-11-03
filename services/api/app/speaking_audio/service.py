@@ -371,6 +371,19 @@ class SpeakingAudioService:
             )
 
     @staticmethod
+    def _require_complete_evidence_validation(session: Session, asset: CandidateMediaAsset) -> None:
+        recording = session.get(CandidateAudioRecordingSession, asset.recording_session_id)
+        if (
+            asset.validation_provenance.get("complete_input") is not True
+            or recording is None
+            or recording.validation_provenance.get("complete_input") is not True
+        ):
+            raise AudioConflict(
+                "audio evidence predates complete-input validation; "
+                "record a new fully validated response before attaching or submitting"
+            )
+
+    @staticmethod
     def finalize(
         session: Session,
         recording: CandidateAudioRecordingSession,
@@ -611,6 +624,7 @@ class SpeakingAudioService:
             if existing.candidate_media_asset_id != asset.id:
                 raise AudioConflict("response revision already has a different audio asset")
             return existing
+        SpeakingAudioService._require_complete_evidence_validation(session, asset)
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
             raise AudioConflict("submitted or expired attempts cannot be replaced")
         if revision.payload != {"media_asset_id": str(asset.id)}:
@@ -689,6 +703,7 @@ class SpeakingAudioService:
                         SpeakingAudioService.validate_asset_identity(
                             session, attempt, binding_id, asset
                         )
+                        SpeakingAudioService._require_complete_evidence_validation(session, asset)
                         from app.config import get_settings
                         from app.knowledge.storage import build_object_storage
 

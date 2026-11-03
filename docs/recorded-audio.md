@@ -113,6 +113,12 @@ complete-input validation proof; otherwise the candidate must confirm cancellati
 and make a new recording within the existing attempt policy. The old receipt,
 private object and already committed READY history are preserved rather than
 rewritten or deleted.
+Older READY evidence also cannot receive a new attachment or a new submission
+without complete-input proof on both the asset and recording receipt. A pending
+attempt may replace its current response with a new fully validated immutable
+revision under the existing recording policy. Historical reads and replays of
+already committed bindings/submissions remain available without rewriting their
+original provenance.
 
 The candidate recording metadata endpoint is the non-destructive diagnostic path:
 `GET /api/v1/candidate/attempts/{attempt_id}/items/{binding_id}/audio-evidence`.

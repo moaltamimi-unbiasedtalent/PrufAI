@@ -1007,6 +1007,150 @@ def test_existing_legacy_ready_replays_preserve_immutable_receipt_and_asset(audi
     assert len(audio.evidence(state)["recordings"]) == 1
 
 
+def _legacy_ready_gap_fixture(audio, recording, asset):
+    """Represent pre-correction READY history using only isolated fixture SQL."""
+    row = audio.asset(asset)
+    content = technical_encoded_audio(audio.settings, duration_seconds=40, timestamp_gap_seconds=60)
+    digest = hashlib.sha256(content).hexdigest()
+    proof = {
+        "validator": "ffprobe_and_complete_ffmpeg_audio_decode",
+        "duration_source": "decoded_pcm_frame_samples",
+        "duration_ms": 1054,
+        "source_sha256": digest,
+        "source_byte_size": len(content),
+    }
+    # This real object and receipt reproduce already-READY data accepted by the
+    # old prefix decoder. Current application code cannot create this fixture.
+    audio.storage.put(row.storage_key, content, "audio/webm;codecs=opus")
+    with audio.factory.kw["bind"].begin() as connection:
+        table = CandidateAudioRecordingSession.__table__
+        connection.execute(
+            table.update()
+            .where(table.c.id == uuid.UUID(recording["recording_session_id"]))
+            .values(
+                upload_sha256=digest,
+                upload_byte_size=len(content),
+                upload_content_type="audio/webm;codecs=opus",
+                verified_duration_ms=1054,
+                validation_provenance=proof,
+            )
+        )
+        table = CandidateMediaAsset.__table__
+        connection.execute(
+            table.update()
+            .where(table.c.id == row.id)
+            .values(
+                sha256=digest,
+                byte_size=len(content),
+                content_type="audio/webm;codecs=opus",
+                duration_ms=1054,
+                validation_provenance=proof,
+            )
+        )
+    audio.session.expire_all()
+    return content, proof
+
+
+def test_legacy_ready_unattached_cannot_create_new_authoritative_binding(audio):
+    state = audio.start()
+    recording = audio.record(state)
+    asset = audio.finalize(state, recording)
+    content, proof = _legacy_ready_gap_fixture(audio, recording, asset)
+    rejected = audio.attach(state, asset, expected=409)
+    assert "complete-input validation" in rejected["detail"]
+    _assert_no_response_attachment(audio, state)
+    original = audio.asset(asset)
+    assert original.status is CandidateMediaStatus.READY
+    assert original.validation_provenance == proof
+    assert original.duration_ms == 1054
+    assert audio.storage.get(original.storage_key) == content
+    cancelled = audio.call(
+        "POST",
+        "/api/v1/candidate/audio-recordings/" + recording["recording_session_id"] + "/cancel",
+        state["headers"],
+    )
+    assert cancelled["status"] == "CANCELLED"
+    fresh = audio.finalize(state, audio.record(state))
+    assert audio.attach(state, fresh)["revision"] == 1
+
+
+def test_legacy_attached_pending_attempt_requires_fully_validated_successor_before_submission(
+    audio,
+):
+    state = audio.start()
+    recording = audio.record(state)
+    asset = audio.finalize(state, recording)
+    saved = audio.attach(state, asset)
+    second = audio.finalize(state, audio.record(state, 1))
+    audio.attach(state, second, 1)
+    content, proof = _legacy_ready_gap_fixture(audio, recording, asset)
+    rejected = audio.call("POST", state["path"] + "/submit", state["headers"], expected=409)
+    assert "complete-input validation" in rejected["detail"]
+    audio.session.expire_all()
+    assert (
+        audio.session.get(CandidateExamAttempt, uuid.UUID(state["id"])).status.value
+        == "IN_PROGRESS"
+    )
+    previous_revision = audio.session.scalar(
+        select(CandidateResponseRevision).where(
+            CandidateResponseRevision.attempt_id == uuid.UUID(state["id"]),
+            CandidateResponseRevision.payload_checksum
+            == _payload_checksum({"media_asset_id": asset["media_asset_id"]}),
+        )
+    )
+    assert previous_revision.revision_number == saved["revision"] == 1
+    previous_id, previous_payload = previous_revision.id, dict(previous_revision.payload)
+    fresh = audio.finalize(state, audio.record(state))
+    assert audio.attach(state, fresh, expected_revision=1)["revision"] == 2
+    assert audio.call("POST", state["path"] + "/submit", state["headers"])["status"] == "SUBMITTED"
+    audio.session.expire_all()
+    assert audio.session.get(CandidateResponseRevision, previous_id).payload == previous_payload
+    original = audio.asset(asset)
+    assert original.validation_provenance == proof
+    assert audio.storage.get(original.storage_key) == content
+
+
+def test_already_submitted_legacy_ready_history_and_committed_operations_replay_unchanged(audio):
+    state = audio.start()
+    recording = audio.record(state)
+    asset = audio.finalize(state, recording)
+    operation = str(uuid.uuid4())
+    saved = audio.attach(state, asset, operation=operation)
+    second = audio.finalize(state, audio.record(state, 1))
+    audio.attach(state, second, 1)
+    submitted = audio.call("POST", state["path"] + "/submit", state["headers"])
+    content, proof = _legacy_ready_gap_fixture(audio, recording, asset)
+    replayed = audio.call("POST", state["path"] + "/submit", state["headers"])
+    assert {key: value for key, value in replayed.items() if key != "submitted_at"} == {
+        key: value for key, value in submitted.items() if key != "submitted_at"
+    }
+    assert datetime.fromisoformat(
+        replayed["submitted_at"].replace("Z", "+00:00")
+    ) == datetime.fromisoformat(submitted["submitted_at"].replace("Z", "+00:00"))
+    assert audio.attach(state, asset, operation=operation) == saved
+    assert (
+        audio.finalize(state, recording, content=content, mime="audio/webm;codecs=opus")[
+            "media_asset_id"
+        ]
+        == asset["media_asset_id"]
+    )
+    recovered = audio.call(
+        "POST",
+        "/api/v1/candidate/audio-recordings/" + recording["recording_session_id"] + "/recover",
+        state["headers"],
+    )
+    assert recovered["asset"]["media_asset_id"] == asset["media_asset_id"]
+    audio.session.expire_all()
+    original = audio.asset(asset)
+    receipt = audio.session.get(
+        CandidateAudioRecordingSession, uuid.UUID(recording["recording_session_id"])
+    )
+    assert original.validation_provenance == receipt.validation_provenance == proof
+    assert original.duration_ms == receipt.verified_duration_ms == 1054
+    assert audio.storage.get(original.storage_key) == content
+    assert len(audio.call("GET", state["path"] + "/runtime", state["headers"])["responses"]) == 2
+
+
 def test_submission_overlaps_actual_private_put_and_cannot_commit_unattached_evidence(
     audio, monkeypatch
 ):

@@ -6,6 +6,7 @@ transcription or assessment. No memory storage/client or successful API is faked
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -65,7 +66,7 @@ from app.services.identity import IdentityService
 from app.services.organisations import OrganisationService
 from app.speaking_audio.media import MAX_INSPECTION_OUTPUT, validate_recorded_media
 from tests.alembic_helpers import repository_alembic_head
-from tests.integration_support.audio_evidence import technical_tone_wav
+from tests.integration_support.audio_evidence import technical_encoded_audio, technical_tone_wav
 from tests.test_audio_demo_seed import assert_audio_seed_preconditions
 
 REQUIRED = (
@@ -99,6 +100,49 @@ def _settings() -> Settings:
         auth_rate_limit_backend="memory",
         auth_rate_limit_login_attempts=500,
         auth_jwt_secret="recorded-evidence-real-jwt-" + "x" * 40,
+    )
+
+
+def _stable_recording(projection):
+    """Clock observations advance on replay; evidence identity must not."""
+    return {
+        key: value
+        for key, value in projection.items()
+        if key not in {"server_now", "recording_remaining_ms", "upload_remaining_ms"}
+    }
+
+
+def _assert_no_response_attachment(audio, state):
+    audio.session.expire_all()
+    attempt = uuid.UUID(state["id"])
+    assert (
+        audio.session.scalar(
+            select(func.count())
+            .select_from(CandidateResponse)
+            .where(CandidateResponse.attempt_id == attempt)
+        )
+        == 0
+    )
+    assert (
+        audio.session.scalar(
+            select(func.count())
+            .select_from(CandidateResponseRevision)
+            .where(CandidateResponseRevision.attempt_id == attempt)
+        )
+        == 0
+    )
+    assert (
+        audio.session.scalar(
+            select(func.count())
+            .select_from(CandidateResponseMediaBinding)
+            .join(
+                CandidateResponseRevision,
+                CandidateResponseRevision.id
+                == CandidateResponseMediaBinding.candidate_response_revision_id,
+            )
+            .where(CandidateResponseRevision.attempt_id == attempt)
+        )
+        == 0
     )
 
 
@@ -357,11 +401,92 @@ def test_wrong_item_candidate_tenant_and_stale_revision_never_bind(audio):
     assert audio.asset(asset).sha256 == hashlib.sha256(technical_tone_wav()).hexdigest()
 
 
+def test_mismatched_item_version_checksum_cannot_attach_or_increment_revision(audio):
+    state = audio.start()
+    asset = audio.finalize(state, audio.record(state))
+    attempt_id = uuid.UUID(state["id"])
+    attempt = audio.session.get(CandidateExamAttempt, attempt_id)
+    original_plan = copy.deepcopy(attempt.runtime_plan)
+    inconsistent = copy.deepcopy(original_plan)
+    for module in inconsistent["modules"]:
+        for section in module["sections"]:
+            for task in section["tasks"]:
+                for item in task["items"]:
+                    if item["binding_id"] == state["items"][0]["binding_id"]:
+                        item["item_version_checksum"] = "f" * 64
+    # Deliberate fixture-only storage inconsistency in this disposable database:
+    # simulate stale item-version provenance without weakening production guards.
+    table = CandidateExamAttempt.__table__
+    try:
+        audio.session.execute(
+            table.update().where(table.c.id == attempt_id).values(runtime_plan=inconsistent)
+        )
+        audio.session.commit()
+        rejected = audio.attach(state, asset, expected=409)
+        assert "item version provenance" in rejected["detail"]
+        _assert_no_response_attachment(audio, state)
+    finally:
+        audio.session.rollback()
+        audio.session.execute(
+            table.update().where(table.c.id == attempt_id).values(runtime_plan=original_plan)
+        )
+        audio.session.commit()
+        audio.session.expire_all()
+    assert audio.attach(state, asset)["revision"] == 1
+
+
+def test_unready_owned_asset_cannot_attach_or_invent_ready_history(audio):
+    state = audio.start()
+    asset = audio.finalize(state, audio.record(state))
+    asset_id = uuid.UUID(asset["media_asset_id"])
+    table = CandidateMediaAsset.__table__
+    # Fixture-only controlled non-READY row represents an inconsistent/interrupted
+    # legacy pipeline. Real PUT/verified bytes and every ownership key stay exact.
+    try:
+        audio.session.execute(
+            table.update()
+            .where(table.c.id == asset_id)
+            .values(status=CandidateMediaStatus.VALIDATING)
+        )
+        audio.session.commit()
+        audio.attach(state, asset, expected=409)
+        _assert_no_response_attachment(audio, state)
+        assert audio.asset(asset).status is CandidateMediaStatus.VALIDATING
+    finally:
+        audio.session.rollback()
+        audio.session.execute(
+            table.update().where(table.c.id == asset_id).values(status=CandidateMediaStatus.READY)
+        )
+        audio.session.commit()
+        audio.session.expire_all()
+    assert audio.attach(state, asset)["revision"] == 1
+
+
+def test_server_timing_allowance_advances_on_replay_metadata_and_terminal_state(audio):
+    state = audio.start()
+    operation = str(uuid.uuid4())
+    first = audio.record(state, operation=operation)
+    replay = audio.record(state, operation=operation)
+    metadata = audio.evidence(state)["recordings"][0]
+    for projection in (first, replay, metadata):
+        assert datetime.fromisoformat(projection["server_now"]).tzinfo is not None
+        assert 0 < projection["recording_remaining_ms"] <= 30_000
+        assert 0 < projection["upload_remaining_ms"] <= 150_000
+    assert replay["recording_remaining_ms"] <= first["recording_remaining_ms"]
+    assert metadata["recording_remaining_ms"] <= replay["recording_remaining_ms"]
+    asset = audio.finalize(state, first)
+    finished = audio.evidence(state)["recordings"][0]
+    assert finished["status"] == "READY"
+    assert finished["recording_remaining_ms"] == finished["upload_remaining_ms"] == 0
+    assert finished["asset"]["media_asset_id"] == asset["media_asset_id"]
+
+
 def test_start_operation_replay_cancel_and_attempt_limit_are_persisted(audio):
     state = audio.start()
     operation = str(uuid.uuid4())
     first = audio.record(state, operation=operation)
-    assert audio.record(state, operation=operation) == first
+    replay = audio.record(state, operation=operation)
+    assert _stable_recording(replay) == _stable_recording(first)
     audio.record(state, 1, operation=operation, expected=409)
     audio.record(
         state, operation=operation, headers=audio.login(audio.users[1].email), expected=403
@@ -431,11 +556,30 @@ def test_http_range_reads_real_private_backend_and_authorization(audio, monkeypa
         assert response.content == payload[bounds[0] : bounds[1] + 1]
         assert calls[-1] == (row.storage_key, *bounds)
     monkeypatch.setattr(S3CompatibleObjectStorage, "get", original_get)
-    for malformed in ("invalid", "bytes=0-5,7-9", "bytes=999999999-", "bytes=-0"):
+    for malformed in (
+        "",
+        "invalid",
+        "bytes=0-5,7-9",
+        "bytes=999999999-",
+        "bytes=-0",
+        "bytes=+10-20",
+        "bytes=1_0-20",
+        "bytes=0-1_0",
+        "bytes=-1_0",
+        "bytes= 10-20",
+        "bytes=0-+10",
+        "bytes=0--1",
+        "bytes=--10",
+        "bytes=1-2-3",
+        "bytes=١-٢".encode(),
+        "bytes=１-２".encode(),
+    ):
+        prior_range_reads = len(calls)
         assert (
             audio.client.get(path, headers={**state["headers"], "Range": malformed}).status_code
             == 416
         )
+        assert len(calls) == prior_range_reads
     assert audio.client.get(path).status_code == 401
     assert audio.client.get(path, headers=audio.login(audio.users[1].email)).status_code == 404
     assert (
@@ -502,7 +646,7 @@ def test_two_real_connections_same_operation_start_one_recording(audio):
     finally:
         event.remove(audio.factory.kw["bind"], "before_cursor_execute", overlap)
     assert len(participants) == 2
-    assert responses[0] == responses[1]
+    assert _stable_recording(responses[0]) == _stable_recording(responses[1])
     audio.session.expire_all()
     assert (
         audio.session.scalar(
@@ -588,6 +732,67 @@ def test_real_media_rejects_undecodable_mime_and_duration_and_expired_upload(aud
     )
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "contiguous_over_limit",
+        "decoded_gap_over_limit",
+        "presentation_gap_over_limit",
+        "wrong_codec",
+        "unsupported_container",
+        "truncated",
+        "malformed",
+    ],
+)
+def test_complete_media_rejection_never_readies_or_attaches_and_valid_retry_survives(audio, case):
+    state = audio.start()
+    recording = audio.record(state)
+    mime = "audio/webm;codecs=opus"
+    if case == "contiguous_over_limit":
+        content = technical_encoded_audio(audio.settings, duration_seconds=31)
+    elif case == "decoded_gap_over_limit":
+        content = technical_encoded_audio(
+            audio.settings, duration_seconds=40, timestamp_gap_seconds=60
+        )
+    elif case == "presentation_gap_over_limit":
+        content = technical_encoded_audio(
+            audio.settings, duration_seconds=2, timestamp_gap_seconds=60
+        )
+    elif case == "wrong_codec":
+        content = technical_encoded_audio(audio.settings, codec_override="libvorbis")
+    elif case == "unsupported_container":
+        content = technical_encoded_audio(audio.settings, mime_type="audio/mpeg")
+    elif case == "truncated":
+        complete = technical_tone_wav()
+        content, mime = complete[: len(complete) // 2], "audio/wav"
+    else:
+        content, mime = b"RIFF" + b"0" * 30, "audio/wav"
+    audio.finalize(state, recording, content=content, mime=mime, expected=400)
+    audio.session.expire_all()
+    stage = audio.session.get(
+        CandidateAudioRecordingSession, uuid.UUID(recording["recording_session_id"])
+    )
+    assert stage.status is CandidateMediaStatus.REJECTED
+    assert stage.upload_sha256 is None
+    assert not audio.storage.exists(stage.storage_key)
+    assert (
+        audio.session.scalar(
+            select(func.count())
+            .select_from(CandidateMediaAsset)
+            .where(CandidateMediaAsset.recording_session_id == stage.id)
+        )
+        == 0
+    )
+    _assert_no_response_attachment(audio, state)
+    # Rejection consumes the accepted capture, but does not poison the next
+    # governed recording operation or fabricate evidence for the rejected input.
+    replacement = audio.record(state)
+    assert replacement["attempt_number"] == 2
+    accepted = audio.finalize(state, replacement)
+    assert accepted["duration_ms"] == 1000
+    assert audio.attach(state, accepted)["revision"] == 1
+
+
 def test_media_lifecycle_and_access_audit_never_contains_private_content(audio):
     state = audio.start()
     asset = audio.finalize(state, audio.record(state))
@@ -642,6 +847,17 @@ def test_object_uploaded_but_database_receipt_failure_recovers_same_private_iden
         CandidateAudioRecordingSession, uuid.UUID(recording["recording_session_id"])
     )
     assert stage.status is CandidateMediaStatus.UPLOADING
+    # The official interrupted-finalization state has a durable recording
+    # receipt/object but no authoritative asset yet. Its deterministic future
+    # identity cannot be attached before recovery makes the asset READY.
+    future_asset_id = uuid.uuid5(stage.id, "primary-audio")
+    assert audio.session.get(CandidateMediaAsset, future_asset_id) is None
+    audio.attach(state, {"media_asset_id": str(future_asset_id)}, expected=400)
+    _assert_no_response_attachment(audio, state)
+    assert audio.session.get(CandidateMediaAsset, future_asset_id) is None
+    staged_metadata = audio.evidence(state)["recordings"][0]
+    assert staged_metadata["recording_remaining_ms"] == 0
+    assert 0 < staged_metadata["upload_remaining_ms"] <= 150_000
     key = stage.storage_key
     assert stage.upload_sha256 == hashlib.sha256(technical_tone_wav()).hexdigest()
     assert audio.storage.get(key) == technical_tone_wav()
@@ -653,6 +869,7 @@ def test_object_uploaded_but_database_receipt_failure_recovers_same_private_iden
         "/api/v1/candidate/audio-recordings/" + recording["recording_session_id"] + "/recover",
         state["headers"],
     )["asset"]
+    assert recovered["media_asset_id"] == str(future_asset_id)
     assert audio.asset(recovered).storage_key == key
     assert audio.finalize(state, recording)["media_asset_id"] == recovered["media_asset_id"]
     assert (
@@ -665,6 +882,129 @@ def test_object_uploaded_but_database_receipt_failure_recovers_same_private_iden
     )
     assert len(audio.evidence(state)["recordings"]) == 1
     audio.attach(state, recovered)
+
+
+def test_legacy_prefix_validated_stage_cannot_become_new_ready_evidence(audio):
+    state = audio.start()
+    recording = audio.record(state)
+    recording_id = uuid.UUID(recording["recording_session_id"])
+    stage = audio.session.get(CandidateAudioRecordingSession, recording_id)
+    content = technical_encoded_audio(audio.settings, duration_seconds=40, timestamp_gap_seconds=60)
+    digest = hashlib.sha256(content).hexdigest()
+    old_proof = {
+        "validator": "ffprobe_and_complete_ffmpeg_audio_decode",
+        "duration_source": "decoded_pcm_frame_samples",
+        "duration_ms": 1054,
+        "source_sha256": digest,
+        "source_byte_size": len(content),
+    }
+    # Reconstruct an actual pre-correction interrupted receipt in this isolated
+    # database: the old prefix decoder accepted 40s + 60s PTS gap as 1054ms.
+    # The object PUT is real; this fixture-only SQL represents old persisted
+    # history without weakening the application's immutable-history guards.
+    audio.storage.put(stage.storage_key, content, "audio/webm;codecs=opus")
+    table = CandidateAudioRecordingSession.__table__
+    with audio.factory.kw["bind"].begin() as connection:
+        connection.execute(
+            table.update()
+            .where(table.c.id == recording_id)
+            .values(
+                status=CandidateMediaStatus.UPLOADING,
+                upload_sha256=digest,
+                upload_byte_size=len(content),
+                upload_content_type="audio/webm;codecs=opus",
+                verified_duration_ms=1054,
+                validation_provenance=old_proof,
+                upload_started_at=datetime.now(timezone.utc),
+            )
+        )
+    audio.session.expire_all()
+    rejected = audio.call(
+        "POST",
+        "/api/v1/candidate/audio-recordings/" + str(recording_id) + "/recover",
+        state["headers"],
+        expected=409,
+    )
+    assert "predates complete-input validation" in rejected["detail"]
+    retried = audio.finalize(
+        state, recording, content=content, mime="audio/webm;codecs=opus", expected=409
+    )
+    assert "predates complete-input validation" in retried["detail"]
+    _assert_no_response_attachment(audio, state)
+    assert (
+        audio.session.scalar(
+            select(func.count())
+            .select_from(CandidateMediaAsset)
+            .where(CandidateMediaAsset.recording_session_id == recording_id)
+        )
+        == 0
+    )
+    old_stage = audio.session.get(CandidateAudioRecordingSession, recording_id)
+    assert old_stage.status is CandidateMediaStatus.UPLOADING
+    assert old_stage.verified_duration_ms == 1054
+    assert old_stage.validation_provenance == old_proof
+    assert old_stage.upload_sha256 == digest
+    assert audio.storage.get(old_stage.storage_key) == content
+    cancelled = audio.call(
+        "POST",
+        "/api/v1/candidate/audio-recordings/" + str(recording_id) + "/cancel",
+        state["headers"],
+    )
+    assert cancelled["status"] == "CANCELLED"
+    assert audio.storage.get(old_stage.storage_key) == content
+    replacement = audio.record(state)
+    accepted = audio.finalize(state, replacement)
+    assert accepted["validation_provenance"]["complete_input"] is True
+    assert audio.attach(state, accepted)["revision"] == 1
+
+
+def test_existing_legacy_ready_replays_preserve_immutable_receipt_and_asset(audio):
+    state = audio.start()
+    recording = audio.record(state)
+    asset = audio.finalize(state, recording)
+    asset_id = uuid.UUID(asset["media_asset_id"])
+    recording_id = uuid.UUID(recording["recording_session_id"])
+    legacy_proof = dict(asset["validation_provenance"])
+    for field in (
+        "complete_input",
+        "decoded_frame_count",
+        "inspected_frame_count",
+        "decoded_presentation_span_ms",
+        "original_presentation_span_ms",
+        "original_first_pts_seconds",
+        "original_last_end_seconds",
+        "timestamp_resolution_seconds",
+        "timestamp_rounding_tolerance",
+    ):
+        legacy_proof.pop(field, None)
+    # A test-only old-schema/provenance snapshot represents existing historical
+    # READY data; application replay must not relabel or rewrite that history.
+    with audio.factory.kw["bind"].begin() as connection:
+        for model, identity in (
+            (CandidateAudioRecordingSession, recording_id),
+            (CandidateMediaAsset, asset_id),
+        ):
+            table = model.__table__
+            connection.execute(
+                table.update()
+                .where(table.c.id == identity)
+                .values(validation_provenance=legacy_proof)
+            )
+    audio.session.expire_all()
+    assert audio.finalize(state, recording)["media_asset_id"] == str(asset_id)
+    replay = audio.call(
+        "POST",
+        "/api/v1/candidate/audio-recordings/" + str(recording_id) + "/recover",
+        state["headers"],
+    )
+    assert replay["asset"]["media_asset_id"] == str(asset_id)
+    audio.session.expire_all()
+    assert (
+        audio.session.get(CandidateAudioRecordingSession, recording_id).validation_provenance
+        == legacy_proof
+    )
+    assert audio.asset(asset).validation_provenance == legacy_proof
+    assert len(audio.evidence(state)["recordings"]) == 1
 
 
 def test_submission_overlaps_actual_private_put_and_cannot_commit_unattached_evidence(

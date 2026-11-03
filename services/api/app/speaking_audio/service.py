@@ -360,6 +360,17 @@ class SpeakingAudioService:
         return True
 
     @staticmethod
+    def _require_complete_staged_validation(recording: CandidateAudioRecordingSession) -> None:
+        if (
+            recording.upload_sha256 is not None
+            and recording.validation_provenance.get("complete_input") is not True
+        ):
+            raise AudioConflict(
+                "staged audio predates complete-input validation; "
+                "cancel this unfinished recording and record again"
+            )
+
+    @staticmethod
     def finalize(
         session: Session,
         recording: CandidateAudioRecordingSession,
@@ -395,6 +406,7 @@ class SpeakingAudioService:
             recording.upload_sha256 != digest or recording.upload_content_type != content_type
         ):
             raise AudioConflict("recording upload was already staged with different bytes")
+        SpeakingAudioService._require_complete_staged_validation(recording)
         if recording.upload_sha256 is None:
             try:
                 validated = validate_recorded_media(
@@ -469,6 +481,7 @@ class SpeakingAudioService:
                 raise StorageError("finalized audio object is missing")
             return existing
         SpeakingAudioService._writable(session, context, attempt, recording)
+        SpeakingAudioService._require_complete_staged_validation(recording)
         if not all(
             (
                 recording.storage_key,

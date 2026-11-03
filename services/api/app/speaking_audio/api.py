@@ -103,6 +103,26 @@ def session_projection(
     asset = session.scalar(
         select(CandidateMediaAsset).where(CandidateMediaAsset.recording_session_id == recording.id)
     )
+    now = datetime.now(timezone.utc)
+
+    def remaining(deadline: datetime | None, maximum_ms: int) -> int:
+        if deadline is None:
+            return 0
+        expiry = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+        return min(maximum_ms, max(0, int((expiry - now).total_seconds() * 1000)))
+
+    duration_ms = int(recording.policy_snapshot.get("max_recording_seconds", 0)) * 1000
+    grace_ms = int(recording.policy_snapshot.get("upload_grace_seconds", 0)) * 1000
+    recording_remaining = (
+        remaining(recording.recording_expires_at, duration_ms)
+        if recording.status == CandidateMediaStatus.RECORDING
+        else 0
+    )
+    upload_remaining = (
+        remaining(recording.upload_expires_at, duration_ms + grace_ms)
+        if recording.status in {CandidateMediaStatus.RECORDING, CandidateMediaStatus.UPLOADING}
+        else 0
+    )
     return {
         "recording_session_id": str(recording.id),
         "status": recording.status.value,
@@ -110,6 +130,9 @@ def session_projection(
         "recording_started_at": utc(recording.recording_started_at),
         "recording_expires_at": utc(recording.recording_expires_at),
         "upload_expires_at": utc(recording.upload_expires_at),
+        "server_now": utc(now),
+        "recording_remaining_ms": recording_remaining,
+        "upload_remaining_ms": upload_remaining,
         "policy": recording.policy_snapshot,
         "recoverable": recording.upload_sha256 is not None
         and asset is None

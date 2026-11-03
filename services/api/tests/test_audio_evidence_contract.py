@@ -3,7 +3,7 @@
 import asyncio
 import copy
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +20,8 @@ from app.models import (
 )
 from app.models.enums import CandidateMediaStatus
 from app.question_bank.schemas import AudioRecordingPolicy, parse_item_content
-from app.runtime.api import finalize_audio_recording
+from app.runtime.api import _parse_audio_range, finalize_audio_recording
+from app.speaking_audio.api import session_projection
 from app.speaking_audio.service import SpeakingAudioService
 
 
@@ -97,6 +98,70 @@ def test_upload_stream_is_bounded_even_when_content_length_lies(monkeypatch):
         )
     assert rejected.value.status_code == 400
     assert "size" in rejected.value.detail
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "",
+        "bytes=+10-20",
+        "bytes=1_0-20",
+        "bytes=0-1_0",
+        "bytes=-1_0",
+        "bytes= 10-20",
+        "bytes=0-+10",
+        "bytes=0--1",
+        "bytes=--10",
+        "bytes=1-2-3",
+        "bytes=١-٢",
+        "bytes=１-２",
+        "bytes=0-1,3-4",
+    ],
+)
+def test_range_positions_reject_non_ascii_decimal_http_syntax(header):
+    with pytest.raises(HTTPException) as rejected:
+        _parse_audio_range(header, 100)
+    assert rejected.value.status_code == 416
+
+
+@pytest.mark.parametrize(
+    "status,offset,expected_recording,expected_upload",
+    [
+        (CandidateMediaStatus.RECORDING, 30, 30_000, 150_000),
+        (CandidateMediaStatus.RECORDING, 3600, 30_000, 150_000),
+        (CandidateMediaStatus.RECORDING, -180, 0, 0),
+        (CandidateMediaStatus.UPLOADING, 30, 0, 150_000),
+        (CandidateMediaStatus.READY, 30, 0, 0),
+        (CandidateMediaStatus.CANCELLED, 30, 0, 0),
+        (CandidateMediaStatus.EXPIRED, 30, 0, 0),
+    ],
+)
+def test_session_timing_is_server_issued_bounded_and_zero_for_terminal_capture(
+    monkeypatch, status, offset, expected_recording, expected_upload
+):
+    now = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+
+    monkeypatch.setattr("app.speaking_audio.api.datetime", Clock)
+    recording = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=status,
+        attempt_number=1,
+        recording_started_at=now,
+        recording_expires_at=now + timedelta(seconds=offset),
+        upload_expires_at=now + timedelta(seconds=offset + 120),
+        policy_snapshot=policy(),
+        upload_sha256=None,
+        last_error_category=None,
+    )
+    projection = session_projection(SimpleNamespace(scalar=lambda *_: None), recording)
+    assert projection["server_now"] == now.isoformat()
+    assert projection["recording_remaining_ms"] == expected_recording
+    assert projection["upload_remaining_ms"] == expected_upload
 
 
 def _recording(session):

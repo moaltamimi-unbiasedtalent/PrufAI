@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -17,7 +17,9 @@ from app.authorization import AuthorizationService, TenantContext
 from app.models import (
     AppealInformationEntry,
     AssessmentResult,
+    CandidateResponseRevision,
     HumanReviewRequest,
+    ItemScore,
     QuestionBankItemVersion,
     ResultAppeal,
     ResultAppealVersion,
@@ -37,11 +39,14 @@ from app.models.enums import (
     CorrectionType,
     HumanReviewStatus,
     ModerationStatus,
+    PackResponseMode,
     QuestionBankLifecycleStatus,
+    QuestionBankScoringPolicy,
     ResultVersionStatus,
     SubjectiveAssessmentStatus,
 )
 from app.scoring.service import ScoringService
+from app.scoring.service import checksum as scoring_checksum
 from app.writing_assessment.service import SubjectiveAssessmentService
 
 
@@ -210,6 +215,194 @@ class ResultGovernanceService:
         if result is None or result.organisation_id != context.organisation_id:
             raise ResultGovernanceError("result is outside the organisation scope")
         return result, version
+
+    @classmethod
+    def appeal_objective_evidence(
+        cls, session: Session, context: TenantContext, appeal_id: uuid.UUID
+    ) -> dict[str, Any]:
+        """Bounded evidence from the challenged run's immutable references only."""
+        if context.organisation_id is None:
+            raise ResultGovernanceError("organisation context required")
+        for permission in ("appeal.read", "appeal.adjudicate", "result.read", "question_bank.read"):
+            AuthorizationService.require_permission(context, permission, context.organisation_id)
+        appeal = session.get(ResultAppeal, appeal_id)
+        if appeal is None or appeal.organisation_id != context.organisation_id:
+            raise ResultGovernanceError("appeal is outside the organisation scope")
+        result, version = cls._result_for_context(
+            session, context, appeal.challenged_result_version_id
+        )
+        run = session.get(ScoringRun, version.scoring_run_id)
+        if (
+            run is None
+            or result.id != appeal.result_id
+            or result.candidate_user_id != appeal.candidate_user_id
+            or result.attempt_id != appeal.attempt_id
+            or run.id != appeal.scoring_run_id
+            or run.organisation_id != context.organisation_id
+            or run.attempt_id != appeal.attempt_id
+            or run.exam_version_id != appeal.exam_version_id
+            or result.exam_version_id != appeal.exam_version_id
+            or run.candidate_user_id != appeal.candidate_user_id
+            or run.standard_pack_version_id != appeal.standard_pack_version_id
+            or version.checksum != appeal.challenged_result_checksum
+            or version.scoring_run_checksum != run.checksum
+            or version.response_set_checksum != run.response_set_checksum
+        ):
+            raise ResultGovernanceError("appeal evidence provenance does not match")
+        limit = 50
+        total = int(
+            session.scalar(
+                select(func.count())
+                .select_from(ItemScore)
+                .where(ItemScore.scoring_run_id == run.id)
+            )
+            or 0
+        )
+        supported = (
+            select(ItemScore)
+            .join(
+                QuestionBankItemVersion,
+                QuestionBankItemVersion.id == ItemScore.question_bank_item_version_id,
+            )
+            .where(
+                ItemScore.scoring_run_id == run.id,
+                ItemScore.scoring_policy == QuestionBankScoringPolicy.OBJECTIVE_KEYED.value,
+                QuestionBankItemVersion.response_mode.in_(
+                    [
+                        PackResponseMode.SELECT_ONE,
+                        PackResponseMode.SELECT_MULTIPLE,
+                    ]
+                ),
+            )
+        )
+        supported_count = int(
+            session.scalar(select(func.count()).select_from(supported.subquery())) or 0
+        )
+        items = []
+        for score in session.scalars(supported.order_by(ItemScore.id).limit(limit)):
+            item = session.get(QuestionBankItemVersion, score.question_bank_item_version_id)
+            if item is None or (
+                item.item.scope_type != "PLATFORM_SHARED"
+                and not (
+                    item.item.scope_type == "ORGANISATION_PRIVATE"
+                    and item.item.organisation_id == context.organisation_id
+                )
+            ):
+                raise ResultGovernanceError("objective item is outside the organisation scope")
+            response_references = (
+                score.candidate_response_id,
+                score.candidate_response_revision_id,
+                score.response_checksum,
+            )
+            if any(value is None for value in response_references) and not all(
+                value is None for value in response_references
+            ):
+                raise ResultGovernanceError("objective response evidence is incomplete")
+            revision = (
+                session.get(CandidateResponseRevision, score.candidate_response_revision_id)
+                if score.candidate_response_revision_id
+                else None
+            )
+            if score.candidate_response_revision_id and (
+                revision is None
+                or revision.attempt_id != appeal.attempt_id
+                or revision.candidate_response_id != score.candidate_response_id
+                or revision.response.exam_version_item_binding_id
+                != score.exam_version_item_binding_id
+                or scoring_checksum(revision.payload) != score.response_checksum
+            ):
+                raise ResultGovernanceError("objective response revision provenance does not match")
+            response: dict[str, Any] = {}
+            if revision is not None:
+                if item.response_mode is PackResponseMode.SELECT_ONE:
+                    selected = revision.payload.get("option_id")
+                    if not isinstance(selected, str) or len(selected) > 120:
+                        raise ResultGovernanceError("objective response cannot be projected safely")
+                    response = {"option_id": selected}
+                else:
+                    selected_ids = revision.payload.get("option_ids")
+                    if (
+                        not isinstance(selected_ids, list)
+                        or len(selected_ids) > 20
+                        or any(
+                            not isinstance(value, str) or len(value) > 120 for value in selected_ids
+                        )
+                    ):
+                        raise ResultGovernanceError("objective response cannot be projected safely")
+                    response = {"option_ids": selected_ids}
+            prompt = item.content.get("prompt")
+            options = item.content.get("options", [])
+            correct = item.content.get("correct_option_ids", [])
+            if (
+                not isinstance(prompt, str)
+                or not isinstance(options, list)
+                or not isinstance(correct, list)
+            ):
+                raise ResultGovernanceError("objective question content cannot be projected safely")
+            safe_options = []
+            for option in options[:20]:
+                if not isinstance(option, dict) or not isinstance(option.get("option_id"), str):
+                    raise ResultGovernanceError("objective options cannot be projected safely")
+                label = option.get("display_text", option.get("text"))
+                if not isinstance(label, str) or len(option["option_id"]) > 120:
+                    raise ResultGovernanceError("objective options cannot be projected safely")
+                safe_options.append(
+                    {"option_id": option["option_id"], "display_text": label[:1000]}
+                )
+            if len(correct) > 20 or any(
+                not isinstance(value, str) or len(value) > 120 for value in correct
+            ):
+                raise ResultGovernanceError("objective answer key cannot be projected safely")
+            items.append(
+                {
+                    "binding_id": str(score.exam_version_item_binding_id),
+                    "item_version_id": str(item.id),
+                    "item_checksum": item.checksum,
+                    "response_id": str(score.candidate_response_id)
+                    if score.candidate_response_id
+                    else None,
+                    "response_revision_id": str(revision.id) if revision else None,
+                    "response_revision_number": revision.revision_number if revision else None,
+                    "response_checksum": score.response_checksum,
+                    "prompt": prompt[:4000],
+                    "options": safe_options,
+                    "response": response,
+                    "correct_option_ids": correct,
+                    "scoring_policy": score.scoring_policy,
+                    "awarded_points": str(score.awarded_points)
+                    if score.awarded_points is not None
+                    else None,
+                    "maximum_points": str(score.maximum_points),
+                    "status": score.status.value,
+                    "content_truncated": len(prompt) > 4000
+                    or len(options) > 20
+                    or any(
+                        len(str(option.get("display_text", option.get("text", "")))) > 1000
+                        for option in options[:20]
+                    ),
+                }
+            )
+        bundle = cls.build_evidence_bundle(session, version.id)
+        pinned = appeal.versions[-1].evidence_bundle_checksum if appeal.versions else None
+        return {
+            "appeal_id": str(appeal.id),
+            "result_id": str(result.id),
+            "result_version_id": str(version.id),
+            "result_checksum": version.checksum,
+            "scoring_run_id": str(run.id),
+            "scoring_run_checksum": run.checksum,
+            "exam_version_id": str(run.exam_version_id),
+            "standard_pack_version_id": str(run.standard_pack_version_id),
+            "evidence_bundle_checksum": bundle.checksum,
+            "pinned_evidence_bundle_checksum": pinned,
+            "matches_pinned_bundle": bundle.checksum == pinned,
+            "total_items": total,
+            "supported_items": supported_count,
+            "unsupported_items": total - supported_count,
+            "limit": limit,
+            "truncated": supported_count > limit,
+            "items": items,
+        }
 
     @classmethod
     def submit_appeal(

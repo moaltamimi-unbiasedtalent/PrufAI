@@ -3,8 +3,15 @@
 import { useAuth } from "../../../../lib/auth";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { appealActions, appealApi, type AppealDetail } from "../appeal-api";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  appealActions,
+  appealApi,
+  appealEvidenceComplete,
+  canInspectAppealEvidence,
+  type AppealDetail,
+  type AppealEvidence,
+} from "../appeal-api";
 import css from "../../assessment.module.css";
 
 type Props = { params: Promise<{ appealId: string }> };
@@ -17,6 +24,10 @@ export default function AppealWorkspacePage({ params }: Props) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<AppealEvidence | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [evidenceReload, setEvidenceReload] = useState(0);
+  const canInspectEvidence = canInspectAppealEvidence(permissions);
   const operations = useRef<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +62,28 @@ export default function AppealWorkspacePage({ params }: Props) {
       cancelled = true;
     };
   }, [organisationId, params, reload]);
+  useEffect(() => {
+    let cancelled = false;
+    setEvidence(null);
+    setEvidenceError(null);
+    if (!organisationId || !appeal || !canInspectEvidence) return;
+    void appealApi
+      .evidence(organisationId, appeal.id)
+      .then((value) => {
+        if (!cancelled) setEvidence(value);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled)
+          setEvidenceError(
+            cause instanceof Error
+              ? cause.message
+              : "The exact challenged response and score evidence is unavailable.",
+          );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organisationId, appeal, canInspectEvidence, evidenceReload]);
   async function startReview() {
     if (
       !appeal ||
@@ -81,6 +114,8 @@ export default function AppealWorkspacePage({ params }: Props) {
       !organisationId ||
       busy ||
       !reason.trim() ||
+      !canInspectEvidence ||
+      !appealEvidenceComplete(appeal, evidence) ||
       !appealActions(appeal, permissions).reject
     )
       return;
@@ -102,7 +137,14 @@ export default function AppealWorkspacePage({ params }: Props) {
     }
   }
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
+    <main
+      style={{
+        maxWidth: 960,
+        margin: "0 auto",
+        padding: "3rem 1.5rem",
+        overflowWrap: "anywhere",
+      }}
+    >
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
         Institution review
       </p>
@@ -140,6 +182,46 @@ export default function AppealWorkspacePage({ params }: Props) {
             <h2 id="grounds">Candidate grounds</h2>
             <p>{appeal.grounds}</p>
           </section>
+          <section aria-labelledby="objective-evidence" className={css.card}>
+            <h2 id="objective-evidence">
+              Challenged objective response and score
+            </h2>
+            <p>
+              Read the original item version and submitted response revision
+              pinned by the challenged result. These are historical scoring
+              records, not the latest question or a newly calculated score.
+            </p>
+            {!canInspectEvidence ? (
+              <p role="alert">
+                Appeal adjudication, result read and Question Bank read
+                permissions are required to inspect this private evidence before
+                deciding.
+              </p>
+            ) : evidenceError ? (
+              <div className={css.error} role="alert">
+                <p>{evidenceError}</p>
+                <button onClick={() => setEvidenceReload((value) => value + 1)}>
+                  Retry challenged evidence
+                </button>
+              </div>
+            ) : !evidence ? (
+              <p role="status">
+                Loading original objective response and score evidence…
+              </p>
+            ) : (
+              <>
+                <AppealEvidencePanel evidence={evidence} />
+                {!appealEvidenceComplete(appeal, evidence) && (
+                  <p className={css.error} role="alert">
+                    The complete evidence does not match the pinned appeal
+                    bundle, or includes unsupported or undisplayed items. This
+                    objective review screen cannot adjudicate it. Refresh the
+                    appeal and evidence before continuing.
+                  </p>
+                )}
+              </>
+            )}
+          </section>
           <section aria-labelledby="correction">
             <h2 id="correction">Correction status</h2>
             <p>
@@ -162,32 +244,34 @@ export default function AppealWorkspacePage({ params }: Props) {
               Start review
             </button>
           )}
-          {appealActions(appeal, permissions).reject && (
-            <form
-              className={`${css.form} ${css.card}`}
-              onSubmit={(event) => void reject(event)}
-            >
-              <h2>Adjudicate reviewed appeal</h2>
-              <p>
-                This bounded workflow records a reasoned rejection against the
-                exact current appeal version and evidence checksum. It does not
-                change the score.
-              </p>
-              <label>
-                Decision reason
-                <textarea
-                  required
-                  rows={5}
-                  maxLength={10000}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                />
-              </label>
-              <button disabled={busy || !reason.trim()}>
-                Reject reviewed appeal
-              </button>
-            </form>
-          )}
+          {appealActions(appeal, permissions).reject &&
+            canInspectEvidence &&
+            appealEvidenceComplete(appeal, evidence) && (
+              <form
+                className={`${css.form} ${css.card}`}
+                onSubmit={(event) => void reject(event)}
+              >
+                <h2>Adjudicate reviewed appeal</h2>
+                <p>
+                  This bounded workflow records a reasoned rejection against the
+                  exact current appeal version and evidence checksum. It does
+                  not change the score.
+                </p>
+                <label>
+                  Decision reason
+                  <textarea
+                    required
+                    rows={5}
+                    maxLength={10000}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
+                </label>
+                <button disabled={busy || !reason.trim()}>
+                  Reject reviewed appeal
+                </button>
+              </form>
+            )}
           {appeal.decision && (
             <section className={css.card}>
               <h2>Recorded human decision</h2>
@@ -203,5 +287,117 @@ export default function AppealWorkspacePage({ params }: Props) {
         </>
       )}
     </main>
+  );
+}
+
+function AppealEvidencePanel({ evidence }: { evidence: AppealEvidence }) {
+  return (
+    <>
+      <p>
+        Displayed objective items: {evidence.items.length} of{" "}
+        {evidence.total_items}.
+      </p>
+      {(evidence.truncated ||
+        evidence.items.some((item) => item.content_truncated)) && (
+        <p role="alert">
+          This bounded panel does not display the complete original content. Do
+          not use this partial evidence to adjudicate the appeal.
+        </p>
+      )}
+      {evidence.unsupported_items > 0 && (
+        <p role="status">
+          Unsupported subjective or unavailable evidence items:{" "}
+          {evidence.unsupported_items}. Writing, audio and subjective evidence
+          are not displayed by this objective review panel.
+        </p>
+      )}
+      {evidence.items.length === 0 && (
+        <p>No supported objective scoring evidence is available.</p>
+      )}
+      <dl className={css.provenance}>
+        <dt>Challenged result version</dt>
+        <dd>{evidence.result_version_id}</dd>
+        <dt>Result checksum</dt>
+        <dd>{evidence.result_checksum}</dd>
+        <dt>Scoring run</dt>
+        <dd>{evidence.scoring_run_id}</dd>
+        <dt>Scoring-run checksum</dt>
+        <dd>{evidence.scoring_run_checksum}</dd>
+        <dt>Exact exam version</dt>
+        <dd>{evidence.exam_version_id}</dd>
+        <dt>Exact Standard Pack version</dt>
+        <dd>{evidence.standard_pack_version_id}</dd>
+        <dt>Pinned evidence checksum</dt>
+        <dd>{evidence.pinned_evidence_bundle_checksum}</dd>
+        <dt>Current evidence checksum</dt>
+        <dd>{evidence.evidence_bundle_checksum}</dd>
+      </dl>
+      {evidence.items.map((item, index) => {
+        const selected =
+          item.response?.option_ids ??
+          (item.response?.option_id ? [item.response.option_id] : []);
+        const label = (optionId: string) =>
+          `${optionId}: ${item.options.find((option) => option.option_id === optionId)?.display_text ?? "Original option label unavailable"}`;
+        return (
+          <article
+            key={`${item.binding_id}:${item.response_revision_id}`}
+            className={css.card}
+          >
+            <h3>Original objective item {index + 1}</h3>
+            <p>{item.prompt || "Original prompt unavailable"}</p>
+            <h4>Original options</h4>
+            <ul>
+              {item.options.map((option) => (
+                <li key={option.option_id}>
+                  {option.option_id}: {option.display_text}
+                </li>
+              ))}
+            </ul>
+            <p>
+              <strong>Submitted selection:</strong>{" "}
+              {selected.length
+                ? selected.map(label).join("; ")
+                : "No submitted selection"}
+            </p>
+            <p>
+              <strong>Expected selection:</strong>{" "}
+              {item.correct_option_ids.length
+                ? item.correct_option_ids.map(label).join("; ")
+                : "No expected option is recorded"}
+            </p>
+            <p>
+              <strong>Recorded item score:</strong>{" "}
+              {item.awarded_points ?? "Unavailable"} / {item.maximum_points} ·{" "}
+              {item.status}
+            </p>
+            <h4>Pinned scoring policy</h4>
+            <pre className={css.evidence}>
+              {typeof item.scoring_policy === "string"
+                ? item.scoring_policy
+                : JSON.stringify(item.scoring_policy, null, 2)}
+            </pre>
+            <details>
+              <summary>Exact item and response provenance</summary>
+              <dl className={css.provenance}>
+                <dt>Runtime binding</dt>
+                <dd>{item.binding_id}</dd>
+                <dt>Item version</dt>
+                <dd>{item.item_version_id}</dd>
+                <dt>Item checksum</dt>
+                <dd>{item.item_checksum}</dd>
+                <dt>Response</dt>
+                <dd>{item.response_id ?? "No submitted response"}</dd>
+                <dt>Submitted response revision</dt>
+                <dd>{item.response_revision_id ?? "No submitted revision"}</dd>
+                <dt>Revision number</dt>
+                <dd>{item.response_revision_number ?? "Not applicable"}</dd>
+                <dt>Response checksum</dt>
+                <dd>{item.response_checksum ?? "Not applicable"}</dd>
+              </dl>
+            </details>
+          </article>
+        );
+      })}
+    </>
   );
 }

@@ -369,6 +369,22 @@ def appeal_detail(
     return result
 
 
+@institution_router.get("/{organisation_id}/appeals/{appeal_id}/evidence")
+def appeal_evidence(
+    organisation_id: uuid.UUID,
+    appeal_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        return ResultGovernanceService.appeal_objective_evidence(session, context, appeal_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _error(exc) from exc
+
+
 @institution_router.post("/{organisation_id}/appeals/{appeal_id}/review")
 def start_appeal_review(
     organisation_id: uuid.UUID,

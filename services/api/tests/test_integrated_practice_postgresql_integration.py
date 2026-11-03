@@ -15,7 +15,7 @@ from typing import Any, Iterator
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.api import auth_settings_dependency
@@ -40,6 +40,7 @@ from app.models import (
     User,
 )
 from app.models.enums import OrganisationType
+from app.result_governance.service import ResultGovernanceError, ResultGovernanceService
 from app.scripts.seed_demo import PASSWORD, PLATFORM_ADMIN_EMAIL, reconcile_demo
 from app.services.identity import IdentityService
 from app.services.organisations import OrganisationService
@@ -393,6 +394,23 @@ def test_three_app_practice_journey_and_rejected_appeal_preserve_exact_history(j
     queued = journey.request("GET", journey.org + "/appeals", state["admin"])
     assert appeal["id"] in {row["id"] for row in queued}
     appeal_path = journey.org + f"/appeals/{appeal['id']}"
+    evidence = journey.request("GET", appeal_path + "/evidence", state["admin"])
+    assert evidence["result_version_id"] == version_id
+    assert evidence["scoring_run_id"] == state["run"]["id"]
+    assert evidence["evidence_bundle_checksum"] == appeal["evidence_bundle_checksum"]
+    assert evidence["matches_pinned_bundle"] is True
+    assert evidence["total_items"] == evidence["supported_items"] == 1
+    assert evidence["unsupported_items"] == 0 and evidence["truncated"] is False
+    objective = evidence["items"][0]
+    assert objective["item_version_id"] == journey.identifiers["golden_item_version_id"]
+    assert objective["response_revision_number"] == 2
+    assert objective["response"] == {"option_id": "a"}
+    assert objective["correct_option_ids"] == ["a"]
+    assert Decimal(objective["awarded_points"]) == Decimal("1")
+    assert Decimal(objective["maximum_points"]) == Decimal("1")
+    assert objective["content_truncated"] is False
+    assert "NOT OFFICIAL MATERIAL" in objective["prompt"]
+    assert all(key not in evidence for key in ("snapshot_json", "state", "metadata", "storage_key"))
     journey.request("POST", appeal_path + "/review", state["admin"])
     detail = journey.request("GET", appeal_path, state["admin"])
     adjudication = {
@@ -532,6 +550,19 @@ def test_cross_role_tenant_isolation_and_stale_release_state_are_enforced(journe
     state = release_and_statement(journey, submitted_and_scored(journey))
     version_id = state["result"]["result_version_id"]
     release_id = state["release"]["release_id"]
+    appeal = journey.request(
+        "POST",
+        f"/api/v1/candidate/results/{version_id}/appeals",
+        state["candidate"],
+        json={
+            "category": "SCORING",
+            "grounds": "Synthetic security evidence review.",
+            "operation_id": str(uuid.uuid4()),
+        },
+    )
+    evidence_path = journey.org + f"/appeals/{appeal['id']}/evidence"
+    journey.request("GET", evidence_path, state["candidate"], expected=403)
+    assert journey.client.get(evidence_path).status_code == 401
     release_path = journey.org + f"/result-versions/{version_id}/release"
     journey.request(
         "POST",
@@ -545,6 +576,7 @@ def test_cross_role_tenant_isolation_and_stale_release_state_are_enforced(journe
     )
     journey.request("GET", PLATFORM + "/overview", state["admin"], expected=403)
     other = journey.login(journey.other_email)
+    journey.request("GET", evidence_path, other, expected=403)
     journey.request("GET", f"/api/v1/candidate/results/{state['result_id']}", other, expected=404)
     journey.request("GET", f"/api/v1/candidate/releases/{release_id}", other, expected=404)
     journey.request(
@@ -576,6 +608,13 @@ def test_cross_role_tenant_isolation_and_stale_release_state_are_enforced(journe
     )
     foreign_actor = journey.login(foreign_admin.email, tenant=False)
     foreign_actor["X-PrufAI-Organisation-ID"] = str(foreign.id)
+    journey.request("GET", evidence_path, foreign_actor, expected=403)
+    denied_evidence = journey.client.get(
+        f"/api/v1/organisations/{foreign.id}/appeals/{appeal['id']}/evidence", headers=foreign_actor
+    )
+    assert denied_evidence.status_code == 409
+    assert "NOT OFFICIAL MATERIAL" not in denied_evidence.text
+    assert "correct_option_ids" not in denied_evidence.text
     journey.request(
         "POST",
         release_path,
@@ -632,3 +671,132 @@ def test_real_logout_revokes_the_candidate_access_token(journey: Journey):
     assert (
         journey.client.get("/api/v1/candidate/exam-assignments", headers=headers).status_code == 401
     )
+
+
+def test_appeal_evidence_uses_pinned_revision_even_if_mutable_current_fields_are_corrupt(
+    journey: Journey,
+):
+    """Adversarial savepoint only: immutable history and result records stay untouched."""
+    state = release_and_statement(journey, submitted_and_scored(journey))
+    version_id = state["result"]["result_version_id"]
+    appeal = journey.request(
+        "POST",
+        f"/api/v1/candidate/results/{version_id}/appeals",
+        state["candidate"],
+        json={
+            "category": "SCORING",
+            "grounds": "Synthetic pinned revision verification.",
+            "operation_id": str(uuid.uuid4()),
+        },
+    )
+    baseline = journey.request(
+        "GET", journey.org + f"/appeals/{appeal['id']}/evidence", state["admin"]
+    )
+    original = baseline["items"][0]
+    context = build_tenant_context(
+        journey.session, journey.admin_id, uuid.UUID(journey.organisation_id)
+    )
+    response = journey.session.get(CandidateResponse, uuid.UUID(original["response_id"]))
+    assert response is not None and response.current_revision == 2
+    savepoint = journey.session.begin_nested()
+    try:
+        journey.session.execute(
+            update(CandidateResponse)
+            .where(CandidateResponse.id == response.id)
+            .values(
+                current_payload={"option_id": "b"},
+                current_revision=3,
+            )
+        )
+        journey.session.expire(response)
+        assert response.current_revision == 3 and response.current_payload == {"option_id": "b"}
+        evidence = ResultGovernanceService.appeal_objective_evidence(
+            journey.session, context, uuid.UUID(appeal["id"])
+        )
+        assert evidence["items"][0]["response_revision_id"] == original["response_revision_id"]
+        assert evidence["items"][0]["response_revision_number"] == 2
+        assert evidence["items"][0]["response"] == {"option_id": "a"}
+        assert evidence["evidence_bundle_checksum"] == baseline["evidence_bundle_checksum"]
+    finally:
+        savepoint.rollback()
+        journey.session.expire(response)
+    assert response.current_revision == 2 and response.current_payload == {"option_id": "a"}
+    score_id = journey.session.scalar(
+        select(ItemScore.id).where(
+            ItemScore.scoring_run_id == uuid.UUID(state["run"]["id"]),
+            ItemScore.exam_version_item_binding_id == uuid.UUID(original["binding_id"]),
+        )
+    )
+    assert score_id is not None
+    for missing in (
+        {"candidate_response_revision_id": None},
+        {"candidate_response_id": None},
+        {"response_checksum": None},
+    ):
+        partial = journey.session.begin_nested()
+        try:
+            journey.session.execute(
+                update(ItemScore).where(ItemScore.id == score_id).values(**missing)
+            )
+            journey.session.expire_all()
+            with pytest.raises(ResultGovernanceError, match="response evidence is incomplete"):
+                ResultGovernanceService.appeal_objective_evidence(
+                    journey.session, context, uuid.UUID(appeal["id"])
+                )
+        finally:
+            partial.rollback()
+            journey.session.expire_all()
+
+
+def test_unanswered_objective_evidence_is_explicit_and_safe(journey: Journey):
+    admin = journey.login("admin@demo.prufai.local")
+    assignment = journey.request(
+        "POST",
+        journey.org + "/exam-assignments",
+        admin,
+        expected=201,
+        json={
+            "candidate_user_id": str(journey.candidate_id),
+            "exam_version_id": journey.identifiers["golden_exam_version_id"],
+        },
+    )
+    candidate = journey.login(journey.email)
+    attempt = journey.request(
+        "POST",
+        f"/api/v1/candidate/exam-assignments/{assignment['id']}/attempts",
+        candidate,
+        expected=201,
+    )
+    path = f"/api/v1/candidate/exam-attempts/{attempt['id']}"
+    journey.request("POST", path + "/start", candidate)
+    journey.request("POST", path + "/submit", candidate)
+    run = journey.request("POST", journey.org + f"/exam-attempts/{attempt['id']}/score", admin)
+    journey.session.expire_all()
+    version = journey.session.scalar(
+        select(ResultVersion).where(ResultVersion.scoring_run_id == uuid.UUID(run["id"]))
+    )
+    assert version is not None and version.raw_awarded_points == Decimal("0")
+    version_path = journey.org + f"/result-versions/{version.id}"
+    journey.request("POST", version_path + "/request-review", admin)
+    journey.request("POST", version_path + "/approve", admin)
+    journey.request(
+        "POST", version_path + "/release", admin, json={"operation_id": str(uuid.uuid4())}
+    )
+    appeal = journey.request(
+        "POST",
+        f"/api/v1/candidate/results/{version.id}/appeals",
+        candidate,
+        json={
+            "category": "SCORING",
+            "grounds": "Synthetic unanswered-response inspection.",
+            "operation_id": str(uuid.uuid4()),
+        },
+    )
+    evidence = journey.request("GET", journey.org + f"/appeals/{appeal['id']}/evidence", admin)
+    item = evidence["items"][0]
+    assert item["response"] == {}
+    assert item["response_id"] is None and item["response_revision_id"] is None
+    assert item["response_revision_number"] is None and item["response_checksum"] is None
+    assert Decimal(item["awarded_points"]) == Decimal("0")
+    assert item["correct_option_ids"] == ["a"]
+    assert evidence["matches_pinned_bundle"] is True

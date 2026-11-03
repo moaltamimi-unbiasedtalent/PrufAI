@@ -1,7 +1,34 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { CandidateApiError, candidateApi } from "../../api";
+import {
+  CandidateApiError,
+  candidateApi,
+  type RuntimeState as RuntimeDto,
+} from "../../api";
+
+export function applySavedResponse(
+  runtime: RuntimeDto,
+  bindingId: string,
+  saved: { revision: number; payload: Record<string, unknown> },
+): RuntimeDto {
+  const response = {
+    binding_id: bindingId,
+    revision: saved.revision,
+    payload: saved.payload,
+  };
+  const exists = runtime.responses.some(
+    (item) => item.binding_id === bindingId,
+  );
+  return {
+    ...runtime,
+    responses: exists
+      ? runtime.responses.map((item) =>
+          item.binding_id === bindingId ? response : item,
+        )
+      : [...runtime.responses, response],
+  };
+}
 
 export type ResponseMode =
   | "SELECT_ONE"
@@ -12,6 +39,7 @@ export type ResponseMode =
 export type RuntimeState =
   | "Saved"
   | "Saving"
+  | "Save failed"
   | "Offline — queued"
   | "Conflict"
   | "Expired"
@@ -39,6 +67,9 @@ export function formatRemaining(seconds: number): string {
 }
 
 export function runtimeStateMessage(status: RuntimeState): string | null {
+  if (status === "Save failed") {
+    return "The server has not confirmed this response. Keep the page open and retry before submitting.";
+  }
   if (status === "Conflict") {
     return "A newer response exists on the server. Your change was not applied. Reload the latest response before continuing.";
   }
@@ -263,12 +294,10 @@ export function AudioResponseControl({
             An audio response is already saved. A new recording would be a new
             governed attempt.
           </p>
-          <audio
-            controls
-            preload="metadata"
-            src={`/api/v1/candidate/audio-assets/${encodeURIComponent(currentMediaAssetId)}/stream`}
-            aria-label="Saved recorded response"
-          />
+          <p>
+            Audio playback is not available in this candidate walkthrough. The
+            saved evidence remains on the server.
+          </p>
         </>
       )}
       <p role="status" aria-live="polite">

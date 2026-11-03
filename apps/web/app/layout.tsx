@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { AppShell, AuthProvider } from "../lib/auth";
+import { developmentDemoEnabled } from "../lib/demo";
 
 export const metadata: Metadata = {
   title: "PrüfAI Platform",
-  description: "PrüfAI engineering baseline",
+  description: "Governed assessment workspace",
 };
 
 export default function RootLayout({
@@ -11,8 +13,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de">
-      <body>{children}</body>
+    <html lang="en">
+      <body>
+        <AuthProvider
+          demoMode={developmentDemoEnabled(
+            process.env.NODE_ENV,
+            process.env.PRUFAI_DEMO_ENABLED,
+          )}
+        >
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
+      </body>
     </html>
   );
 }

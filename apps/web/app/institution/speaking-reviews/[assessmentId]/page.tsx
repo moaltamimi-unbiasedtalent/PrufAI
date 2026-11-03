@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../../lib/auth";
+
 import { use, useEffect, useState } from "react";
 import { speakingReviewApi, type SpeakingReview } from "../review-api";
 
@@ -11,7 +13,7 @@ export default function SpeakingReviewWorkspace({
   const { assessmentId } = use(params);
   const [review, setReview] = useState<SpeakingReview | null>(null);
   const [message, setMessage] = useState("Loading assessment…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     if (!organisationId) {
       setMessage("Organisation context is required.");

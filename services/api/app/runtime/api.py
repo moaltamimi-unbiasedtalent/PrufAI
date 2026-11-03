@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.db import get_db_session
 from app.knowledge.storage import StorageError, build_object_storage
 from app.models import (
+    AssessmentResult,
     CandidateAudioRecordingSession,
     CandidateExamAssignment,
     CandidateExamAttempt,
@@ -22,6 +23,8 @@ from app.models import (
     CandidateResponse,
     CandidateResponseMediaBinding,
     CandidateResponseRevision,
+    ExamVersion,
+    User,
 )
 from app.models.enums import CandidateMediaStatus
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
@@ -352,17 +355,61 @@ def list_organisation_assignments(
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
     from app.authorization import AuthorizationService
 
-    AuthorizationService.require_permission(context, "exam_assignment.read", organisation_id)
-    from sqlalchemy import select
-
-    from app.models import CandidateExamAssignment
+    try:
+        AuthorizationService.require_permission(context, "exam_assignment.read", organisation_id)
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     rows = session.scalars(
         select(CandidateExamAssignment)
         .where(CandidateExamAssignment.organisation_id == organisation_id)
         .order_by(CandidateExamAssignment.created_at.desc())
     )
-    return [_assignment_payload(row) for row in rows]
+    payloads = []
+    can_read_results = AuthorizationService.has_permission(context, "result.read", organisation_id)
+    for assignment in rows:
+        payload = _assignment_payload(assignment)
+        candidate = session.get(User, assignment.candidate_user_id)
+        exam_version = session.get(ExamVersion, assignment.exam_version_id)
+        payload.update(
+            {
+                "candidate_user_id": str(assignment.candidate_user_id),
+                "candidate_name": candidate.display_name if candidate else None,
+                "exam_version_id": str(assignment.exam_version_id),
+                "exam_name": exam_version.exam.name if exam_version else None,
+                "exam_version_label": exam_version.version_label if exam_version else None,
+            }
+        )
+        for attempt_payload in payload["attempts"]:
+            attempt_payload["result"] = None
+            if not can_read_results:
+                continue
+            result = session.scalar(
+                select(AssessmentResult).where(
+                    AssessmentResult.attempt_id == uuid.UUID(attempt_payload["id"]),
+                    AssessmentResult.organisation_id == organisation_id,
+                )
+            )
+            version = (
+                max(result.versions, key=lambda item: item.version_number, default=None)
+                if result
+                else None
+            )
+            if result is not None and version is not None:
+                attempt_payload["result"] = {
+                    "id": str(result.id),
+                    "version_id": str(version.id),
+                    "version_number": version.version_number,
+                    "status": version.status.value,
+                    "outcome": version.outcome.value if version.outcome else None,
+                    "raw_awarded_points": str(version.raw_awarded_points)
+                    if version.raw_awarded_points is not None
+                    else None,
+                    "raw_maximum_points": str(version.raw_maximum_points),
+                    "checksum": version.checksum,
+                }
+        payloads.append(payload)
+    return payloads
 
 
 @organisation_router.post("/{organisation_id}/exam-assignments/{assignment_id}/cancel")

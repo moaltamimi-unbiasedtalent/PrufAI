@@ -273,8 +273,9 @@ class ScoringService:
         if attempt.submitted_at is None:
             raise ScoringError("MISSING_RESPONSE_SNAPSHOT: submitted_at is required")
         snapshot_json, response_checksum = _snapshot(attempt)
+        pack_reference = attempt.runtime_plan.get("standard_pack_version_id")
         pack = session.get(
-            StandardPackVersion, attempt.runtime_plan.get("standard_pack_version_id")
+            StandardPackVersion, uuid.UUID(str(pack_reference)) if pack_reference else None
         )
         if pack is None:
             raise ScoringError("SCORING_CONFIGURATION_INCOMPLETE: StandardPackVersion missing")
@@ -284,7 +285,7 @@ class ScoringService:
                 select(QuestionBankItemVersion).where(
                     QuestionBankItemVersion.id.in_(
                         [
-                            row["question_bank_item_version_id"]
+                            uuid.UUID(str(row["question_bank_item_version_id"]))
                             for row in snapshot_json["items"]
                             if row["question_bank_item_version_id"]
                         ]

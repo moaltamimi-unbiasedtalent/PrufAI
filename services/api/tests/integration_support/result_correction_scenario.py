@@ -409,7 +409,7 @@ def build_governed_result_correction_scenario(
     )
     _flush_fixture_group(session, recording_session)
     recording = recording_session
-    audio = b"synthetic correction audio"
+    audio = f"synthetic correction audio {uuid.uuid4()}".encode()
     asset = CandidateMediaAsset(
         organisation_id=org.id,
         candidate_user_id=candidate.id,

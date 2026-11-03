@@ -45,7 +45,8 @@ have no AI confidence; their confidence and AI step references are null. AI run,
 model, prompt, agent and workflow references remain null and `ai_proposal` remains
 empty. Human approval neither releases a result nor issues a statement or
 certificate. The existing scorer can consume the approved subjective version;
-the complete candidate-to-statement Writing journey remains a later Step 2A PR.
+the complete candidate-to-statement Writing journey is documented separately in
+[Integrated Writing Step 2A](integrated-writing.md).
 
 Every mutation accepts an `operation_id` UUID. Durable operation receipts bind
 organisation, actor, action, target and request checksum in the same transaction

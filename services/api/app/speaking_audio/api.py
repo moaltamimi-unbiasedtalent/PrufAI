@@ -12,7 +12,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
-from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.config import get_settings
 from app.db import get_db_session
 from app.knowledge.storage import StorageError, build_object_storage
@@ -224,7 +225,7 @@ def reviewer_assets(
 ) -> list[CandidateMediaAsset]:
     if context.organisation_id != organisation_id:
         raise PermissionError("organisation scope mismatch")
-    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
+    require_active_tenant_permission(session, context, "subjective.read", organisation_id)
     query = (
         select(CandidateMediaAsset)
         .join(CandidateExamAttempt, CandidateExamAttempt.id == CandidateMediaAsset.attempt_id)

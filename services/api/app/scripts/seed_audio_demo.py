@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, TypeVar
 
 from sqlalchemy import select
@@ -21,6 +22,7 @@ from app.authorization import build_tenant_context
 from app.config import Settings
 from app.exams.service import ExamStudioService
 from app.models import (
+    AssessmentRubric,
     Base,
     Exam,
     ExamVersion,
@@ -35,6 +37,7 @@ from app.models import (
     QuestionBankItemVersion,
     QuestionBankStandardPackBinding,
     Role,
+    RubricVersion,
     StandardPack,
     StandardPackModule,
     StandardPackSection,
@@ -62,6 +65,7 @@ from app.models.enums import (
     QuestionBankSkill,
     QuestionBankTaskType,
     RoleScope,
+    RubricVersionStatus,
     StandardPackBindingType,
     StandardPackStatus,
     UserStatus,
@@ -69,6 +73,7 @@ from app.models.enums import (
 from app.question_bank.service import QuestionBankService
 from app.runtime.service import CandidateRuntimeService
 from app.standard_packs.service import StandardPackService
+from app.writing_assessment.service import RubricService
 
 AUDIO_CANDIDATE_EMAIL = "audio.candidate@demo.prufai.local"
 AUDIO_CANDIDATE_NAME = "Recorded Audio Practice Candidate"
@@ -122,10 +127,12 @@ def audio_id(key: str) -> uuid.UUID:
     return uuid.uuid5(_NAMESPACE, key)
 
 
-def _ensure(session: Session, model: type[Model], key: str, **values: Any) -> Model:
-    row = session.get(model, audio_id(key))
+def _ensure(
+    session: Session, model: type[Model], key: str, *, namespace: str = "", **values: Any
+) -> Model:
+    row = session.get(model, audio_id(namespace + key))
     if row is None:
-        row = model(id=audio_id(key), **values)
+        row = model(id=audio_id(namespace + key), **values)
         session.add(row)
         session.flush()
     else:
@@ -152,21 +159,28 @@ def _ensure(session: Session, model: type[Model], key: str, **values: Any) -> Mo
 
 
 def _candidate(
-    session: Session, settings: Settings, organisation: Organisation, password: str
+    session: Session,
+    settings: Settings,
+    organisation: Organisation,
+    password: str,
+    *,
+    namespace: str = "",
+    email: str = AUDIO_CANDIDATE_EMAIL,
+    name: str = AUDIO_CANDIDATE_NAME,
 ) -> User:
-    identifier = audio_id("candidate")
+    identifier = audio_id(namespace + "candidate")
     user = session.get(User, identifier)
-    existing = session.scalar(select(User).where(User.normalized_email == AUDIO_CANDIDATE_EMAIL))
+    existing = session.scalar(select(User).where(User.normalized_email == email))
     if (existing is not None and existing.id != identifier) or (
-        user is not None and user.normalized_email != AUDIO_CANDIDATE_EMAIL
+        user is not None and user.normalized_email != email
     ):
         raise RuntimeError("Audio demo identity collision; no account was claimed.")
     if user is None:
         user = User(
             id=identifier,
-            email=AUDIO_CANDIDATE_EMAIL,
-            normalized_email=AUDIO_CANDIDATE_EMAIL,
-            display_name=AUDIO_CANDIDATE_NAME,
+            email=email,
+            normalized_email=email,
+            display_name=name,
             status=UserStatus.ACTIVE,
         )
         session.add(user)
@@ -188,6 +202,7 @@ def _candidate(
         session,
         OrganisationMembership,
         "candidate-membership",
+        namespace=namespace,
         organisation_id=organisation.id,
         user_id=user.id,
         status=MembershipStatus.ACTIVE,
@@ -212,29 +227,61 @@ def reconcile_audio_demo(
     administrator: User,
     platform_operator: User,
     password: str,
+    human_speaking: bool = False,
 ) -> dict[str, str]:
     if settings.environment != "development" or not enabled:
         raise RuntimeError("Audio demo requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1.")
+    # A separate immutable namespace preserves the previously published evidence-only
+    # scenario. The human scenario adds a DRAFT rubric, never a judged recording.
+    from app.scripts.seed_speaking_human_demo import (
+        SPEAKING_HUMAN_CRITERIA,
+        SPEAKING_HUMAN_EXAM_NAME,
+        SPEAKING_HUMAN_LEVELS,
+        SPEAKING_HUMAN_POLICY_CONTENT,
+        SPEAKING_HUMAN_VERSION_LABEL,
+    )
+
+    namespace = "human-speaking-" if human_speaking else ""
+    version_label = SPEAKING_HUMAN_VERSION_LABEL if human_speaking else AUDIO_VERSION_LABEL
+    scenario_code = "PRUFAI_HUMAN_SPEAKING_B1" if human_speaking else "PRUFAI_RECORDED_AUDIO_B1"
+    scenario_name = SPEAKING_HUMAN_EXAM_NAME if human_speaking else AUDIO_EXAM_NAME
+    policy_content = SPEAKING_HUMAN_POLICY_CONTENT if human_speaking else AUDIO_POLICY_CONTENT
+    tasks = AUDIO_TASKS[:1] if human_speaking else AUDIO_TASKS
+
+    def ensure(model: type[Model], key: str, **values: Any) -> Model:
+        return _ensure(session, model, key, namespace=namespace, **values)
+
+    def identifier(key: str) -> uuid.UUID:
+        return audio_id(namespace + key)
+
     now = datetime.now(timezone.utc)
-    candidate = _candidate(session, settings, organisation, password)
+    candidate = _candidate(
+        session,
+        settings,
+        organisation,
+        password,
+        namespace=namespace,
+        email="speaking.candidate@demo.prufai.local" if human_speaking else AUDIO_CANDIDATE_EMAIL,
+        name="Human Speaking Practice Candidate" if human_speaking else AUDIO_CANDIDATE_NAME,
+    )
     author = build_tenant_context(session, administrator.id, organisation.id)
     publisher = build_tenant_context(session, platform_operator.id, organisation.id)
-    pack = _ensure(
-        session,
+    pack = ensure(
         StandardPack,
         "pack",
-        code="PRUFAI_RECORDED_AUDIO_B1",
-        name=f"Original recorded audio practice — {AUDIO_LABEL}",
+        code=scenario_code,
+        name=(
+            scenario_name if human_speaking else f"Original recorded audio practice — {AUDIO_LABEL}"
+        ),
         assessment_family=AssessmentFamily.LANGUAGE,
         language="de",
         status=StandardPackStatus.DRAFT,
     )
-    version = _ensure(
-        session,
+    version = ensure(
         StandardPackVersion,
         "pack-version",
         standard_pack_id=pack.id,
-        version_label=AUDIO_VERSION_LABEL,
+        version_label=version_label,
         status=StandardPackStatus.DRAFT,
         configuration_checksum="pending-audio-validation",
         supported_levels=["B1"],
@@ -243,8 +290,7 @@ def reconcile_audio_demo(
         created_by_user_id=administrator.id,
         notes=AUDIO_LABEL,
     )
-    module = _ensure(
-        session,
+    module = ensure(
         StandardPackModule,
         "pack-module",
         standard_pack_version_id=version.id,
@@ -255,8 +301,7 @@ def reconcile_audio_demo(
         navigation_mode=PackNavigationMode.FREE_WITHIN_MODULE,
         created_at=now,
     )
-    section = _ensure(
-        session,
+    section = ensure(
         StandardPackSection,
         "pack-section",
         module_id=module.id,
@@ -267,8 +312,7 @@ def reconcile_audio_demo(
         created_at=now,
     )
     specifications = [
-        _ensure(
-            session,
+        ensure(
             StandardPackTaskSpecification,
             f"task-{index}",
             section_id=section.id,
@@ -282,22 +326,22 @@ def reconcile_audio_demo(
             media_requirement=PackMediaRequirement.NONE,
             created_at=now,
         )
-        for index, (code, name, _prompt) in enumerate(AUDIO_TASKS, 1)
+        for index, (code, name, _prompt) in enumerate(tasks, 1)
     ]
-    authority = _ensure(
-        session,
+    authority = ensure(
         KnowledgeAuthority,
         "policy-authority",
-        code="PRUFAI_RECORDED_AUDIO_INTERNAL",
+        code="PRUFAI_HUMAN_SPEAKING_INTERNAL"
+        if human_speaking
+        else "PRUFAI_RECORDED_AUDIO_INTERNAL",
         name=f"Original internal audio policy — {AUDIO_LABEL}",
         authority_type=KnowledgeAuthorityType.INTERNAL,
     )
-    source = _ensure(
-        session,
+    source = ensure(
         KnowledgeSource,
         "policy-source",
         authority_id=authority.id,
-        source_code="PRUFAI_RECORDED_AUDIO_B1_POLICY",
+        source_code=scenario_code + "_POLICY",
         title=f"Audio evidence policy — {AUDIO_LABEL}",
         document_type=KnowledgeDocumentType.POLICY,
         scope=KnowledgeScope.PLATFORM_SHARED,
@@ -306,16 +350,15 @@ def reconcile_audio_demo(
         cefr_level="B1",
         notes="Explicit original synthetic development policy; not external source ingestion.",
     )
-    digest = hashlib.sha256(AUDIO_POLICY_CONTENT.encode()).hexdigest()
-    document = _ensure(
-        session,
+    digest = hashlib.sha256(policy_content.encode()).hexdigest()
+    document = ensure(
         KnowledgeDocumentVersion,
         "policy-document",
         source_id=source.id,
-        version_label=AUDIO_VERSION_LABEL,
+        version_label=version_label,
         status=KnowledgeVersionStatus.APPROVED,
         sha256=digest,
-        notes=AUDIO_POLICY_CONTENT,
+        notes=policy_content,
         created_at=now,
         created_by_user_id=platform_operator.id,
         reviewed_at=now,
@@ -323,10 +366,9 @@ def reconcile_audio_demo(
         approved_at=now,
         approved_by_user_id=platform_operator.id,
     )
-    if document.sha256 != digest or document.notes != AUDIO_POLICY_CONTENT:
+    if document.sha256 != digest or document.notes != policy_content:
         raise RuntimeError("Audio policy metadata changed; no published policy was rewritten.")
-    _ensure(
-        session,
+    ensure(
         KnowledgeLegalMetadata,
         "policy-rights",
         document_version_id=document.id,
@@ -338,8 +380,7 @@ def reconcile_audio_demo(
         legal_reviewed_at=now,
         legal_reviewed_by_user_id=platform_operator.id,
     )
-    _ensure(
-        session,
+    ensure(
         StandardPackSourceBinding,
         "policy-binding",
         standard_pack_version_id=version.id,
@@ -363,13 +404,61 @@ def reconcile_audio_demo(
             StandardPackService.transition(
                 session, version, pack_target, actor_id=platform_operator.id, context=publisher
             )
-    items: list[QuestionBankItemVersion] = []
-    for index, ((code, name, prompt), task) in enumerate(zip(AUDIO_TASKS, specifications), 1):
-        item_code = f"PRUFAI_RECORDED_AUDIO_B1_{code}"
-        item = session.get(QuestionBankItem, audio_id(f"item-{index}"))
-        if item is None:
-            item = _ensure(
+    rubric_version = None
+    if human_speaking:
+        rubric = ensure(
+            AssessmentRubric,
+            "rubric",
+            code=scenario_code,
+            name=f"Original human Speaking rubric — {AUDIO_LABEL}",
+            organisation_id=organisation.id,
+            status=RubricVersionStatus.DRAFT,
+        )
+        rubric_version = session.scalar(
+            select(RubricVersion).where(
+                RubricVersion.rubric_id == rubric.id,
+                RubricVersion.version_label == version_label,
+            )
+        )
+        if rubric_version is None:
+            rubric_version = RubricService.create_version(
                 session,
+                rubric=rubric,
+                standard_pack=version,
+                task_spec_id=specifications[0].id,
+                version_label=version_label,
+                skill=QuestionBankSkill.SPEAKING,
+                criteria=SPEAKING_HUMAN_CRITERIA,
+                performance_levels=SPEAKING_HUMAN_LEVELS,
+                aggregation_policy={"method": "SUM"},
+                evidence_policy={
+                    "mode": "AUDIO",
+                    "required": True,
+                    "minimum_references": 1,
+                    "time_unit": "milliseconds",
+                },
+                ai_assessment_policy={"enabled": False, "mode": "HUMAN_ONLY"},
+                human_review_policy={"required": True, "separation_of_duties": True},
+                evidence_bindings=[
+                    {
+                        "knowledge_document_version_id": str(document.id),
+                        "source_checksum": digest,
+                        "purpose": "ORIGINAL_PRACTICE_POLICY",
+                    }
+                ],
+                context=author,
+            )
+        if (
+            rubric_version.standard_pack_version_id != version.id
+            or rubric_version.task_spec_id != specifications[0].id
+        ):
+            raise RuntimeError("Human Speaking rubric scope collision; no version was rewritten.")
+    items: list[QuestionBankItemVersion] = []
+    for index, ((code, name, prompt), task) in enumerate(zip(tasks, specifications), 1):
+        item_code = f"{scenario_code}_{code}"
+        item = session.get(QuestionBankItem, identifier(f"item-{index}"))
+        if item is None:
+            item = ensure(
                 QuestionBankItem,
                 f"item-{index}",
                 code=item_code,
@@ -387,7 +476,7 @@ def reconcile_audio_demo(
         item_version = session.scalar(
             select(QuestionBankItemVersion).where(
                 QuestionBankItemVersion.item_id == item.id,
-                QuestionBankItemVersion.version_label == AUDIO_VERSION_LABEL,
+                QuestionBankItemVersion.version_label == version_label,
             )
         )
         if item_version is None:
@@ -395,7 +484,7 @@ def reconcile_audio_demo(
                 session,
                 author,
                 item,
-                version_label=AUDIO_VERSION_LABEL,
+                version_label=version_label,
                 assessment_family=AssessmentFamily.LANGUAGE,
                 language="de",
                 cefr_levels=["B1"],
@@ -405,11 +494,24 @@ def reconcile_audio_demo(
                 content={
                     "kind": "ORAL_RESPONSE",
                     "prompt": f"{AUDIO_LABEL}\n{name}\n{prompt}\n"
-                    "Diese Übung speichert nur Ihre Aufnahme. Keine Bewertung oder Transkription. "
-                    "Bitte nennen Sie keine echten Kontaktdaten.",
+                    + (
+                        "Diese originale Übung wird von zwei berechtigten Menschen anhand einer "
+                        "zuvor veröffentlichten Rubrik geprüft. Keine KI oder Transkription. "
+                        if human_speaking
+                        else "Diese Übung speichert nur Ihre Aufnahme. "
+                        "Keine Bewertung oder Transkription. "
+                    )
+                    + "Bitte nennen Sie keine echten Kontaktdaten.",
                     "audio_policy": AUDIO_POLICY,
                 },
-                scoring_policy=QuestionBankScoringPolicy.MANUAL_REVIEW,
+                scoring_policy=(
+                    QuestionBankScoringPolicy.RUBRIC_REQUIRED
+                    if human_speaking
+                    else QuestionBankScoringPolicy.MANUAL_REVIEW
+                ),
+                max_points=Decimal("6") if human_speaking else None,
+                scoring_metadata={"rubric_required": True} if human_speaking else {},
+                rubric_reference=str(rubric_version.id) if rubric_version else None,
                 rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
                 rights_holder="PrüfAI original synthetic practice",
             )
@@ -447,14 +549,13 @@ def reconcile_audio_demo(
                     checksum=item_version.checksum,
                 )
         items.append(item_version)
-    exam = session.get(Exam, audio_id("exam"))
+    exam = session.get(Exam, identifier("exam"))
     if exam is None:
-        exam = _ensure(
-            session,
+        exam = ensure(
             Exam,
             "exam",
-            code="PRUFAI_RECORDED_AUDIO_B1",
-            name=AUDIO_EXAM_NAME,
+            code=scenario_code,
+            name=scenario_name,
             scope_type="ORGANISATION_PRIVATE",
             organisation_id=organisation.id,
             created_by_user_id=administrator.id,
@@ -463,12 +564,12 @@ def reconcile_audio_demo(
     if (
         exam.organisation_id != organisation.id
         or exam.scope_type != "ORGANISATION_PRIVATE"
-        or exam.code != "PRUFAI_RECORDED_AUDIO_B1"
+        or exam.code != scenario_code
     ):
         raise RuntimeError("Audio exam scope collision; no exam was rewritten.")
     exam_version = session.scalar(
         select(ExamVersion).where(
-            ExamVersion.exam_id == exam.id, ExamVersion.version_label == AUDIO_VERSION_LABEL
+            ExamVersion.exam_id == exam.id, ExamVersion.version_label == version_label
         )
     )
     if exam_version is None:
@@ -476,7 +577,7 @@ def reconcile_audio_demo(
             session,
             author,
             exam,
-            version_label=AUDIO_VERSION_LABEL,
+            version_label=version_label,
             standard_pack_version_id=version.id,
             classification=AssessmentClassification.PRACTICE,
         )
@@ -507,6 +608,17 @@ def reconcile_audio_demo(
     if ExamStudioService.validate(session, author, exam_version).status != "PASS":
         raise RuntimeError("Audio demo failed real Exam Studio validation.")
     CandidateRuntimeService._safe_plan(session, exam_version)
+    if human_speaking:
+        assert rubric_version is not None
+        return {
+            "speaking_human_candidate_user_id": str(candidate.id),
+            "speaking_human_exam_version_id": str(exam_version.id),
+            "speaking_human_pack_version_id": str(version.id),
+            "speaking_human_item_version_id": str(items[0].id),
+            "speaking_human_task_spec_id": str(specifications[0].id),
+            "speaking_human_rubric_id": str(rubric_version.rubric_id),
+            "speaking_human_rubric_version_id": str(rubric_version.id),
+        }
     return {
         "audio_candidate_user_id": str(candidate.id),
         "audio_exam_version_id": str(exam_version.id),

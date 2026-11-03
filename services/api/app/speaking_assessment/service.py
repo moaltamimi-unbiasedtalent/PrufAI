@@ -471,6 +471,11 @@ class SpeakingAssessmentService:
             raise SpeakingAssessmentError(
                 "speaking assessment is not available in this organisation"
             )
+        if (
+            version.assessment_origin == "HUMAN"
+            or rubric.ai_assessment_policy.get("mode") == "HUMAN_ONLY"
+        ):
+            raise SpeakingAssessmentError("human-only Speaking cannot accept AI proposals")
         if version.status not in {
             SubjectiveAssessmentStatus.CREATED,
             SubjectiveAssessmentStatus.FAILED,

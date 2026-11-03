@@ -90,6 +90,7 @@ def _record(
     *,
     entity_type: str,
     checksum: str,
+    source_version_id: uuid.UUID | None = None,
 ) -> None:
     session.add(
         WritingGovernanceOperation(
@@ -113,9 +114,15 @@ def _record(
         require_audit_permission=False,
         request_id=str(operation_id),
         new_state_hash=checksum,
-        metadata={"operation_id": str(operation_id), "assessment_origin": "HUMAN"}
-        if entity_type == "SubjectiveAssessmentVersion"
-        else {"operation_id": str(operation_id)},
+        metadata={
+            "operation_id": str(operation_id),
+            **(
+                {"assessment_origin": "HUMAN"}
+                if entity_type == "SubjectiveAssessmentVersion"
+                else {}
+            ),
+            **({"source_version_id": str(source_version_id)} if source_version_id else {}),
+        },
     )
 
 
@@ -152,9 +159,13 @@ class RubricGovernanceService:
     @staticmethod
     def _validate(version: RubricVersion) -> None:
         if not version.task_spec_id:
-            raise RubricError("human Writing rubric requires an exact task specification")
-        if version.skill is not QuestionBankSkill.WRITING:
-            raise RubricError("human rubric lifecycle currently supports Writing only")
+            raise RubricError("human rubric requires an exact task specification")
+        if version.skill not in {QuestionBankSkill.WRITING, QuestionBankSkill.SPEAKING}:
+            raise RubricError("human rubric lifecycle requires Writing or Speaking")
+        if version.skill is QuestionBankSkill.SPEAKING:
+            from app.speaking_assessment.governance import HumanSpeakingService
+
+            HumanSpeakingService.assert_human_mode(version)
         if canonical_checksum(RubricService.checksum_payload(version)) != version.checksum:
             raise RubricError("rubric content does not match its reviewed checksum")
 
@@ -170,6 +181,10 @@ class RubricGovernanceService:
         expected_checksum: str,
     ) -> RubricVersion:
         version = cls._version(session, context, version_id)
+        if version.skill is QuestionBankSkill.SPEAKING:
+            from app.authorization.membership import require_active_tenant_permission
+
+            require_active_tenant_permission(session, context, "rubric.manage")
         payload = {"expected_checksum": expected_checksum}
         event = f"rubric.{action}"
         receipt = _receipt(session, context, operation_id, event, version.id, payload)
@@ -178,11 +193,18 @@ class RubricGovernanceService:
         if version.checksum != expected_checksum:
             raise RubricError("stale rubric checksum")
         cls._validate(version)
-        from app.models import StandardPackVersion
+        from app.models import StandardPackTaskSpecification, StandardPackVersion
 
         pack = session.get(StandardPackVersion, version.standard_pack_version_id)
         if pack is None:
             raise RubricError("rubric StandardPackVersion is unavailable")
+        task = session.get(StandardPackTaskSpecification, version.task_spec_id)
+        if (
+            task is None
+            or task.section.module.standard_pack_version_id != pack.id
+            or task.section.module.skill != version.skill.value
+        ):
+            raise RubricError("rubric task must match its exact StandardPackVersion and skill")
         validate_rubric(
             criteria=version.criteria,
             performance_levels=version.performance_levels,
@@ -276,6 +298,9 @@ class RubricGovernanceService:
 
 
 class HumanWritingService:
+    SKILL = QuestionBankSkill.WRITING
+    REVIEW_TYPE = "HUMAN_WRITING_ASSESSMENT"
+
     @staticmethod
     def normalize_correction_input(
         rubric: RubricVersion, corrections: dict[str, dict[str, Any]]
@@ -453,9 +478,9 @@ class HumanWritingService:
         ):
             raise RubricError("rubric does not explicitly authorize HUMAN_ONLY assessment")
 
-    @staticmethod
+    @classmethod
     def _version(
-        session: Session, context: TenantContext, version_id: uuid.UUID, permission: str
+        cls, session: Session, context: TenantContext, version_id: uuid.UUID, permission: str
     ) -> SubjectiveAssessmentVersion:
         _permission(context, permission)
         version = session.scalar(
@@ -470,6 +495,9 @@ class HumanWritingService:
             raise PermissionError("candidate cannot assess or review their own response")
         if version.assessment_origin != "HUMAN":
             raise RubricError("assessment is not a human-origin Writing assessment")
+        rubric = session.get(RubricVersion, version.rubric_version_id)
+        if rubric is None or rubric.skill is not cls.SKILL:
+            raise RubricError("assessment skill requires its own governed human workflow")
         if any(
             (
                 version.ai_run_id,
@@ -483,9 +511,9 @@ class HumanWritingService:
             raise RubricError("human assessment contains incompatible AI provenance")
         return version
 
-    @staticmethod
+    @classmethod
     def _pins(
-        session: Session, version: SubjectiveAssessmentVersion
+        cls, session: Session, version: SubjectiveAssessmentVersion
     ) -> tuple[RubricVersion, CandidateResponseRevision]:
         rubric = session.get(RubricVersion, version.rubric_version_id)
         revision = session.get(CandidateResponseRevision, version.candidate_response_revision_id)
@@ -496,7 +524,9 @@ class HumanWritingService:
             raise RubricError("rubric is not available in the assessment organisation")
         if rubric.status not in {RubricVersionStatus.PUBLISHED, RubricVersionStatus.ACTIVE}:
             raise RubricError("human assessment requires a published rubric")
-        HumanWritingService.assert_human_mode(rubric)
+        cls.assert_human_mode(rubric)
+        if rubric.skill is not cls.SKILL:
+            raise RubricError("rubric skill does not match the governed human workflow")
         if (
             rubric.checksum != version.rubric_checksum
             or canonical_checksum(RubricService.checksum_payload(rubric)) != version.rubric_checksum
@@ -644,13 +674,15 @@ class HumanWritingService:
             ],
         }
 
-    @staticmethod
-    def validate_initial_approval(session: Session, version: SubjectiveAssessmentVersion) -> None:
+    @classmethod
+    def validate_initial_approval(
+        cls, session: Session, version: SubjectiveAssessmentVersion
+    ) -> None:
         review = review_for(
             session,
             "SUBJECTIVE_ASSESSMENT_VERSION",
             version.id,
-            review_type="HUMAN_WRITING_ASSESSMENT",
+            review_type=cls.REVIEW_TYPE,
         )
         if (
             review is None
@@ -888,9 +920,7 @@ class HumanWritingService:
         ):
             raise RubricError("human assessment is not an unchanged draft awaiting criterion entry")
         rubric, revision = cls._pins(session, version)
-        entries, values = cls.validate_entries(
-            rubric, str(revision.payload.get("text", "")), criteria
-        )
+        entries, values = cls._entries(session, version, rubric, revision, criteria)
         if version.criterion_assessments:
             raise RubricError("human proposal criteria already exist")
         for entry in entries:
@@ -918,7 +948,7 @@ class HumanWritingService:
         version.status = SubjectiveAssessmentStatus.IN_REVIEW
         session.add(
             HumanReviewRequest(
-                review_type="HUMAN_WRITING_ASSESSMENT",
+                review_type=cls.REVIEW_TYPE,
                 entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
                 entity_id=version.id,
                 status=HumanReviewStatus.PENDING,
@@ -979,7 +1009,7 @@ class HumanWritingService:
             session,
             "SUBJECTIVE_ASSESSMENT_VERSION",
             version.id,
-            review_type="HUMAN_WRITING_ASSESSMENT",
+            review_type=cls.REVIEW_TYPE,
         )
         if (
             review is None
@@ -996,9 +1026,11 @@ class HumanWritingService:
             raise RubricError(
                 "human Writing criteria cannot contain AI confidence or step provenance"
             )
-        entries, values = cls.validate_entries(
+        entries, values = cls._entries(
+            session,
+            version,
             rubric,
-            str(revision.payload.get("text", "")),
+            revision,
             [
                 {
                     "criterion_code": row.criterion_code,
@@ -1044,6 +1076,7 @@ class HumanWritingService:
         )
         review.status, review.decided_by, review.decided_at = decision, context.user_id, now
         review.decision, review.reason = decision.value, reason
+        cls._after_decision(session, version, decision)
         _record(
             session,
             context,
@@ -1071,3 +1104,20 @@ class HumanWritingService:
         cls, session: Session, context: TenantContext, version_id: uuid.UUID, **kwargs: Any
     ) -> SubjectiveAssessmentVersion:
         return cls._decision(session, context, version_id, **kwargs)
+
+    @classmethod
+    def _entries(
+        cls,
+        session: Session,
+        version: SubjectiveAssessmentVersion,
+        rubric: RubricVersion,
+        revision: CandidateResponseRevision,
+        criteria: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Decimal]]:
+        return cls.validate_entries(rubric, str(revision.payload.get("text", "")), criteria)
+
+    @staticmethod
+    def _after_decision(
+        session: Session, version: SubjectiveAssessmentVersion, decision: HumanReviewStatus
+    ) -> None:
+        """Skill-specific successor effects run under the assessment version lock."""

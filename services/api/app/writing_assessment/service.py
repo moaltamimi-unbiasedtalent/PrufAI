@@ -123,7 +123,7 @@ def validate_rubric(
         raise RubricError("rubric requires criteria")
     codes: set[str] = set()
     levels = {str(level.get("code")) for level in performance_levels}
-    if not levels:
+    if not levels or len(levels) != len(performance_levels) or "" in levels or "None" in levels:
         raise RubricError("rubric requires performance levels")
     for criterion in criteria:
         code = str(criterion.get("code", ""))
@@ -276,7 +276,7 @@ class RubricService:
             assessment_family=standard_pack.standard_pack.assessment_family,
             language=standard_pack.standard_pack.language,
             cefr_levels=standard_pack.supported_levels,
-            skill=QuestionBankSkill.WRITING,
+            skill=skill,
             standard_pack_version_id=standard_pack.id,
             task_spec_id=task_spec_id,
             criteria=criteria,
@@ -419,6 +419,7 @@ class SubjectiveAssessmentService:
         media_asset_id: uuid.UUID | None = None,
         transcription_version_id: uuid.UUID | None = None,
         _human_origin: bool = False,
+        _human_successor_of: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         AuthorizationService.require_permission(
             context, "subjective.assess", context.organisation_id
@@ -436,6 +437,8 @@ class SubjectiveAssessmentService:
             raise RubricError("subjective assessment requires a submitted attempt")
         if rubric is None:
             raise RubricError("rubric version not found")
+        if rubric.ai_assessment_policy.get("mode") == "HUMAN_ONLY" and not _human_origin:
+            raise RubricError("HUMAN_ONLY rubric requires the governed human workflow")
         RubricService.assert_executable(rubric)
         if rubric.skill is not skill:
             raise RubricError("rubric skill is incompatible with subjective assessment")
@@ -528,7 +531,10 @@ class SubjectiveAssessmentService:
                 SubjectiveAssessmentStatus.CHANGES_REQUESTED,
                 SubjectiveAssessmentStatus.FAILED,
                 SubjectiveAssessmentStatus.VOIDED,
-            }:
+            } and not (
+                latest.id == _human_successor_of
+                and latest.status is SubjectiveAssessmentStatus.APPROVED
+            ):
                 raise RubricError("human assessment already has a current review or approval")
         version = SubjectiveAssessmentVersion(
             subjective_assessment_id=existing.id,
@@ -849,6 +855,10 @@ class SubjectiveAssessmentService:
             raise RubricError("assessment correction references unavailable data")
         is_human = source.assessment_origin == "HUMAN"
         if is_human:
+            if rubric.skill is not QuestionBankSkill.WRITING:
+                raise RubricError(
+                    "human Speaking reassessment requires its independent successor workflow"
+                )
             from app.writing_assessment.governance import HumanWritingService
 
             HumanWritingService.authorize_correction(

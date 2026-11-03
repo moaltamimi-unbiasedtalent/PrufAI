@@ -219,6 +219,7 @@ def test_audit_projection_is_allowlisted_and_filters_persisted_metadata(control_
         workflow_id=PRIVATE,
         metadata={
             "operation_id": operation,
+            "source_version_id": PRIVATE,
             "candidate_response": PRIVATE,
             "audio_bytes": PRIVATE,
             "storage_key": PRIVATE,

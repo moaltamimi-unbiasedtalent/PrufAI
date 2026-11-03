@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.db import get_db_session
 from app.models import (
     AssessmentRubric,
@@ -95,6 +96,7 @@ def rubric_projection(session: Session, version: RubricVersion) -> dict[str, Any
         "performance_levels": version.performance_levels,
         "aggregation_policy": version.aggregation_policy,
         "evidence_policy": version.evidence_policy,
+        "ai_assessment_policy": version.ai_assessment_policy,
         "human_review_policy": version.human_review_policy,
         "approved_by_user_id": str(version.approved_by_user_id)
         if version.approved_by_user_id
@@ -154,7 +156,12 @@ def list_rubrics(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
-    _context(principal, organisation_id, "rubric.read")
+    context = _context(principal, organisation_id, "rubric.read")
+    speaking_allowed = True
+    try:
+        require_active_tenant_permission(session, context, "rubric.read")
+    except AuthorizationError:
+        speaking_allowed = False
     rubrics = session.scalars(
         select(AssessmentRubric)
         .where(AssessmentRubric.organisation_id == organisation_id)
@@ -166,9 +173,15 @@ def list_rubrics(
             "id": str(rubric.id),
             "code": rubric.code,
             "name": rubric.name,
-            "versions": [rubric_projection(session, version) for version in rubric.versions],
+            "versions": [
+                rubric_projection(session, version)
+                for version in rubric.versions
+                if version.skill is not QuestionBankSkill.SPEAKING or speaking_allowed
+            ],
         }
         for rubric in rubrics
+        if speaking_allowed
+        or any(version.skill is not QuestionBankSkill.SPEAKING for version in rubric.versions)
     ]
 
 
@@ -180,7 +193,7 @@ def get_rubric(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    _context(principal, organisation_id, "rubric.read")
+    context = _context(principal, organisation_id, "rubric.read")
     version = session.get(RubricVersion, version_id)
     if (
         version is None
@@ -188,6 +201,11 @@ def get_rubric(
         or version.rubric.organisation_id != organisation_id
     ):
         raise HTTPException(status_code=404, detail="rubric version not found")
+    if version.skill is QuestionBankSkill.SPEAKING:
+        try:
+            require_active_tenant_permission(session, context, "rubric.read")
+        except AuthorizationError as exc:
+            raise _failure(exc) from exc
     return rubric_projection(session, version)
 
 

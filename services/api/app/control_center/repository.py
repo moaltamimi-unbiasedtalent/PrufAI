@@ -363,6 +363,7 @@ class ControlCenterRepository:
             AuditEvent.request_id,
             AuditEvent.workflow_id,
             AuditEvent.metadata_json["operation_id"].as_string().label("operation_id"),
+            AuditEvent.metadata_json["source_version_id"].as_string().label("source_version_id"),
         )
         if organisation_id is not None:
             query = query.where(AuditEvent.organisation_id == organisation_id)

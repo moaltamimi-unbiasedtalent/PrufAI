@@ -7,6 +7,7 @@ from app.models import Permission, Role, RolePermission
 from app.models.enums import RoleScope
 
 PLATFORM_PERMISSIONS = (
+    "certification.authorize",
     "platform.organisation.read",
     "platform.organisation.manage",
     "platform.site.read",

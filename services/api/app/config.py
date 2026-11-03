@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     knowledge_reranker_api_key: str = ""
     knowledge_reranker_timeout_seconds: int = 20
     environment: Literal["development", "test", "production"] = "development"
+    certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
     auth_jwt_audience: str = "prufai-web"

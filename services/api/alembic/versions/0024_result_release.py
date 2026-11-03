@@ -39,6 +39,7 @@ def upgrade() -> None:
             "result_version_id", "operation_id", name="uq_result_release_operation"
         ),
         sa.UniqueConstraint("result_version_id", name="uq_result_release_version"),
+        sa.UniqueConstraint("supersedes_release_id", name="uq_release_successor"),
     )
     op.create_index(
         "ix_result_releases_candidate", "result_releases", ["candidate_user_id", "organisation_id"]
@@ -63,6 +64,7 @@ def upgrade() -> None:
         sa.Column("operation_id", sa.String(120), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
         sa.UniqueConstraint("release_id", "operation_id", name="uq_statement_release_operation"),
+        sa.UniqueConstraint("release_id", name="uq_statement_release"),
     )
     op.create_table(
         "certification_authorizations",
@@ -70,6 +72,10 @@ def upgrade() -> None:
         sa.Column("organisation_id", sa.Uuid(), _fk("organisations"), nullable=False),
         sa.Column("assessment_scope", sa.String(120), nullable=False),
         sa.Column("provider_scope", sa.String(120), nullable=False),
+        sa.Column(
+            "standard_pack_version_id", sa.Uuid(), _fk("standard_pack_versions"), nullable=False
+        ),
+        sa.Column("operation_id", sa.String(120), nullable=False),
         sa.Column("classification", sa.String(40), nullable=False),
         sa.Column("effective_from", sa.DateTime(timezone=True), nullable=False),
         sa.Column("effective_until", sa.DateTime(timezone=True)),
@@ -78,6 +84,7 @@ def upgrade() -> None:
         sa.Column("approved_by_user_id", sa.Uuid(), _fk("users"), nullable=False),
         sa.Column("checksum", sa.String(64), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
+        sa.UniqueConstraint("organisation_id", "operation_id", name="uq_authorization_operation"),
     )
     op.create_index(
         "ix_certification_authorizations_scope",
@@ -92,6 +99,7 @@ def upgrade() -> None:
         sa.Column(
             "authorization_id", sa.Uuid(), _fk("certification_authorizations"), nullable=False
         ),
+        sa.Column("authorization_version", sa.Integer(), nullable=False),
         sa.Column("organisation_id", sa.Uuid(), _fk("organisations"), nullable=False),
         sa.Column("candidate_user_id", sa.Uuid(), _fk("users"), nullable=False),
         sa.Column("issued_at", sa.DateTime(timezone=True), nullable=False),
@@ -100,6 +108,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(40), nullable=False),
         sa.Column("operation_id", sa.String(120), nullable=False),
         sa.UniqueConstraint("release_id", "operation_id", name="uq_certificate_release_operation"),
+        sa.UniqueConstraint("release_id", name="uq_certificate_release"),
     )
 
 

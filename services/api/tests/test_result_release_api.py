@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+from fastapi import APIRouter, FastAPI, routing
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -47,25 +48,65 @@ def release_api(session):
         app.dependency_overrides.clear()
 
 
+def registered_api_routes(application):
+    # FastAPI >=0.162 keeps includes lazy; its public iterator supplies their
+    # effective prefixes while preserving the underlying APIRoute identity.
+    iter_contexts = getattr(routing, "iter_route_contexts", None)
+    if iter_contexts is not None:
+        routes = [
+            context
+            for context in iter_contexts(application.routes)
+            if isinstance(context.original_route, APIRoute)
+        ]
+    else:
+        routes = [route for route in application.routes if isinstance(route, APIRoute)]
+    assert routes, "no effective API routes were inspected"
+    return routes
+
+
+def assert_unique_method_path_bindings(application):
+    routes = registered_api_routes(application)
+    bindings = [(method, route.path) for route in routes for method in route.methods]
+    duplicates = {binding: count for binding, count in Counter(bindings).items() if count > 1}
+    assert duplicates == {}, f"duplicate HTTP route bindings: {duplicates}"
+    return routes
+
+
 def test_http_routes_have_one_authoritative_method_path_binding():
-    bindings = [
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods
-    ]
-    assert {binding: count for binding, count in Counter(bindings).items() if count > 1} == {}
+    routes = assert_unique_method_path_bindings(app)
     release_routes = [
         route
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        and route.path
+        for route in routes
+        if route.path
         == "/api/v1/organisations/{organisation_id}/result-versions/{version_id}/release"
         and "POST" in route.methods
     ]
     assert len(release_routes) == 1
     assert release_routes[0].endpoint.__module__ == "app.scoring.api"
     assert release_routes[0].endpoint.__name__ == "release_result"
+
+
+def test_route_inspection_detects_duplicate_nested_includes_and_respects_prefixes():
+    leaf = APIRouter()
+
+    @leaf.post("/release")
+    def release_probe():
+        return {"synthetic_route_probe": True}
+
+    parent = APIRouter()
+    parent.include_router(leaf, prefix="/v1")
+    application = FastAPI()
+    application.include_router(parent, prefix="/api")
+    application.include_router(parent, prefix="/another")
+    routes = assert_unique_method_path_bindings(application)
+    assert {(route.path, tuple(sorted(route.methods))) for route in routes} == {
+        ("/api/v1/release", ("POST",)),
+        ("/another/v1/release", ("POST",)),
+    }
+    assert all(route.endpoint is release_probe for route in routes)
+    application.include_router(parent, prefix="/api")
+    with pytest.raises(AssertionError, match="duplicate HTTP route bindings.*api/v1/release"):
+        assert_unique_method_path_bindings(application)
 
 
 def test_release_http_handler_records_and_replays_authoritative_release(release_api):

@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.models import AssessmentResult, ResultVersion, ScoringRun
+from app.result_release.service import ResultReleaseService
 from app.scoring.service import ScoringService
 
 scoring_router = APIRouter(prefix="/api/v1/organisations", tags=["scoring-results"])
 candidate_result_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-results"])
+
+
+class ReleaseRequest(BaseModel):
+    operation_id: str = Field(min_length=1, max_length=120)
+    supersedes_release_id: Optional[uuid.UUID] = None
 
 
 def _context(principal: Principal) -> TenantContext:
@@ -180,6 +187,7 @@ def approve_result(
 def release_result(
     organisation_id: uuid.UUID,
     version_id: uuid.UUID,
+    request: ReleaseRequest,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -187,9 +195,24 @@ def release_result(
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
     try:
-        version = ScoringService.release(session, context, version_id)
+        release = ResultReleaseService.release(
+            session,
+            context,
+            version_id,
+            operation_id=request.operation_id,
+            supersedes_release_id=request.supersedes_release_id,
+        )
+        version = session.get(ResultVersion, release.result_version_id)
+        if version is None:
+            raise ValueError("released result version is unavailable")
         session.commit()
-        return {"id": str(version.id), "status": version.status.value}
+        return {
+            "id": str(release.result_version_id),
+            "release_id": str(release.id),
+            "status": version.status.value,
+            "release_status": release.status.value,
+            "effective_status": ResultReleaseService.effective_status(session, release),
+        }
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _error(exc) from exc

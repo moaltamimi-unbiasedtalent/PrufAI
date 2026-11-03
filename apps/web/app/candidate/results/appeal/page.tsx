@@ -1,11 +1,18 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { authenticatedFetch } from "../../../../lib/api";
 
 export default function CandidateAppealPage() {
   const [message, setMessage] = useState("");
   const [resultVersionId, setResultVersionId] = useState("");
+  useEffect(() => {
+    const selected = new URLSearchParams(window.location.search).get(
+      "resultVersionId",
+    );
+    if (selected && /^[0-9a-f-]{36}$/i.test(selected))
+      setResultVersionId(selected);
+  }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);

@@ -68,6 +68,12 @@ from app.models.result_governance import (
     ResultCorrectionObjectiveBinding,
     ResultModerationCase,
 )
+from app.models.result_release import (
+    CertificateRecord,
+    CertificationAuthorization,
+    ResultRelease,
+    StatementOfResults,
+)
 from app.models.retrieval import (
     KnowledgeChunk,
     KnowledgeChunkEmbedding,
@@ -197,6 +203,10 @@ __all__ = [
     "ResultModerationCase",
     "ResultCorrection",
     "ResultCorrectionObjectiveBinding",
+    "ResultRelease",
+    "StatementOfResults",
+    "CertificationAuthorization",
+    "CertificateRecord",
     "ScoringRun",
     "ScoringResponseSnapshot",
     "ItemScore",

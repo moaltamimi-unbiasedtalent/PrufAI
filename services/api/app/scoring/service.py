@@ -575,7 +575,7 @@ class ScoringService:
             ResultVersionStatus.INCOMPLETE if pending else ResultVersionStatus.REVIEW_REQUIRED
         )
         rv = ResultVersion(
-            result_id=result.id,
+            result=result,
             scoring_run_id=run.id,
             version_number=(previous.version_number + 1 if previous else 1),
             status=rv_status,

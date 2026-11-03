@@ -1,20 +1,34 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { candidateApi } from "../../candidate/api";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  releaseApi,
+  releaseStateMessage,
+  type ResultRelease,
+} from "../../institution/releases/release-api";
 
 export default function CandidateResultsPage() {
-  const [results, setResults] = useState<Array<Record<string, unknown>>>([]);
+  const [results, setResults] = useState<ResultRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    candidateApi
-      .results()
-      .then(setResults)
-      .catch(() => setError("Released results are unavailable right now."))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    releaseApi
+      .candidateList()
+      .then((items) => {
+        if (!cancelled) setResults(items);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Released results are unavailable right now.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -30,18 +44,30 @@ export default function CandidateResultsPage() {
       )}
       <ul aria-label="Released assessment results">
         {results.map((result) => (
-          <li key={String(result.result_version_id)}>
+          <li key={result.id}>
             <article>
               <h2>Assessment result</h2>
-              <p>Status: Released</p>
-              <p>Outcome: {String(result.outcome ?? "Undetermined")}</p>
+              <p>Status: {result.status}</p>
               <p>
-                Score: {String(result.raw_awarded_points ?? "—")} /{" "}
-                {String(result.raw_maximum_points ?? "—")}
+                Effective status: {result.effective_status ?? result.status}
               </p>
-              <Link href="/candidate/results/appeal">
-                Appeal a released result
-              </Link>
+              <p>
+                {releaseStateMessage(result.effective_status ?? result.status)}
+              </p>
+              <p>Classification: {result.classification}</p>
+              <p>Released: {new Date(result.released_at).toLocaleString()}</p>
+              <p>
+                <Link href={`/candidate/results/releases/${result.id}`}>
+                  View result and Statement of Results
+                </Link>
+              </p>
+              {(result.effective_status ?? result.status) === "RELEASED" && (
+                <Link
+                  href={`/candidate/results/appeal?resultVersionId=${encodeURIComponent(result.result_version_id)}`}
+                >
+                  Appeal this released result
+                </Link>
+              )}
             </article>
           </li>
         ))}

@@ -69,6 +69,14 @@ export type AudioMediaAsset = {
   byte_size: number;
 };
 
+export type CandidateRelease = {
+  id: string;
+  result_version_id: string;
+  classification: string;
+  released_at: string;
+  status: string;
+};
+
 export class CandidateApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -195,6 +203,7 @@ export const candidateApi = {
       method: "POST",
     }),
   results: () => request<Array<Record<string, unknown>>>("/results"),
+  releases: () => request<CandidateRelease[]>("/releases"),
   result: (resultId: string) =>
     request<Record<string, unknown>>(`/results/${resultId}`),
 };

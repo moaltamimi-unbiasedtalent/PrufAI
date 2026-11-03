@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { styles, useAuth } from "../../lib/auth";
+import { workspaceLanding } from "../../lib/access";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +11,7 @@ export default function LoginPage() {
     signIn,
     signOut,
     user,
+    membership,
     loading,
     demoMode,
     error: sessionError,
@@ -23,9 +25,9 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await signIn(email, password);
+      const landing = await signIn(email, password);
       setPassword("");
-      router.replace("/");
+      router.replace(landing);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed.");
     } finally {
@@ -44,7 +46,10 @@ export default function LoginPage() {
         {user && (
           <p>
             Signed in as {user.email}.{" "}
-            <button type="button" onClick={() => router.replace("/")}>
+            <button
+              type="button"
+              onClick={() => router.replace(workspaceLanding(user, membership))}
+            >
               Open workspace
             </button>{" "}
             <button

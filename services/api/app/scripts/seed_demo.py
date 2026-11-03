@@ -38,6 +38,7 @@ from app.models import (
     MembershipRole,
     Organisation,
     OrganisationMembership,
+    PlatformRoleAssignment,
     QuestionBankItem,
     QuestionBankItemCefrLevel,
     QuestionBankItemVersion,
@@ -61,12 +62,14 @@ from app.models.enums import (
     PackMediaRequirement,
     PackNavigationMode,
     PackResponseMode,
+    PlatformAssignmentStatus,
     QuestionBankLifecycleStatus,
     QuestionBankOriginType,
     QuestionBankRightsStatus,
     QuestionBankScoringPolicy,
     QuestionBankSkill,
     QuestionBankTaskType,
+    RoleScope,
     StandardPackStatus,
     UserStatus,
 )
@@ -77,6 +80,8 @@ from app.services.identity import normalize_email
 
 ORG_SLUG = "prufai-demo-academy-v2"
 PASSWORD = "Demo-PrufAI-2026!"  # Explicit local demo invocation only; never API bootstrap.
+PLATFORM_ADMIN_EMAIL = "platform.admin@demo.prufai.local"
+PLATFORM_ADMIN_NAME = "Demo Platform Administrator"
 ACCOUNTS = {
     "candidate@demo.prufai.local": ("Demo Candidate", "EXAMINER"),
     "reviewer@demo.prufai.local": ("Demo Reviewer", "EXAM_MANAGER"),
@@ -103,6 +108,60 @@ def _ensure(session: Session, model: type[Model], key: str, **values: Any) -> Mo
 def require_demo_environment(settings: Settings, *, enabled: bool) -> None:
     if settings.environment != "development" or not enabled:
         raise RuntimeError("Demo seed requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1.")
+
+
+def _platform_user(session: Session, settings: Settings, password: str) -> User:
+    """Reconcile an owned demo identity without claiming a developer account.
+
+    Platform permissions come from the existing platform role. No tenant
+    membership is created, removed or silently used to impersonate an institution.
+    """
+    identifier = demo_id("platform-admin")
+    email = normalize_email(PLATFORM_ADMIN_EMAIL)
+    by_email = session.scalar(select(User).where(User.normalized_email == email))
+    user = session.get(User, identifier)
+    if by_email is not None and by_email.id != identifier:
+        raise RuntimeError("Platform demo email belongs to another identity; no privilege granted.")
+    if user is not None and user.normalized_email != email:
+        raise RuntimeError("Platform demo identity collision; no privilege granted.")
+    if user is not None and session.scalar(
+        select(OrganisationMembership.id).where(OrganisationMembership.user_id == user.id).limit(1)
+    ):
+        raise RuntimeError("Platform demo identity has a tenant membership; no membership changed.")
+    if user is None:
+        user = User(
+            id=identifier,
+            email=PLATFORM_ADMIN_EMAIL,
+            normalized_email=email,
+            display_name=PLATFORM_ADMIN_NAME,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(user)
+        session.flush()
+    user.status = UserStatus.ACTIVE
+    if user.display_name is None:
+        user.display_name = PLATFORM_ADMIN_NAME
+    credential = user.password_credential
+    if credential is None or not verify_password(credential.password_hash, password):
+        AuthenticationService(settings).set_password(session, user, password)
+    role = session.scalar(
+        select(Role).where(Role.key == "PRUFAI_SUPER_ADMIN", Role.scope == RoleScope.PLATFORM)
+    )
+    if role is None:
+        raise RuntimeError("Required platform role is missing: PRUFAI_SUPER_ADMIN")
+    assignment = session.scalar(
+        select(PlatformRoleAssignment).where(
+            PlatformRoleAssignment.user_id == user.id, PlatformRoleAssignment.role_id == role.id
+        )
+    )
+    if assignment is None:
+        assignment = PlatformRoleAssignment(
+            id=demo_id("platform-admin-role"), user_id=user.id, role_id=role.id
+        )
+        session.add(assignment)
+    assignment.status = PlatformAssignmentStatus.ACTIVE
+    session.flush()
+    return user
 
 
 def _users(
@@ -424,6 +483,7 @@ def reconcile_demo(
 ) -> dict[str, str]:
     require_demo_environment(settings, enabled=enabled)
     seed_defaults(session)
+    platform_administrator = _platform_user(session, settings, password)
     organisation = _ensure(
         session,
         Organisation,
@@ -448,6 +508,7 @@ def reconcile_demo(
         "exam_version_id": str(version.id),
         "candidate_assignment_id": str(assignment.id),
         "historical_result_version_id": str(historical.id),
+        "platform_admin_user_id": str(platform_administrator.id),
     }
 
 
@@ -462,7 +523,7 @@ def seed() -> dict[str, str]:
             enabled=enabled,
             password=os.getenv("PRUFAI_DEMO_PASSWORD", PASSWORD),
         )
-    print(f"Reconciled synthetic objective demo: {ORG_SLUG}")
+    print(f"Reconciled synthetic objective and platform governance demo: {ORG_SLUG}")
     print("Use the documented local-only accounts. No audio/writing evidence is seeded.")
     return identifiers
 

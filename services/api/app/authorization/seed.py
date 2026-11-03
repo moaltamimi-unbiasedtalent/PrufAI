@@ -8,6 +8,9 @@ from app.models.enums import RoleScope
 
 PLATFORM_PERMISSIONS = (
     "certification.authorize",
+    "certification.read",
+    "platform.control_center.read",
+    "platform.system.read",
     "platform.organisation.read",
     "platform.organisation.manage",
     "platform.site.read",
@@ -116,6 +119,7 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
     "PRUFAI_STANDARDS_ADMIN": (
         RoleScope.PLATFORM,
         (
+            "platform.control_center.read",
             "platform.organisation.read",
             "platform.audit.read",
             "standards.authority.read",
@@ -164,7 +168,15 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
             "rubric.read",
         ),
     ),
-    "PRUFAI_AI_ADMIN": (RoleScope.PLATFORM, ("platform.organisation.read", "platform.audit.read")),
+    "PRUFAI_AI_ADMIN": (
+        RoleScope.PLATFORM,
+        (
+            "platform.control_center.read",
+            "platform.system.read",
+            "platform.organisation.read",
+            "platform.audit.read",
+        ),
+    ),
     "INSTITUTION_ADMIN": (RoleScope.TENANT, TENANT_PERMISSIONS),
     "EXAM_MANAGER": (
         RoleScope.TENANT,

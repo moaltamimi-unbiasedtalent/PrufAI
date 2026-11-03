@@ -8,6 +8,7 @@ from app.ai_orchestration.api import router as ai_orchestration_router
 from app.auth.api import org_router
 from app.auth.api import router as auth_router
 from app.config import Settings
+from app.control_center.api import router as control_center_router
 from app.dependencies import settings_dependency
 from app.exams.api import router as exam_router
 from app.knowledge.api import router as knowledge_router
@@ -80,6 +81,7 @@ app.include_router(candidate_appeal_router)
 app.include_router(result_governance_router)
 app.include_router(result_release_router)
 app.include_router(candidate_release_router)
+app.include_router(control_center_router)
 
 
 @app.get("/health")

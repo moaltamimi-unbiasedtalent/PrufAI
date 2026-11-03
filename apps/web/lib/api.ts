@@ -88,7 +88,11 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
     if (init.body && !headers.has("Content-Type"))
       headers.set("Content-Type", "application/json");
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    if (path.startsWith("/api/v1/auth/"))
+    if (
+      path.startsWith("/api/v1/auth/") ||
+      path === "/api/v1/platform/control-center" ||
+      path.startsWith("/api/v1/platform/control-center/")
+    )
       headers.delete("X-PrufAI-Organisation-ID");
     else if (organisationId)
       headers.set("X-PrufAI-Organisation-ID", organisationId);

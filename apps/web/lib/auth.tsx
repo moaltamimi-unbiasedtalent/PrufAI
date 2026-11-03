@@ -16,6 +16,8 @@ import {
 } from "../app/candidate/outbox";
 import {
   canViewRoute,
+  initialMembership,
+  workspaceLanding,
   type DemoUser,
   type Membership,
   workspaceLinks,
@@ -41,7 +43,7 @@ type AuthContextValue = {
   permissions: string[];
   demoMode: boolean;
   error: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<string>;
   signOut: () => Promise<void>;
   selectOrganisation: (id: string) => Promise<void>;
 };
@@ -53,7 +55,7 @@ const AuthContext = createContext<AuthContextValue>({
   permissions: [],
   demoMode: false,
   error: null,
-  signIn: async () => undefined,
+  signIn: async () => "/",
   signOut: async () => undefined,
   selectOrganisation: async () => undefined,
 });
@@ -81,15 +83,7 @@ export function AuthProvider({
   }, []);
   const adopt = useCallback(
     (profile: DemoUser) => {
-      const active = profile.memberships.filter(
-        (item) => item.status === "ACTIVE",
-      );
-      const chosen =
-        (demoMode &&
-          active.find(
-            (item) => item.organisation_slug === "prufai-demo-academy-v2",
-          )) ||
-        active[0];
+      const chosen = initialMembership(profile, demoMode);
       const id = chosen?.organisation_id ?? null;
       setOrganisationContext(id);
       lockActiveCandidateAccount(
@@ -233,8 +227,10 @@ export function AuthProvider({
       forget();
       throw new Error("Your authenticated profile could not be loaded.");
     }
-    adopt((await me.json()) as DemoUser);
+    const profile = (await me.json()) as DemoUser;
+    adopt(profile);
     announce();
+    return workspaceLanding(profile, initialMembership(profile, demoMode));
   }
   async function selectOrganisation(id: string) {
     if (
@@ -285,6 +281,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     signOut,
     selectOrganisation,
   } = useAuth();
+  const platformPath =
+    pathname === "/control-center" || pathname.startsWith("/control-center/");
+  useEffect(() => {
+    if (platformPath && !loading && !user) router.replace("/login");
+  }, [loading, platformPath, router, user]);
   if (["/login", "/docs", "/status"].includes(pathname)) return <>{children}</>;
   if (loading)
     return (
@@ -306,6 +307,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </section>
       </main>
     );
+  if (platformPath) return <>{children}</>;
   return (
     <div style={styles.app}>
       <header style={styles.header}>
@@ -347,7 +349,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
       <nav aria-label="Primary navigation" style={styles.nav}>
         {workspaceLinks
-          .filter(([, href]) => canViewRoute(href, membership))
+          .filter(([, href]) =>
+            canViewRoute(href, membership, user.platform_permissions),
+          )
           .map(([label, href]) => (
             <Link
               key={href}
@@ -370,7 +374,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </p>
       )}
       <div style={styles.content} key={`${user.id}:${organisationId}`}>
-        {canViewRoute(pathname, membership) ? (
+        {canViewRoute(pathname, membership, user.platform_permissions) ? (
           children
         ) : (
           <section role="alert">

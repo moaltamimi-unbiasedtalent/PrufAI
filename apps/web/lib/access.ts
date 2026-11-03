@@ -22,9 +22,15 @@ export function candidateMembership(membership: Membership | undefined) {
   );
 }
 
-export function canViewRoute(path: string, membership: Membership | undefined) {
+export function canViewRoute(
+  path: string,
+  membership: Membership | undefined,
+  platformPermissions: string[] = [],
+) {
   const permissions =
     membership?.status === "ACTIVE" ? membership.permissions : [];
+  if (path === "/control-center" || path.startsWith("/control-center/"))
+    return platformPermissions.includes("platform.control_center.read");
   if (path.startsWith("/candidate")) return candidateMembership(membership);
   if (path.startsWith("/institution/overview"))
     return permissions.includes("exam_assignment.read");
@@ -42,6 +48,36 @@ export function canViewRoute(path: string, membership: Membership | undefined) {
   if (path.startsWith("/exam-studio")) return permissions.includes("exam.read");
   if (path.startsWith("/institution")) return false;
   return true;
+}
+
+export function initialMembership(user: DemoUser, demoMode = false) {
+  const active = user.memberships.filter((item) => item.status === "ACTIVE");
+  return (
+    (demoMode &&
+      active.find(
+        (item) => item.organisation_slug === "prufai-demo-academy-v2",
+      )) ||
+    active[0]
+  );
+}
+
+export function workspaceLanding(
+  user: DemoUser,
+  selected: Membership | undefined = initialMembership(user),
+): string {
+  if (user.platform_permissions.includes("platform.control_center.read"))
+    return "/control-center";
+  if (candidateMembership(selected)) return "/candidate";
+  if (
+    selected?.status === "ACTIVE" &&
+    selected.permissions.includes("exam_assignment.read")
+  )
+    return "/institution/overview";
+  const first = workspaceLinks.find(
+    ([, href]) => href !== "/" && canViewRoute(href, selected),
+  );
+  if (first) return first[1];
+  return "/";
 }
 
 export const workspaceLinks = [

@@ -4,7 +4,8 @@ This explicit development mode demonstrates one original German reading question
 a candidate assignment, a real save/resume/submit flow, and institution inspection
 of persisted assignments and a human-reviewed synthetic practice result.
 No official provider material, invented audio objects, transcripts or AI judgments
-are included. Full Control Centre is deferred to a separate product milestone.
+are included. The Control Centre MVP provides a separate, read-only platform
+governance workspace using actual stored metadata and platform permissions.
 
 ## Start the services
 
@@ -36,6 +37,12 @@ are included. Full Control Centre is deferred to a separate product milestone.
    It repairs missing demo users, credentials, roles, hierarchy and assignments,
    without resetting submitted attempts or deleting unrelated data. The v2
    organisation leaves any legacy invalid v1 fixture intact and separate.
+   The platform operator is a separate deterministic demo identity with the
+   existing `PRUFAI_SUPER_ADMIN` platform role and no organisation membership.
+   If its email is already owned by a different identity, or the demo platform
+   user has been linked to a tenant, the seed stops instead of taking over that
+   identity or deleting memberships. Use a dedicated demo database to avoid
+   collisions with unrelated developer accounts.
 
 5. In separate terminals, start API and frontend:
 
@@ -68,7 +75,7 @@ account's offline queue. No tokens or response payloads are put in URL parameter
 
 ## Demo access
 
-All four accounts use the same local-only password: `Demo-PrufAI-2026!`.
+All five accounts use the same local-only password: `Demo-PrufAI-2026!`.
 
 | Account | Role | Walkthrough |
 | --- | --- | --- |
@@ -76,6 +83,7 @@ All four accounts use the same local-only password: `Demo-PrufAI-2026!`.
 | `reviewer@demo.prufai.local` | Existing EXAM_MANAGER role | institution candidate/exam/result inspection |
 | `admin@demo.prufai.local` | Existing INSTITUTION_ADMIN role | institution inspection and authorized governance queues |
 | `history@demo.prufai.local` | Candidate | existing genuine submitted objective attempt and practice result |
+| `platform.admin@demo.prufai.local` | Existing PRUFAI_SUPER_ADMIN platform role | read-only Control Centre; no tenant membership or candidate impersonation |
 
 These credentials are synthetic and must never be reused outside local development.
 Operators can set `PRUFAI_DEMO_PASSWORD` when seeding. Passwords are not printed by
@@ -96,13 +104,33 @@ password, use the operator-provided value instead.
 4. Sign out, then sign in as Institution Admin. Inspect the same records and
    authorized queues. Candidate cannot open the institution route or its API.
    Reviewers/admins do not get candidate navigation merely from institution roles.
-5. Writing/Speaking queues are empty for the valid synthetic objective dataset.
+5. Sign out, then sign in as Platform Admin. The normal authenticated session
+   opens `/control-center`. Inspect **Overview**, **Organisations**, **Standards**,
+   **Source Registry**, **Question Bank**, **Exam Governance**, **Audit**,
+   **AI Operations**, **System Health**, and **Certification Oversight**. These
+   views show metadata from the real database. Empty source/AI/certification
+   tables have explicit empty states; the seed does not fabricate operational
+   history, AI execution, provider entitlements or certificate records.
+   Question Bank and Exam Governance initially show platform-shared metadata.
+   Open the demo academy in **Organisations** and follow its authorized Question
+   Bank or Exam metadata link to inspect the seeded private practice material.
+   The explicit organisation filter selects metadata; it does not switch to a
+   candidate or institution identity.
+6. Sign out and return as Institution Admin or Candidate. Opening
+   `/control-center` must show access denied. The server independently rejects
+   their calls to `/api/v1/platform/control-center/*`; choosing an organisation
+   or sending a platform-looking header cannot grant platform permissions.
+7. Writing/Speaking queues are empty for the valid synthetic objective dataset.
    Exam Studio is labelled a preview; its authoring UI is not advertised as
-   connected. No nonexistent Control Centre link is exposed.
+   connected.
 
 The shell provides loading/error/retry and explicit access-restricted states.
 The `/status` endpoint is a basic liveness surface, not database readiness proof.
-Phase 8 Step 2 release/certification is not part of this PR.
+Phase 8 Step 2 release/certification is present in the merged baseline, but this
+seed creates only its existing human-reviewed practice result. Control Centre
+certification oversight is read-only, and official certification remains denied.
+The platform role never creates a provider authorization merely from an exam
+name, Standard Pack alignment or CEFR level.
 
 ## Acceptance evidence
 
@@ -118,3 +146,9 @@ response and is unavailable in production.
 with required PostgreSQL after Alembic and verifies persisted first/second save,
 reload, submit and idempotent reseeding. Real browser verification complements
 these tests; mocked fetch tests alone are not product acceptance.
+`test_control_centre_postgresql_integration.py` exercises normal password/JWT
+authentication against Alembic-migrated PostgreSQL, verifies the platform-only
+demo identity, and checks server-side Control Centre permission and safe metadata
+boundaries. Platform audit views expose event/actor/entity references and safe
+correlation fields, never the raw audit metadata, candidate answers, prompts,
+passwords, tokens or reviewer-private notes.

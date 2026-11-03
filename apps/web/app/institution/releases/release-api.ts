@@ -12,6 +12,7 @@ export type ResultRelease = {
   assessment_result_id?: string;
   checksum?: string;
   supersedes_release_id?: string | null;
+  released_by_user_id?: string;
 };
 
 export type ReleaseArtifact = {
@@ -32,6 +33,15 @@ export type ReleaseDetail = ResultRelease & {
   result_checksum?: string;
   statements?: ReleaseArtifact[];
   certificates?: ReleaseArtifact[];
+  result?: ReleasedScore;
+};
+
+export type ReleasedScore = {
+  result_version_id: string;
+  raw_awarded_points: string | null;
+  raw_maximum_points: string | null;
+  outcome: string | null;
+  result_checksum: string;
 };
 
 export type ReleaseQueueItem = {
@@ -165,6 +175,14 @@ export const releaseApi = {
       `/api/v1/candidate/releases/${releaseId}/statement`,
     ),
 };
+
+export function exactReleasedScore(
+  release: ReleaseDetail,
+): ReleasedScore | null {
+  return release.result?.result_version_id === release.result_version_id
+    ? release.result
+    : null;
+}
 
 export function releaseStateMessage(status: string): string {
   if (status === "RELEASED")

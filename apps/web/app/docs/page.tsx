@@ -31,7 +31,13 @@ export default function DemoDocsPage() {
         <h2>Demo accounts</h2>
         <ul>
           <li>
-            <code>candidate@demo.prufai.local</code> — candidate runtime
+            <code>golden.candidate@demo.prufai.local</code> — fresh B1 practice
+            journey; institution staff assign the Golden B1 exam before this
+            candidate starts
+          </li>
+          <li>
+            <code>candidate@demo.prufai.local</code> — legacy candidate runtime,
+            separate from the fresh golden journey
           </li>
           <li>
             <code>reviewer@demo.prufai.local</code> — institution inspection

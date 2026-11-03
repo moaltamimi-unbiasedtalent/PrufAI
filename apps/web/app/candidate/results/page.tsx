@@ -12,9 +12,13 @@ export default function CandidateResultsPage() {
   const [results, setResults] = useState<ResultRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setResults([]);
     releaseApi
       .candidateList()
       .then((items) => {
@@ -29,7 +33,7 @@ export default function CandidateResultsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reload]);
 
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
@@ -37,8 +41,18 @@ export default function CandidateResultsPage() {
         Candidate
       </p>
       <h1>Released results</h1>
+      <p>
+        <Link href="/candidate/results/appeals">My appeal history →</Link>
+      </p>
       {loading && <p role="status">Loading released results…</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          <p>{error}</p>
+          <button onClick={() => setReload((value) => value + 1)}>
+            Retry released results
+          </button>
+        </div>
+      )}
       {!loading && !error && results.length === 0 && (
         <p>No released result is available.</p>
       )}

@@ -62,6 +62,8 @@ export default function ReleaseDetailPage({
     if (
       !organisationId ||
       !release ||
+      busy ||
+      Boolean(release.statements?.length) ||
       !releaseActions(release.effective_status ?? release.status, permissions)
         .issueStatement
     )
@@ -114,7 +116,7 @@ export default function ReleaseDetailPage({
   }
 
   return (
-    <section>
+    <section style={{ overflowWrap: "anywhere" }}>
       <p>
         <Link href="/institution/releases">← Release queue and history</Link>
       </p>
@@ -169,14 +171,15 @@ export default function ReleaseDetailPage({
             artifacts={release.statements ?? []}
             releaseStatus={release.effective_status ?? release.status}
           />
-          {releaseActions(
-            release.effective_status ?? release.status,
-            permissions,
-          ).issueStatement && (
-            <button disabled={busy} onClick={() => void issueStatement()}>
-              Issue Statement of Results
-            </button>
-          )}
+          {!release.statements?.length &&
+            releaseActions(
+              release.effective_status ?? release.status,
+              permissions,
+            ).issueStatement && (
+              <button disabled={busy} onClick={() => void issueStatement()}>
+                Issue Statement of Results
+              </button>
+            )}
           <h2>Certificate records</h2>
           {!release.certificates?.length && (
             <p>

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   releaseApi,
   releaseStateMessage,
+  exactReleasedScore,
   type ReleaseArtifact,
   type ReleaseDetail,
 } from "../../../../institution/releases/release-api";
@@ -58,8 +59,9 @@ export default function CandidateReleasedResultPage({
     };
   }, [params, reload]);
   const effective = release?.effective_status ?? release?.status;
+  const score = release ? exactReleasedScore(release) : null;
   return (
-    <section>
+    <section style={{ overflowWrap: "anywhere" }}>
       <p>
         <Link href="/candidate/results">← My released results</Link>
       </p>
@@ -83,6 +85,27 @@ export default function CandidateReleasedResultPage({
           </p>
           <p>{releaseStateMessage(effective ?? "")}</p>
           <p>Classification: {release.classification}</p>
+          {release.classification === "PRACTICE" && (
+            <p>
+              This is a practice result and Statement of Results, not an
+              official provider certificate.
+            </p>
+          )}
+          {score && (
+            <section aria-label="Released score">
+              <h2>Released score</h2>
+              <p>
+                Raw score: {score.raw_awarded_points ?? "Pending"} /{" "}
+                {score.raw_maximum_points ?? "Unavailable"}
+              </p>
+              <p>Outcome: {score.outcome ?? "Not determined"}</p>
+            </section>
+          )}
+          {!score && (
+            <p>
+              The score summary is unavailable for this exact release version.
+            </p>
+          )}
           <p>Released: {new Date(release.released_at).toLocaleString()}</p>
           <p>
             Result version: <code>{release.result_version_id}</code>
@@ -93,6 +116,14 @@ export default function CandidateReleasedResultPage({
             <article>
               <p>Statement: {statement.id}</p>
               <p>Recorded status: {statement.status ?? "Recorded"}</p>
+              <p>Statement checksum: {statement.checksum ?? "Unavailable"}</p>
+              <p>
+                Statement issuer reference:{" "}
+                {String(
+                  statement.payload?.issued_by_user_id ??
+                    "Not recorded in this historical statement",
+                )}
+              </p>
               <p>Effective status: {statement.effective_status ?? effective}</p>
               {effective !== "RELEASED" && (
                 <p>This is historical evidence and is not currently valid.</p>
@@ -123,6 +154,9 @@ export default function CandidateReleasedResultPage({
             </p>
           )}
           <p>Your institution manages result release and statement issuance.</p>
+          <p>
+            <Link href="/candidate/results/appeals">My appeal history →</Link>
+          </p>
         </>
       )}
     </section>

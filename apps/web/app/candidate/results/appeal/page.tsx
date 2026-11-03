@@ -1,71 +1,178 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { authenticatedFetch } from "../../../../lib/api";
+import Link from "next/link";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  releaseApi,
+  type ResultRelease,
+} from "../../../institution/releases/release-api";
+import { appealApi } from "../../../institution/appeals/appeal-api";
+import css from "../../../institution/assessment.module.css";
 
 export default function CandidateAppealPage() {
-  const [message, setMessage] = useState("");
+  const [releases, setReleases] = useState<ResultRelease[] | null>(null);
   const [resultVersionId, setResultVersionId] = useState("");
+  const [category, setCategory] = useState("");
+  const [grounds, setGrounds] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
+  const operations = useRef<Record<string, string>>({});
   useEffect(() => {
-    const selected = new URLSearchParams(window.location.search).get(
-      "resultVersionId",
-    );
-    if (selected && /^[0-9a-f-]{36}$/i.test(selected))
-      setResultVersionId(selected);
-  }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) {
+    let cancelled = false;
+    setReleases(null);
+    setError(null);
+    void releaseApi
+      .candidateList()
+      .then((items) => {
+        if (cancelled) return;
+        const eligible = items.filter(
+          (item) => (item.effective_status ?? item.status) === "RELEASED",
+        );
+        setReleases(eligible);
+        const selected = new URLSearchParams(window.location.search).get(
+          "resultVersionId",
+        );
+        setResultVersionId((current) =>
+          selected &&
+          eligible.some((item) => item.result_version_id === selected)
+            ? selected
+            : eligible.some((item) => item.result_version_id === current)
+              ? current
+              : "",
+        );
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled)
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Released results could not be loaded.",
+          );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reload]);
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const response = await authenticatedFetch(
-      `/api/v1/candidate/results/${resultVersionId}/appeals`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: form.get("category"),
-          grounds: form.get("grounds"),
-          operation_id: crypto.randomUUID(),
-        }),
-      },
-    );
-    setMessage(
-      response.ok
-        ? "Appeal submitted. Its status is now visible in your appeal history."
-        : "This result is not eligible for appeal.",
-    );
+    if (
+      !resultVersionId ||
+      !category.trim() ||
+      !grounds.trim() ||
+      busy ||
+      submitted
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    const key = `${resultVersionId}:${category.trim()}:${grounds.trim()}`;
+    const operation = (operations.current[key] ??= crypto.randomUUID());
+    try {
+      const appeal = await appealApi.submit(
+        resultVersionId,
+        category.trim(),
+        grounds.trim(),
+        operation,
+      );
+      setSubmitted(appeal.id);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The appeal could not be confirmed. Retry with the same details.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "3rem 1.5rem" }}>
-      <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
-        Candidate
+    <section>
+      <p>
+        <Link href="/candidate/results">← My released results</Link>
       </p>
       <h1>Appeal a released result</h1>
       <p>
-        Appeals are linked to the exact released result version. Submitted text
-        cannot be edited destructively.
+        The appeal pins the exact released result version and checksum. A human
+        reviews the request; submitting an appeal does not change your score.
       </p>
-      <form onSubmit={(event) => void submit(event)}>
-        <label htmlFor="result-version">Result version ID</label>
-        <input
-          id="result-version"
-          value={resultVersionId}
-          onChange={(event) => setResultVersionId(event.target.value)}
-          required
-        />
-        <label htmlFor="category">Category</label>
-        <input id="category" name="category" maxLength={80} required />
-        <label htmlFor="grounds">Grounds</label>
-        <textarea
-          id="grounds"
-          name="grounds"
-          maxLength={10000}
-          required
-          rows={8}
-        />
-        <button type="submit">Submit appeal</button>
-      </form>
-      {message && <p role="status">{message}</p>}
-    </main>
+      {error && (
+        <div className={css.error} role="alert">
+          <p>{error}</p>
+          <button onClick={() => setReload((value) => value + 1)}>
+            Reload released results
+          </button>
+        </div>
+      )}
+      {!releases && !error && (
+        <p role="status">Loading your eligible released results…</p>
+      )}
+      {releases && !releases.length && (
+        <p>No current released result is available to appeal.</p>
+      )}
+      {releases && releases.length > 0 && (
+        <form
+          className={`${css.card} ${css.form}`}
+          onSubmit={(event) => void submit(event)}
+        >
+          <label>
+            Released result version
+            <select
+              required
+              value={resultVersionId}
+              disabled={busy || Boolean(submitted)}
+              onChange={(event) => setResultVersionId(event.target.value)}
+            >
+              <option value="">Select your released result</option>
+              {releases.map((release) => (
+                <option key={release.id} value={release.result_version_id}>
+                  {release.classification} · {release.result_version_id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Category
+            <input
+              required
+              maxLength={80}
+              value={category}
+              disabled={busy || Boolean(submitted)}
+              onChange={(event) => setCategory(event.target.value)}
+            />
+          </label>
+          <label>
+            Grounds
+            <textarea
+              required
+              maxLength={10000}
+              rows={6}
+              value={grounds}
+              disabled={busy || Boolean(submitted)}
+              onChange={(event) => setGrounds(event.target.value)}
+            />
+          </label>
+          <button disabled={busy || Boolean(submitted) || !resultVersionId}>
+            {submitted
+              ? "Appeal submitted"
+              : busy
+                ? "Submitting appeal…"
+                : "Submit appeal"}
+          </button>
+        </form>
+      )}
+      {submitted && (
+        <p className={css.notice} role="status">
+          Appeal submitted.{" "}
+          <Link href={`/candidate/results/appeals/${submitted}`}>
+            Inspect your appeal and decision →
+          </Link>
+        </p>
+      )}
+      <p>
+        <Link href="/candidate/results/appeals">My appeal history →</Link>
+      </p>
+    </section>
   );
 }

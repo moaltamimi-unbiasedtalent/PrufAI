@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.models.enums import CandidateMediaStatus
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
+from app.scoring.service import ScoringService
 from app.speaking_audio.service import AudioValidationError, SpeakingAudioService
 
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-runtime"])
@@ -321,6 +322,21 @@ def stream_reviewer_audio_asset(
     )
 
 
+@organisation_router.get("/{organisation_id}/exam-assignment-options")
+def assignment_options(
+    organisation_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    context = _context(principal)
+    if context.organisation_id != organisation_id:
+        raise HTTPException(status_code=403, detail="organisation scope mismatch")
+    try:
+        return CandidateRuntimeService.assignment_options(session, context)
+    except Exception as exc:  # noqa: BLE001
+        raise _runtime_error(exc) from exc
+
+
 @organisation_router.post(
     "/{organisation_id}/exam-assignments", status_code=status.HTTP_201_CREATED
 )
@@ -400,6 +416,8 @@ def list_organisation_assignments(
                     "id": str(result.id),
                     "version_id": str(version.id),
                     "version_number": version.version_number,
+                    "scoring_run_id": str(version.scoring_run_id),
+                    "review": ScoringService.review_projection(session, version),
                     "status": version.status.value,
                     "outcome": version.outcome.value if version.outcome else None,
                     "raw_awarded_points": str(version.raw_awarded_points)

@@ -24,7 +24,7 @@ from app.authorization import AuthorizationError, TenantContext, build_tenant_co
 from app.config import Settings, get_settings
 from app.db import get_db_session
 from app.models import AuthSession, MembershipRole, OrganisationMembership, Role, User
-from app.models.enums import AuthSessionStatus
+from app.models.enums import AuthSessionStatus, MembershipStatus, RoleScope
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 org_router = APIRouter(prefix="/api/v1/organisations", tags=["organisation-authentication"])
@@ -241,6 +241,24 @@ def refresh(
     }
 
 
+@router.get("/csrf")
+def csrf_bootstrap(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(auth_settings_dependency),
+) -> dict[str, str]:
+    """Read the existing CSRF cookie through its narrow same-origin auth path."""
+    response.headers["Cache-Control"] = "no-store"
+    token = request.cookies.get(settings.auth_csrf_cookie_name)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="refresh authentication required",
+            headers={"Cache-Control": "no-store"},
+        )
+    return {"csrf_token": token}
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
     request: Request,
@@ -268,27 +286,50 @@ def me(
             )
         )
     )
+    membership_payloads: list[dict[str, object]] = []
+    for membership in memberships:
+        permissions: list[str] = []
+        role_keys: list[str] = []
+        if membership.status is MembershipStatus.ACTIVE:
+            context = build_tenant_context(session, principal.user.id, membership.organisation_id)
+            permissions = sorted(context.permissions)
+            role_keys = list(
+                session.scalars(
+                    select(Role.key)
+                    .join(MembershipRole, MembershipRole.role_id == Role.id)
+                    .where(
+                        MembershipRole.membership_id == membership.id,
+                        Role.scope == RoleScope.TENANT,
+                    )
+                    .order_by(Role.key)
+                )
+            )
+        membership_payloads.append(
+            {
+                "organisation_id": str(membership.organisation_id),
+                "organisation_name": membership.organisation.name,
+                "organisation_slug": membership.organisation.slug,
+                "status": membership.status.value,
+                "role_keys": role_keys,
+                "permissions": permissions,
+            }
+        )
+    # Platform capabilities are independent of any selected tenant. A platform
+    # identity is never given a fabricated organisation membership by this view.
+    try:
+        platform_permissions = sorted(
+            build_tenant_context(session, principal.user.id).platform_permissions
+        )
+    except AuthorizationError:
+        platform_permissions = []
     return {
         "id": str(principal.user.id),
         "email": principal.user.email,
         "display_name": principal.user.display_name,
         "status": principal.user.status.value,
-        "memberships": [
-            {
-                "organisation_id": str(item.organisation_id),
-                "organisation_name": item.organisation.name,
-                "status": item.status.value,
-                "role_keys": [role.key for role in session.scalars(
-                    select(Role).join(MembershipRole, MembershipRole.role_id == Role.id).where(
-                        MembershipRole.membership_id == item.id
-                    )
-                )],
-            }
-            for item in memberships
-        ],
-        "platform_scope": bool(
-            principal.tenant_context and principal.tenant_context.platform_scope
-        ),
+        "memberships": membership_payloads,
+        "platform_scope": bool(platform_permissions),
+        "platform_permissions": platform_permissions,
     }
 
 

@@ -417,6 +417,7 @@ class CandidateRuntimeService:
         attempt.session = CandidateExamSession(
             attempt=attempt, last_seen_at=now, created_at=now, updated_at=now
         )
+        session.add(attempt.session)
         session.flush()
         CandidateRuntimeService._audit(
             session,

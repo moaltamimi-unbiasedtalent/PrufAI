@@ -130,7 +130,7 @@ def _runtime_error(exc: Exception) -> HTTPException:
 def _parse_audio_range(range_header: str | None, size: int) -> tuple[int, int, bool]:
     if size <= 0:
         raise HTTPException(status_code=416, detail="audio asset is empty")
-    if not range_header:
+    if range_header is None:
         return 0, size - 1, False
     if not range_header.startswith("bytes=") or "," in range_header:
         raise HTTPException(status_code=416, detail="invalid byte range")
@@ -138,6 +138,10 @@ def _parse_audio_range(range_header: str | None, size: int) -> tuple[int, int, b
     if "-" not in value:
         raise HTTPException(status_code=416, detail="invalid byte range")
     start_text, end_text = value.split("-", 1)
+    if any(
+        part and (not part.isascii() or not part.isdecimal()) for part in (start_text, end_text)
+    ):
+        raise HTTPException(status_code=416, detail="invalid byte range")
     try:
         if not start_text:
             suffix_length = int(end_text)

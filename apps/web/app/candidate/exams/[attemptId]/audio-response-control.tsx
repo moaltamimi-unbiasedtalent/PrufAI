@@ -21,6 +21,7 @@ import {
   selectRecordingMime,
   type AudioAttachmentAck,
 } from "../../audio-contract";
+import { hasUnresolvedAudio, recordingRemainingMs } from "../../audio-timing";
 
 type Phase =
   | "IDLE"
@@ -97,8 +98,8 @@ export function AudioResponseControl({
       "UNFINISHED",
       "CONFLICT",
     ].includes(phase) ||
-    (phase === "FAILED" &&
-      Boolean(retained.current || asset || session?.status === "RECORDING"));
+    hasUnresolvedAudio(session) ||
+    (phase === "FAILED" && Boolean(retained.current || asset));
   const busy = ["PREPARING", "UPLOADING", "ATTACHING"].includes(phase);
 
   useEffect(() => {
@@ -126,11 +127,17 @@ export function AudioResponseControl({
         value.asset.media_asset_id,
         value.asset.saved_response_revision,
       );
-    } else if (value.asset && value.status === "READY")
+    } else if (value.asset && value.status === "READY") {
       setPhase("UPLOADED_NOT_ATTACHED");
-    else if (["RECORDING", "UPLOADING", "STAGED"].includes(value.status))
+      setMessage(
+        "Audio uploaded. Attach it to this response to finish saving.",
+      );
+    } else if (["RECORDING", "UPLOADING", "STAGED"].includes(value.status)) {
       setPhase("UNFINISHED");
-    else {
+      setMessage(
+        "An unfinished recording remains. Recover or cancel it before continuing.",
+      );
+    } else {
       setPhase("IDLE");
       if (["CANCELLED", "REJECTED", "EXPIRED"].includes(value.status)) {
         retained.current = null;
@@ -198,10 +205,21 @@ export function AudioResponseControl({
       if (contextRef.current !== expectedContext) return;
       setMessage(audioAttachmentMessage(ack, value.media_asset_id));
       if (ack.status === "ATTACHED") {
-        setAsset({
+        const attachedAsset: AudioMediaAsset = {
           ...value,
           attachment_status: "ATTACHED",
           saved_response_revision: ack.revision,
+        };
+        setAsset(attachedAsset);
+        setSession((current) => {
+          if (!current) return current;
+          const attached = {
+            ...current,
+            status: "READY",
+            asset: attachedAsset,
+          };
+          sessionRef.current = attached;
+          return attached;
         });
         setPhase("ATTACHED");
         confirmed.current(value.media_asset_id, ack.revision);
@@ -291,18 +309,30 @@ export function AudioResponseControl({
       return;
     }
     const update = () => {
-      const seconds = Math.max(
-        0,
-        Math.ceil(
-          (Date.parse(session.recording_expires_at) - Date.now()) / 1000,
-        ),
-      );
+      const milliseconds = recordingRemainingMs(session, performance.now());
+      if (milliseconds === null) {
+        setRemaining(null);
+        setMessage(
+          "Recording time could not be verified. Capture was stopped; refresh recording evidence before retrying.",
+        );
+        stopRecording();
+        return;
+      }
+      const seconds = Math.ceil(milliseconds / 1000);
       setRemaining(seconds);
       if (seconds === 0) stopRecording();
     };
     update();
     const timer = window.setInterval(update, 250);
-    return () => window.clearInterval(timer);
+    // Resume checks use elapsed monotonic time rather than counting ticks, so
+    // throttled/background events cannot grant another recording allowance.
+    window.addEventListener("pageshow", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pageshow", update);
+      document.removeEventListener("visibilitychange", update);
+    };
   }, [phase, session]);
 
   async function preflight() {
@@ -372,6 +402,11 @@ export function AudioResponseControl({
       }
       sessionRef.current = value;
       setSession(value);
+      const allowance = recordingRemainingMs(value, performance.now());
+      if (allowance === null || allowance <= 0)
+        throw new Error(
+          "No verified recording time remains. Refresh recording evidence and cancel the unfinished recording before retrying.",
+        );
       chunks.current = [];
       let capturedBytes = 0;
       capture.ondataavailable = (event) => {
@@ -420,6 +455,7 @@ export function AudioResponseControl({
   async function recover() {
     if (!session || !context || busy) return;
     setPhase("PREPARING");
+    setMessage(null);
     const expectedContext = context;
     try {
       const value = await candidateApi.recoverAudioRecording(
@@ -444,13 +480,14 @@ export function AudioResponseControl({
     const previousPhase = phase;
     setPhase("PREPARING");
     try {
-      await candidateApi.cancelAudioRecording(session.recording_session_id);
+      const cancelled = await candidateApi.cancelAudioRecording(
+        session.recording_session_id,
+      );
       if (contextRef.current !== expectedContext) return;
       retained.current = null;
       chunks.current = [];
       startOperation.current = null;
-      setAsset(null);
-      setPhase("IDLE");
+      adopt(cancelled);
       setMessage(
         "The unfinished recording was cancelled. Existing stored evidence is retained according to policy.",
       );

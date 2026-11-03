@@ -1,13 +1,22 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { candidateApi, type AudioRecordingPolicy } from "./app/candidate/api";
+import {
+  candidateApi,
+  type AudioRecordingPolicy,
+  type AudioRecordingSession,
+} from "./app/candidate/api";
 import {
   audioAttachmentMessage,
   recordingFilename,
   recordingPolicy,
   selectRecordingMime,
 } from "./app/candidate/audio-contract";
+import {
+  anchorRecordingClock,
+  hasUnresolvedAudio,
+  recordingRemainingMs,
+} from "./app/candidate/audio-timing";
 import { AudioResponseControl } from "./app/candidate/exams/[attemptId]/audio-response-control";
 import {
   speakingReviewApi,
@@ -41,6 +50,138 @@ const json = (value: unknown, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+function recordingSession(
+  change: Partial<AudioRecordingSession> = {},
+): AudioRecordingSession {
+  return {
+    recording_session_id: "recording-a",
+    status: "RECORDING",
+    recording_started_at: "2026-11-03T12:00:00Z",
+    recording_expires_at: "2026-11-03T12:00:30Z",
+    server_now: "2026-11-03T12:00:00Z",
+    recording_remaining_ms: 30_000,
+    upload_remaining_ms: 150_000,
+    upload_expires_at: "2026-11-03T12:02:30Z",
+    attempt_number: 1,
+    policy,
+    recoverable: false,
+    last_error_category: null,
+    asset: null,
+    ...change,
+  };
+}
+
+describe("server-authoritative monotonic recording timing and recovery", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    setSessionToken(null);
+  });
+
+  it.each([-60_000, 0, 60_000])(
+    "ignores local wall-clock skew of %s ms without granting more than the server allowance",
+    (offset) => {
+      vi.spyOn(Date, "now").mockReturnValue(
+        Date.parse("2026-11-03T12:00:00Z") + offset,
+      );
+      const timed = anchorRecordingClock(recordingSession(), 1000, 1200);
+      expect(recordingRemainingMs(timed, 1200)).toBe(29_800);
+      expect(recordingRemainingMs(timed, 6200)).toBe(24_800);
+      expect(recordingRemainingMs(timed, 31_000)).toBe(0);
+    },
+  );
+
+  it("uses all elapsed monotonic time after a delayed event or background-tab resume", () => {
+    const timed = anchorRecordingClock(recordingSession(), 1000, 1100);
+    expect(recordingRemainingMs(timed, 1100)).toBe(29_900);
+    // A timer callback that arrives 40 seconds late receives no fresh allowance.
+    expect(recordingRemainingMs(timed, 41_100)).toBe(0);
+  });
+
+  it("fails closed when server timing is unknown, exceeds policy, or the monotonic clock is inconsistent", () => {
+    for (const change of [
+      { server_now: "invalid" },
+      { recording_remaining_ms: 30_001 },
+      { recording_remaining_ms: -1 },
+      { recording_remaining_ms: NaN },
+    ]) {
+      const timed = anchorRecordingClock(recordingSession(change), 1000, 1100);
+      expect(recordingRemainingMs(timed, 1100)).toBeNull();
+    }
+    const timed = anchorRecordingClock(recordingSession(), 1000, 1100);
+    expect(recordingRemainingMs(timed, 1099)).toBeNull();
+    expect(recordingRemainingMs(recordingSession(), 1100)).toBeNull();
+  });
+
+  it("honors an already expired server recording and a fresh allowance after metadata reload", () => {
+    const expired = anchorRecordingClock(
+      recordingSession({ recording_remaining_ms: 0 }),
+      1000,
+      1100,
+    );
+    expect(recordingRemainingMs(expired, 1100)).toBe(0);
+    const restored = anchorRecordingClock(
+      recordingSession({ recording_remaining_ms: 5000 }),
+      50_000,
+      50_300,
+    );
+    expect(recordingRemainingMs(restored, 50_300)).toBe(4700);
+    expect(recordingRemainingMs(restored, 55_000)).toBe(0);
+  });
+
+  it("keeps a reloaded staged upload unresolved through failure until attachment or server cancellation", () => {
+    const staged = recordingSession({
+      status: "UPLOADING",
+      recoverable: true,
+      recording_remaining_ms: 0,
+      last_error_category: "UPLOAD_RECOVERY_REQUIRED",
+    });
+    expect(hasUnresolvedAudio(staged)).toBe(true);
+    // A 503 does not change the persisted receipt or require a retained Blob.
+    expect(hasUnresolvedAudio({ ...staged })).toBe(true);
+    const asset = {
+      media_asset_id: "asset-a",
+      status: "READY",
+      sha256: "digest",
+      byte_size: 100,
+      duration_ms: 1000,
+      content_type: "audio/webm;codecs=opus",
+      validation_provenance: {},
+      saved_response_revision: null,
+      candidate_response_revision_id: null,
+      attachment_status: "UPLOADED_NOT_ATTACHED" as const,
+    };
+    expect(hasUnresolvedAudio({ ...staged, status: "READY", asset })).toBe(
+      true,
+    );
+    expect(
+      hasUnresolvedAudio({
+        ...staged,
+        status: "READY",
+        asset: {
+          ...asset,
+          attachment_status: "ATTACHED",
+          saved_response_revision: 1,
+        },
+      }),
+    ).toBe(false);
+    expect(hasUnresolvedAudio({ ...staged, status: "CANCELLED" })).toBe(false);
+    expect(hasUnresolvedAudio({ ...staged, status: "EXPIRED" })).toBe(false);
+  });
+
+  it("anchors actual API session metadata at receipt and conservatively deducts the full request round trip", async () => {
+    setSessionToken("private-bearer");
+    setOrganisationContext("org-a");
+    vi.spyOn(performance, "now")
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1800);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(recordingSession())));
+    const session = await candidateApi.startAudioRecording("a", "b", "op");
+    expect(recordingRemainingMs(session, 1800)).toBe(29_200);
+    expect(recordingRemainingMs(session, 31_000)).toBe(0);
+  });
+});
 
 describe("published audio recording contract", () => {
   beforeEach(() => {

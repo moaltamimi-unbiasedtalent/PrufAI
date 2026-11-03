@@ -1,3 +1,5 @@
+import { anchorRecordingClock, type RecordingClock } from "./audio-timing";
+
 export type CandidateAssignment = {
   id: string;
   status: "ASSIGNED" | "AVAILABLE" | "COMPLETED" | "CANCELLED" | "EXPIRED";
@@ -59,6 +61,10 @@ export type AudioRecordingSession = {
   status: string;
   recording_started_at: string;
   recording_expires_at: string;
+  server_now: string;
+  recording_remaining_ms: number;
+  upload_remaining_ms: number;
+  recording_clock?: RecordingClock | null;
   attempt_number: number;
   policy: AudioRecordingPolicy;
   upload_expires_at: string;
@@ -133,6 +139,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function recordingRequest(
+  path: string,
+  init?: RequestInit,
+): Promise<AudioRecordingSession> {
+  const started = performance.now();
+  const value = await request<AudioRecordingSession>(path, init);
+  return anchorRecordingClock(value, started, performance.now());
+}
+
 async function uploadAudio(
   path: string,
   content: Blob,
@@ -182,7 +197,7 @@ export const candidateApi = {
     operationId: string,
     signal?: AbortSignal,
   ) =>
-    request<AudioRecordingSession>(
+    recordingRequest(
       `/attempts/${attemptId}/items/${bindingId}/audio-recordings`,
       {
         method: "POST",
@@ -202,18 +217,31 @@ export const candidateApi = {
       filename,
       signal,
     ),
-  audioEvidence: (attemptId: string, bindingId: string, signal?: AbortSignal) =>
-    request<AudioEvidence>(
+  audioEvidence: async (
+    attemptId: string,
+    bindingId: string,
+    signal?: AbortSignal,
+  ) => {
+    const started = performance.now();
+    const evidence = await request<AudioEvidence>(
       `/attempts/${attemptId}/items/${bindingId}/audio-evidence`,
       { signal },
-    ),
+    );
+    const receivedAt = performance.now();
+    return {
+      ...evidence,
+      recordings: (evidence.recordings ?? []).map((recording) =>
+        anchorRecordingClock(recording, started, receivedAt),
+      ),
+    };
+  },
   recoverAudioRecording: (sessionId: string, signal?: AbortSignal) =>
-    request<AudioRecordingSession>(`/audio-recordings/${sessionId}/recover`, {
+    recordingRequest(`/audio-recordings/${sessionId}/recover`, {
       method: "POST",
       signal,
     }),
   cancelAudioRecording: (sessionId: string, signal?: AbortSignal) =>
-    request<AudioRecordingSession>(`/audio-recordings/${sessionId}/cancel`, {
+    recordingRequest(`/audio-recordings/${sessionId}/cancel`, {
       method: "POST",
       signal,
     }),

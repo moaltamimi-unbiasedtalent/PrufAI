@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -42,15 +43,17 @@ class ValidatedAudio:
     validation_provenance: dict[str, Any]
 
 
-class _FrameCounter:
-    """Fold decoder metadata incrementally; retain neither frames nor PCM."""
+class _FrameSummary:
+    """Fold bounded metadata lines without retaining frames or decoded PCM."""
 
-    def __init__(self) -> None:
+    def __init__(self, maximum_seconds: int) -> None:
         self.pending = bytearray()
-        self.numerator = 0
-        self.denominator = 0
-        self.samples = 0
+        self.maximum = Fraction(maximum_seconds)
         self.frames = 0
+        self.decoded = Fraction(0)
+        self.first_pts: Fraction | None = None
+        self.last_pts: Fraction | None = None
+        self.last_end: Fraction | None = None
 
     def add(self, chunk: bytes) -> None:
         self.pending.extend(chunk)
@@ -59,40 +62,117 @@ class _FrameCounter:
             self.pending = bytearray(remainder)
             if len(line) > 4096:
                 raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
-            timebase = re.fullmatch(rb"#tb 0: (\d+)/(\d+)", line)
-            if timebase:
-                self.numerator, self.denominator = map(int, timebase.groups())
-            elif line and not line.startswith(b"#"):
-                fields = line.split(b",")
-                try:
-                    if len(fields) != 6 or int(fields[0]) != 0 or int(fields[3]) <= 0:
-                        raise ValueError("invalid frame")
-                    self.samples += int(fields[3])
-                    self.frames += 1
-                except ValueError as exc:
-                    raise AudioMediaError("AUDIO.DECODED_DURATION_UNAVAILABLE") from exc
-                if self.frames > 2_000_000:
-                    raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
+            self.line(bytes(line))
         if len(self.pending) > 4096:
             raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
 
+    def line(self, line: bytes) -> None:
+        raise NotImplementedError
+
+    def frame(self, pts: Fraction, duration: Fraction, resolution: Fraction) -> None:
+        if duration <= 0 or pts < -resolution:
+            raise AudioMediaError("AUDIO.INVALID_PRESENTATION_TIMELINE")
+        if self.last_pts is not None and (
+            pts <= self.last_pts or (self.last_end is not None and pts < self.last_end - resolution)
+        ):
+            raise AudioMediaError("AUDIO.NON_MONOTONIC_PRESENTATION_TIMELINE")
+        if self.first_pts is None:
+            self.first_pts = pts
+        self.last_pts, self.last_end = pts, pts + duration
+        self.decoded += duration
+        self.frames += 1
+        if self.frames > 2_000_000:
+            raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
+        if self.decoded > self.maximum:
+            raise AudioMediaError("AUDIO.DURATION_OUTSIDE_POLICY")
+        # Include a positive initial timestamp. Subtracting it would hide an
+        # initial presentation delay; tiny negative codec/clock rounding remains
+        # visible in the span rather than silently being discarded.
+        origin = min(Fraction(0), self.first_pts)
+        if self.last_end - origin > self.maximum + resolution:
+            raise AudioMediaError("AUDIO.PRESENTATION_TIMELINE_OUTSIDE_POLICY")
+
+    @property
+    def span(self) -> Fraction:
+        if self.first_pts is None or self.last_end is None:
+            raise AudioMediaError("AUDIO.DECODED_DURATION_UNAVAILABLE")
+        return self.last_end - min(Fraction(0), self.first_pts)
+
     def result(self) -> bytes:
-        if self.pending or not self.frames or not self.numerator or not self.denominator:
+        if self.pending or not self.frames:
             raise AudioMediaError("AUDIO.DECODED_DURATION_UNAVAILABLE")
         return json.dumps(
             {
-                "samples": self.samples,
-                "numerator": self.numerator,
-                "denominator": self.denominator,
+                "decoded_seconds": str(self.decoded),
+                "presentation_seconds": str(self.span),
+                "first_pts_seconds": str(self.first_pts),
+                "last_end_seconds": str(self.last_end),
+                "frames": self.frames,
             }
         ).encode()
+
+
+class _FrameCounter(_FrameSummary):
+    """Independent full FFmpeg decode with original timestamps retained."""
+
+    def __init__(self, maximum_seconds: int) -> None:
+        super().__init__(maximum_seconds)
+        self.timebase: Fraction | None = None
+
+    def line(self, line: bytes) -> None:
+        timebase = re.fullmatch(rb"#tb 0: (\d+)/(\d+)", line)
+        if timebase:
+            numerator, denominator = map(int, timebase.groups())
+            if not 0 < numerator <= denominator <= 1_000_000_000 or self.timebase is not None:
+                raise AudioMediaError("AUDIO.INVALID_STREAM_METADATA")
+            self.timebase = Fraction(numerator, denominator)
+        elif line and not line.startswith(b"#"):
+            fields = line.split(b",")
+            try:
+                if len(fields) != 6 or int(fields[0]) != 0 or self.timebase is None:
+                    raise ValueError("invalid frame")
+                pts = int(fields[2]) * self.timebase
+                duration = int(fields[3]) * self.timebase
+            except ValueError as exc:
+                raise AudioMediaError("AUDIO.DECODED_DURATION_UNAVAILABLE") from exc
+            # PCM sample timestamps are exact here. No rounding tolerance is
+            # added to the authoritative decoded/presentation policy limit.
+            self.frame(pts, duration, Fraction(0))
+
+
+class _ProbeFrames(_FrameSummary):
+    """Inspect every original decoded frame PTS, including container gaps."""
+
+    def __init__(self, maximum_seconds: int, sample_rate: int, resolution: Fraction) -> None:
+        super().__init__(maximum_seconds)
+        self.sample_rate = sample_rate
+        self.resolution = resolution
+
+    def line(self, line: bytes) -> None:
+        if not line:
+            return
+        try:
+            fields = dict(part.split("=", 1) for part in line.decode("ascii").split("|"))
+            if fields["media_type"] != "audio" or fields["stream_index"] != "0":
+                raise ValueError("invalid frame")
+            samples_text = fields["nb_samples"]
+            if not samples_text.isascii() or not samples_text.isdigit():
+                raise ValueError("invalid samples")
+            duration = Fraction(int(samples_text), self.sample_rate)
+            # Explicit original PTS is required; a synthetic best-effort clock
+            # cannot establish that timestamp discontinuities were inspected.
+            pts = Fraction(fields["pts_time"])
+        except (ValueError, KeyError, UnicodeDecodeError, ZeroDivisionError) as exc:
+            raise AudioMediaError("AUDIO.INVALID_PRESENTATION_TIMELINE") from exc
+        self.frame(pts, duration, self.resolution)
 
 
 def _run_bounded(
     command: list[str],
     timeout: int,
     source: Path | None = None,
-    summarize_frames: bool = False,
+    counter: _FrameSummary | None = None,
+    strict_diagnostics: bool = False,
 ) -> bytes:
     """Drain both pipes under one wall clock and output limit, without logging them."""
     input_file = source.open("rb") if source else None
@@ -109,8 +189,8 @@ def _run_bounded(
             input_file.close()
         raise AudioMediaError("AUDIO.MEDIA_VALIDATOR_UNAVAILABLE") from exc
     output = bytearray()
-    counter = _FrameCounter() if summarize_frames else None
     total = 0
+    diagnostic = False
     selector = selectors.DefaultSelector()
     assert process.stdout is not None and process.stderr is not None
     selector.register(process.stdout, selectors.EVENT_READ, True)
@@ -129,6 +209,8 @@ def _run_bounded(
                 if key.data and counter:
                     counter.add(chunk)
                     continue
+                if not key.data:
+                    diagnostic = True
                 total += len(chunk)
                 if total > MAX_INSPECTION_OUTPUT:
                     raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
@@ -139,6 +221,8 @@ def _run_bounded(
             if command[0] == "docker" and process.returncode in {125, 126, 127}:
                 raise AudioMediaError("AUDIO.MEDIA_VALIDATOR_UNAVAILABLE")
             raise AudioMediaError("AUDIO.MEDIA_UNDECODABLE_OR_VALIDATOR_UNAVAILABLE")
+        if strict_diagnostics and diagnostic:
+            raise AudioMediaError("AUDIO.MEDIA_DECODER_DIAGNOSTIC")
         return counter.result() if counter else bytes(output)
     except subprocess.TimeoutExpired as exc:
         raise AudioMediaError("AUDIO.MEDIA_VALIDATION_TIMEOUT") from exc
@@ -153,7 +237,13 @@ def _run_bounded(
             input_file.close()
 
 
-def _inspect_command(settings: Settings, tool: str, arguments: list[str], source: Path) -> bytes:
+def _inspect_command(
+    settings: Settings,
+    tool: str,
+    arguments: list[str],
+    source: Path,
+    counter: _FrameSummary | None = None,
+) -> bytes:
     container_name = "prufai-media-" + uuid.uuid4().hex
     if settings.audio_media_runtime == "docker":
         command = [
@@ -215,7 +305,8 @@ def _inspect_command(settings: Settings, tool: str, arguments: list[str], source
             command,
             settings.audio_probe_timeout_seconds,
             source if settings.audio_media_runtime == "docker" else None,
-            summarize_frames=tool == "ffmpeg",
+            counter=counter,
+            strict_diagnostics=arguments != ["-version"],
         )
     finally:
         if settings.audio_media_runtime == "docker":
@@ -269,11 +360,11 @@ def validate_recorded_media(
                 "ffprobe",
                 [
                     "-v",
-                    "error",
+                    "warning",
                     "-protocol_whitelist",
                     "file,pipe",
                     "-show_entries",
-                    "format=format_name:stream=codec_type,codec_name,sample_rate,channels",
+                    "format=format_name:stream=codec_type,codec_name,sample_rate,channels,time_base",
                     "-of",
                     "json",
                     str(source),
@@ -302,22 +393,48 @@ def validate_recorded_media(
         try:
             sample_rate = int(stream["sample_rate"])
             channels = int(stream["channels"])
-        except (ValueError, TypeError, KeyError) as exc:
+            timestamp_resolution = Fraction(stream["time_base"])
+        except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
             raise AudioMediaError("AUDIO.INVALID_STREAM_METADATA") from exc
         if not 8000 <= sample_rate <= 48000 or channels not in {1, 2}:
             raise AudioMediaError("AUDIO.UNSUPPORTED_STREAM_PARAMETERS")
+        if not Fraction(0) < timestamp_resolution <= Fraction(1, 1000):
+            raise AudioMediaError("AUDIO.UNSUPPORTED_TIMESTAMP_PRECISION")
+        original_frames = _inspect_command(
+            configuration,
+            "ffprobe",
+            [
+                "-v",
+                "warning",
+                "-err_detect",
+                "explode",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-show_frames",
+                "-show_entries",
+                "frame=media_type,stream_index,pts_time,nb_samples",
+                "-of",
+                "compact=p=0:nk=0",
+                str(source),
+            ],
+            source,
+            _ProbeFrames(maximum_seconds, sample_rate, timestamp_resolution),
+        )
         decoded_frames = _inspect_command(
             configuration,
             "ffmpeg",
             [
                 "-v",
-                "error",
+                "warning",
                 "-xerror",
                 "-err_detect",
                 "explode",
                 "-nostdin",
                 "-threads",
                 "1",
+                "-guess_layout_max",
+                "0",
+                "-copyts",
                 "-protocol_whitelist",
                 "file,pipe",
                 "-i",
@@ -327,8 +444,6 @@ def validate_recorded_media(
                 "-vn",
                 "-sn",
                 "-dn",
-                "-t",
-                str(maximum_seconds + 1),
                 "-c:a",
                 "pcm_s16le",
                 "-f",
@@ -336,21 +451,30 @@ def validate_recorded_media(
                 "-",
             ],
             source,
+            _FrameCounter(maximum_seconds),
         )
-        # Packet end timestamps can omit the duration of the final decoded
-        # frame. Sum actual decoded frame sample counts in the PCM time base.
-        # Only frame metadata/CRC leaves the decoder; PCM and speech never do.
+        # Both processes must drain the complete original and exit successfully.
+        # A callback cap, timeout, diagnostic or decoder failure raises instead
+        # of returning any prefix summary. FFprobe retains original frame PTS;
+        # FFmpeg independently decodes every sample with copyts and no -t cutoff.
         try:
             counts = json.loads(decoded_frames)
-            duration_ms = math.ceil(
-                int(counts["samples"])
-                * int(counts["numerator"])
-                * 1000
-                / int(counts["denominator"])
-            )
+            original = json.loads(original_frames)
+            decoded_duration = Fraction(counts["decoded_seconds"])
+            decoded_timeline = Fraction(counts["presentation_seconds"])
+            original_duration = Fraction(original["decoded_seconds"])
+            original_timeline = Fraction(original["presentation_seconds"])
+            duration_ms = math.ceil(decoded_duration * 1000)
         except (ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
             raise AudioMediaError("AUDIO.DECODED_DURATION_UNAVAILABLE") from exc
-        if duration_ms <= 0 or duration_ms > maximum_seconds * 1000:
+        if (
+            decoded_duration <= 0
+            or decoded_duration > maximum_seconds
+            or original_duration != decoded_duration
+            or decoded_timeline > maximum_seconds
+            or abs(original_timeline - decoded_timeline) > timestamp_resolution
+            or original_timeline > maximum_seconds + timestamp_resolution
+        ):
             raise AudioMediaError("AUDIO.DURATION_OUTSIDE_POLICY")
         version = _inspect_command(configuration, "ffprobe", ["-version"], source)
         version_line = version.decode("utf-8", errors="replace").splitlines()[0][:160]
@@ -369,6 +493,15 @@ def validate_recorded_media(
             "channels": channels,
             "duration_source": "decoded_pcm_frame_samples",
             "duration_ms": duration_ms,
+            "complete_input": True,
+            "decoded_frame_count": counts["frames"],
+            "inspected_frame_count": original["frames"],
+            "decoded_presentation_span_ms": math.ceil(decoded_timeline * 1000),
+            "original_presentation_span_ms": math.ceil(original_timeline * 1000),
+            "original_first_pts_seconds": original["first_pts_seconds"],
+            "original_last_end_seconds": original["last_end_seconds"],
+            "timestamp_resolution_seconds": str(timestamp_resolution),
+            "timestamp_rounding_tolerance": "at_most_one_original_timebase_tick",
             "source_sha256": digest,
             "source_byte_size": len(content),
         },

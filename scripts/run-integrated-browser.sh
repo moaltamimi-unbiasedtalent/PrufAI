@@ -24,6 +24,7 @@ export AUTH_RATE_LIMIT_BACKEND=memory
 export OBJECT_STORAGE_BACKEND=s3
 python3 scripts/initialize-audio-storage.py
 export PRUFAI_E2E_ALLOW_DEMO=1
+export PRUFAI_E2E_AUDIO_FAILURES=1
 export NODE_PATH="$PRUFAI_BROWSER_TOOL_DIR/node_modules"
 export PRUFAI_E2E_ARTIFACT_DIR="${PRUFAI_E2E_ARTIFACT_DIR:-$(mktemp -d /tmp/prufai-integrated-browser.XXXXXX)}"
 mkdir -p "$PRUFAI_E2E_ARTIFACT_DIR"
@@ -82,7 +83,9 @@ cleanup() {
   done
 }
 trap cleanup EXIT INT TERM
-python3 -m uvicorn app.main:app --host 127.0.0.1 --port "$INTEGRATED_API_PORT" >"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
+# The test-only launcher permits scoped negative fault injection for recovery
+# acceptance; production still starts app.main directly and has no fault path.
+python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
 INTEGRATED_API_PID=$!
 (
   cd apps/web

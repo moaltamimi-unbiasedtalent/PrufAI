@@ -65,10 +65,14 @@ The media image uses signed Ubuntu packages with exact FFmpeg/FFprobe
 non-root user, read-only except bounded tmpfs, with CPU/memory/PID limits and a
 wall-clock timeout. Original bounded input enters the private container through
 stdin, avoiding host file-sharing assumptions. Only frame metadata/CRCs leave the
-decoder. Decoded PCM sample counts establish positive duration, including the last
-frame. Container, codec, channels, rate, MIME, byte size and governed duration must
-all pass. Stored bytes are unchanged. Validator version and verified duration are
-persisted. Native FFmpeg is an explicit alternative for provisioned operators;
+decoder. Full-input inspection checks decoded PCM duration and the original
+presentation timeline, including timestamp gaps and frame durations. A successful
+decode of a time-limited prefix is not accepted as complete evidence. Exceeding
+sample, frame, timeline, metadata or subprocess resource limits rejects the media;
+partial inspection never produces a verified duration. Container, codec, channels,
+rate, MIME, byte size and governed duration must all pass. Stored bytes are
+unchanged. Validator version and verified duration are persisted. Native FFmpeg is
+an explicit alternative for provisioned operators;
 configure `AUDIO_FFPROBE_EXECUTABLE`/`AUDIO_FFMPEG_EXECUTABLE`, retain the bounded
 process settings, and verify the actual installed tools separately.
 
@@ -98,6 +102,18 @@ interlock without deleting objects; accepted recording attempts are still counte
 An expired/rejected receipt is terminal for further upload, and the server remains
 authoritative even if a browser is disconnected.
 
+After a reload, persisted unresolved upload state keeps navigation and submission
+blocked even if recovery temporarily fails. Retry recovery and attach the
+server-confirmed asset, or use the existing server-confirmed cancellation action;
+a failed request alone does not clear the pending operation.
+
+An unfinished receipt created by the earlier prefix-only validator cannot be
+promoted to new READY evidence. Recovery and upload replay require the persisted
+complete-input validation proof; otherwise the candidate must confirm cancellation
+and make a new recording within the existing attempt policy. The old receipt,
+private object and already committed READY history are preserved rather than
+rewritten or deleted.
+
 The candidate recording metadata endpoint is the non-destructive diagnostic path:
 `GET /api/v1/candidate/attempts/{attempt_id}/items/{binding_id}/audio-evidence`.
 It reports safe stage/error
@@ -117,6 +133,10 @@ attachment interlocks prevent binding one item's session to another. **Audio sav
 to this response** appears only after the exact server attachment acknowledgement.
 Queued or failed saves are not presented as saved audio; disconnected raw capture
 is held only in the current page, not promised as an offline durable upload.
+Recording auto-stop uses the server's remaining allowance, conservatively adjusted
+for request time, and monotonic browser elapsed time. A device's wall-clock offset
+does not increase or immediately consume the recording window. Unknown timing
+fails safely and requires refreshed server evidence.
 
 The server's authenticated stream contract remains 200 full body, 206 explicit,
 open-ended and suffix ranges, and 416 for malformed/multiple/unsatisfiable ranges.
@@ -133,6 +153,16 @@ Chromium automated microphone media, not a physical microphone or recognition.
 `seed_demo` publishes two original AUDIO tasks with policy via real governance
 services, but creates no audio assignment, capture, transcript, assessment or score.
 The administrator assigns the exam through the product during acceptance.
+
+The isolated browser runner additionally uses `scripts/browser_api.py` to test
+real failed-receipt and recovery paths. This launcher requires explicit browser,
+development, demo, local PostgreSQL and local S3 settings, and binds only to
+loopback. A scoped test header can fail one database receipt after actual PUT, or
+one storage-readiness operation during recovery. It cannot fabricate successful
+responses. The product entry point remains `app.main:app` and does not import or
+enable this instrumentation. Browser tests verify reload → failed recovery →
+successful retry → authoritative attachment, cancellation, and controlled client
+clock offsets against the unchanged backend clock.
 
 ## Retention and abandoned stages
 

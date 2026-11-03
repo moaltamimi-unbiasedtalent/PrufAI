@@ -1,3 +1,16 @@
+import { authenticatedFetch } from "../../../lib/api";
+import { AssessmentApiError } from "../assessment-api";
+import type { AudioMediaAsset } from "../../candidate/api";
+
+export type AudioEvidenceAsset = AudioMediaAsset & {
+  attempt_id: string;
+  binding_id: string;
+  item_version_id: string;
+  exam_version_id: string;
+  recording_session_id: string;
+  response_revision_id?: string;
+};
+
 export type SpeakingReviewSummary = {
   assessment_id: string;
   assessment_version_id: string;
@@ -23,20 +36,39 @@ export type SpeakingReview = SpeakingReviewSummary & {
   criteria: Array<Record<string, unknown>>;
 };
 
-async function request<T>(path: string): Promise<T> {
-  const response = await authenticatedFetch(path);
-  if (!response.ok) throw new Error(`REVIEW_HTTP_${response.status}`);
+async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await authenticatedFetch(path, { signal });
+  if (!response.ok) throw new AssessmentApiError(response.status);
   return (await response.json()) as T;
 }
 
 export const speakingReviewApi = {
-  list: (organisationId: string) =>
+  audioList: (organisationId: string, signal?: AbortSignal) =>
+    request<AudioEvidenceAsset[]>(
+      `/api/v1/organisations/${organisationId}/audio-evidence`,
+      signal,
+    ),
+  audioDetail: (
+    organisationId: string,
+    assetId: string,
+    signal?: AbortSignal,
+  ) =>
+    request<AudioEvidenceAsset>(
+      `/api/v1/organisations/${organisationId}/audio-evidence/${assetId}`,
+      signal,
+    ),
+  list: (organisationId: string, signal?: AbortSignal) =>
     request<SpeakingReviewSummary[]>(
       `/api/v1/organisations/${organisationId}/speaking-reviews`,
+      signal,
     ),
-  detail: (organisationId: string, assessmentId: string) =>
+  detail: (
+    organisationId: string,
+    assessmentId: string,
+    signal?: AbortSignal,
+  ) =>
     request<SpeakingReview>(
       `/api/v1/organisations/${organisationId}/speaking-reviews/${assessmentId}`,
+      signal,
     ),
 };
-import { authenticatedFetch } from "../../../lib/api";

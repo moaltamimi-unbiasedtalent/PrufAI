@@ -43,6 +43,26 @@ class OralResponseContent(StrictSchema):
     prompt: str = Field(min_length=1, max_length=8000)
     preparation_seconds: Optional[int] = Field(default=None, ge=0, le=3600)
     interaction_mode: Optional[str] = Field(default=None, max_length=80)
+    audio_policy: Optional[AudioRecordingPolicy] = None
+
+
+class AudioRecordingPolicy(StrictSchema):
+    max_recording_seconds: int = Field(ge=1, le=3600, strict=True)
+    max_recording_attempts: int = Field(ge=1, le=20, strict=True)
+    max_upload_bytes: int = Field(ge=1, le=25 * 1024 * 1024, strict=True)
+    supported_mime_types: List[
+        Literal[
+            "audio/webm;codecs=opus",
+            "audio/ogg;codecs=opus",
+            "audio/mp4;codecs=mp4a.40.2",
+            "audio/wav",
+        ]
+    ] = Field(min_length=1, max_length=4)
+    upload_grace_seconds: int = Field(ge=0, le=300, strict=True)
+    submission_behavior: Literal["REQUIRE_ATTACHED"]
+
+
+OralResponseContent.model_rebuild()
 
 
 ItemContent = Annotated[

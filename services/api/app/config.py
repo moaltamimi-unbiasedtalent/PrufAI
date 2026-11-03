@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     object_storage_secret_key: str = ""
     object_storage_region: str = "us-east-1"
     object_storage_secure: bool = False
+    audio_media_runtime: Literal["native", "docker"] = "native"
+    audio_media_image: str = "prufai-media:ffmpeg-6.1.1"
+    audio_ffprobe_executable: str = "ffprobe"
+    audio_ffmpeg_executable: str = "ffmpeg"
+    audio_probe_timeout_seconds: int = Field(default=15, ge=1, le=60)
+    audio_probe_memory_mb: int = Field(default=512, ge=256, le=1024)
     knowledge_embedding_backend: Literal["deterministic", "openai"] = "deterministic"
     knowledge_embedding_model: str = "text-embedding-3-small"
     knowledge_embedding_dimension: int = 384

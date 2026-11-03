@@ -22,6 +22,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm install
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
@@ -56,6 +57,58 @@ jobs:
       - run: python -m pip install -e services/api[dev]
       - run: npm ci
         working-directory: apps/web
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Provision pinned audio decoder
+        run: bash scripts/setup-media-runtime.sh
+      - name: Install pinned MinIO
+        run: |
+          set -euo pipefail
+          go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
+          MINIO_BIN="$(go env GOPATH)/bin/minio"
+          test -x "$MINIO_BIN"
+          echo "MinIO binary: $MINIO_BIN"
+      - name: Start pinned MinIO
+        env:
+          MINIO_ROOT_USER: prufai_ci
+          MINIO_ROOT_PASSWORD: prufai_ci_secret
+        run: |
+          set -euo pipefail
+          MINIO_BIN="$(go env GOPATH)/bin/minio"
+          MINIO_DATA_DIR="$RUNNER_TEMP/prufai-minio-data"
+          MINIO_LOG="$RUNNER_TEMP/minio.log"
+          MINIO_PID="$RUNNER_TEMP/minio.pid"
+          mkdir -p "$MINIO_DATA_DIR"
+          MINIO_ROOT_USER="$MINIO_ROOT_USER" MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD" \
+            "$MINIO_BIN" server "$MINIO_DATA_DIR" \
+            --address ":9000" --console-address ":9001" >"$MINIO_LOG" 2>&1 &
+          echo $! > "$MINIO_PID"
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "MinIO did not become ready."
+            cat "$MINIO_LOG"
+            exit 1
+          fi
+          if ! kill -0 "$(cat "$MINIO_PID")" 2>/dev/null; then
+            echo "MinIO exited after becoming ready."
+            cat "$MINIO_LOG"
+            exit 1
+          fi
+      - run: >-
+          python -c "import boto3;
+          c=boto3.client('s3', endpoint_url='http://localhost:9000',
+          aws_access_key_id='prufai_ci', aws_secret_access_key='prufai_ci_secret',
+          region_name='us-east-1');
+          c.create_bucket(Bucket='prufai-ci')"
+        working-directory: services/api
       - name: Install isolated browser acceptance tooling
         run: |
           npm install --prefix "$RUNNER_TEMP/prufai-browser-tool" --no-save --ignore-scripts @playwright/test@1.56.1
@@ -65,6 +118,14 @@ jobs:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai_browser
           PRUFAI_BROWSER_TOOL_DIR: ${{ runner.temp }}/prufai-browser-tool
           PRUFAI_E2E_ARTIFACT_DIR: ${{ runner.temp }}/prufai-browser-evidence
+          AUDIO_MEDIA_RUNTIME: docker
+          AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
+          OBJECT_STORAGE_BACKEND: s3
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
         run: bash scripts/run-integrated-browser.sh
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -72,6 +133,12 @@ jobs:
           name: integrated-browser-evidence
           path: ${{ runner.temp }}/prufai-browser-evidence
           retention-days: 7
+      - name: Stop browser MinIO
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/minio.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/minio.pid")" 2>/dev/null || true
+          fi
 
   python:
     runs-on: ubuntu-latest
@@ -108,6 +175,8 @@ jobs:
           go-version: "1.24.x"
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e services/api[dev] -e services/ai[dev]
+      - name: Provision pinned audio decoder
+        run: bash scripts/setup-media-runtime.sh
       - run: python -m ruff check services/api services/ai
       - run: python -m ruff format --check services/api services/ai
       - run: python -m mypy services/api/app
@@ -262,6 +331,24 @@ jobs:
           region_name='us-east-1');
           c.create_bucket(Bucket='prufai-ci')"
         working-directory: services/api
+      - name: Recorded primary audio journey (required PostgreSQL and real MinIO)
+        run: |
+          python -m pytest tests/test_recorded_audio_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/recorded-audio-required.xml"
+          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/recorded-audio-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_recorded_audio_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required recorded-audio tests must execute without skips'"
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          AUDIO_MEDIA_RUNTIME: docker
+          AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
+          OBJECT_STORAGE_BACKEND: s3
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
       - run: python -m pytest tests/test_object_storage_integration.py
         working-directory: services/api
         env:

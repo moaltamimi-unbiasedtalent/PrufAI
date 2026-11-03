@@ -31,6 +31,10 @@ Copy `.env.example` to a local `.env` only when needed. The example values are l
 
 ## Local infrastructure
 
+For candidate recorded-audio evidence, use the supported private MinIO and pinned
+media-runtime workflow in [Recorded audio primary evidence](docs/recorded-audio.md).
+That path preserves objects and avoids reliance on the older Compose MinIO image.
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d
 ```

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import tempfile
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -8,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
@@ -20,19 +23,38 @@ from app.models import (
     CandidateExamAssignment,
     CandidateExamAttempt,
     CandidateMediaAsset,
-    CandidateResponse,
-    CandidateResponseMediaBinding,
     CandidateResponseRevision,
     ExamVersion,
     User,
 )
-from app.models.enums import CandidateMediaStatus
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
 from app.scoring.service import ScoringService
+from app.speaking_audio.api import (
+    asset_projection,
+    audio_error,
+    candidate_audio_router,
+    reviewer_assets,
+    reviewer_audio_router,
+    session_projection,
+)
 from app.speaking_audio.service import AudioValidationError, SpeakingAudioService
 
 candidate_router = APIRouter(prefix="/api/v1/candidate", tags=["candidate-runtime"])
 organisation_router = APIRouter(prefix="/api/v1/organisations", tags=["candidate-assignments"])
+candidate_router.include_router(candidate_audio_router)
+organisation_router.include_router(reviewer_audio_router)
+
+
+class RecordingStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: uuid.UUID
+
+
+def _audio_storage() -> Any:
+    try:
+        return SpeakingAudioService.durable_storage(build_object_storage(get_settings()))
+    except StorageError as exc:
+        raise audio_error(exc) from exc
 
 
 def _context(principal: Principal) -> TenantContext:
@@ -92,6 +114,8 @@ def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
 
 
 def _runtime_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (AudioValidationError, StorageError)):
+        return audio_error(exc)
     if isinstance(exc, RuntimeConflict):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, RuntimeExpired):
@@ -143,14 +167,30 @@ def _audio_response(
     if session is not None and context is not None:
         SpeakingAudioService.record_access(session, context, asset, purpose=purpose)
         session.commit()
-    size = storage.size(asset.storage_key)
-    start, end, partial = _parse_audio_range(request.headers.get("range"), size)
-    body = (
-        storage.read_range(asset.storage_key, start, end)
-        if partial
-        else storage.get(asset.storage_key)
-    )
-    headers = {"Accept-Ranges": "bytes", "Content-Length": str(len(body))}
+    try:
+        size = storage.size(asset.storage_key)
+        if hasattr(asset, "byte_size") and size != asset.byte_size:
+            raise StorageError("audio object size does not match finalized evidence")
+        start, end, partial = _parse_audio_range(request.headers.get("range"), size)
+        body = (
+            storage.read_range(asset.storage_key, start, end)
+            if partial
+            else storage.get(asset.storage_key)
+        )
+        if (
+            not partial
+            and hasattr(asset, "sha256")
+            and SpeakingAudioService.checksum(body) != asset.sha256
+        ):
+            raise StorageError("audio object checksum does not match finalized evidence")
+    except StorageError as exc:
+        raise audio_error(exc) from exc
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(len(body)),
+        "Cache-Control": "private, no-store",
+        "Vary": "Authorization, X-PrufAI-Organisation-ID",
+    }
     if partial:
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     return Response(
@@ -165,27 +205,24 @@ def _audio_response(
 def start_audio_recording(
     attempt_id: uuid.UUID,
     binding_id: uuid.UUID,
+    payload: RecordingStart,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     try:
         recording = SpeakingAudioService.start_session(
-            session, _context(principal), attempt_id, binding_id
+            session,
+            _context(principal),
+            attempt_id,
+            binding_id,
+            operation_id=payload.operation_id,
+            storage=_audio_storage(),
         )
         session.commit()
-        return {
-            "recording_session_id": str(recording.id),
-            "status": recording.status.value,
-            "recording_started_at": recording.recording_started_at,
-            "recording_expires_at": recording.recording_expires_at,
-            "attempt_number": recording.attempt_number,
-            "policy": recording.policy_snapshot,
-        }
+        return session_projection(session, recording)
     except Exception as exc:  # noqa: BLE001
         session.rollback()
-        if isinstance(exc, AudioValidationError):
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        raise _runtime_error(exc) from exc
+        raise audio_error(exc) from exc
 
 
 @candidate_router.post("/audio-recordings/{recording_id}/finalize")
@@ -204,43 +241,45 @@ async def finalize_audio_recording(
             or recording.organisation_id != context.organisation_id
         ):
             raise PermissionError("recording ownership required")
-        if (
-            recording.recording_expires_at
-            and datetime.now(recording.recording_expires_at.tzinfo) > recording.recording_expires_at
-        ):
-            recording.status = CandidateMediaStatus.EXPIRED
-            SpeakingAudioService._audit(
-                session,
-                context,
-                "candidate_audio.recording_expired",
-                recording,
-                reason="recording deadline expired",
-            )
-            session.commit()
-            raise RuntimeExpired("recording deadline expired")
-        content = await request.body()
-        asset = SpeakingAudioService.finalize(
+        limit = min(int(recording.policy_snapshot.get("max_upload_bytes", 0)), 25 * 1024 * 1024)
+        if limit <= 0:
+            raise AudioValidationError("recording policy is unavailable")
+        storage = await run_in_threadpool(_audio_storage)
+
+        async def bounded_body() -> bytes:
+            total = 0
+            with tempfile.SpooledTemporaryFile(
+                max_size=min(limit, 1024 * 1024), mode="w+b"
+            ) as spool:
+                async for chunk in request.stream():
+                    total += len(chunk)
+                    if total > limit:
+                        raise AudioValidationError("audio exceeds the governed upload size")
+                    spool.write(chunk)
+                spool.seek(0)
+                return spool.read(limit + 1)
+
+        content = await asyncio.wait_for(bounded_body(), timeout=30)
+        asset = await run_in_threadpool(
+            SpeakingAudioService.finalize,
             session,
             recording,
             content=content,
             content_type=request.headers.get("content-type", ""),
             filename=request.headers.get("x-filename"),
-            storage=build_object_storage(get_settings()),
+            storage=storage,
             context=context,
         )
         session.commit()
-        return {
-            "media_asset_id": str(asset.id),
-            "status": asset.status.value,
-            "sha256": asset.sha256,
-            "byte_size": asset.byte_size,
-        }
-    except (AudioValidationError, StorageError) as exc:
-        session.commit()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
+        return asset_projection(session, asset)
+    except asyncio.TimeoutError as exc:
         session.rollback()
-        raise _runtime_error(exc) from exc
+        raise HTTPException(
+            status_code=408, detail="audio upload timed out; retry the same recording"
+        ) from exc
+    except Exception as exc:
+        session.rollback()
+        raise audio_error(exc) from exc
 
 
 @candidate_router.get("/audio-assets/{asset_id}/stream")
@@ -262,7 +301,7 @@ def stream_audio_asset(
     return _audio_response(
         asset=asset,
         request=request,
-        storage=build_object_storage(get_settings()),
+        storage=_audio_storage(),
         session=session,
         context=context,
         purpose="candidate_playback",
@@ -284,38 +323,21 @@ def stream_reviewer_audio_asset(
     context = _context(principal)
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
-    AuthorizationService.require_permission(context, "subjective.read", organisation_id)
-    asset = session.scalar(
-        select(CandidateMediaAsset)
-        .join(
-            CandidateResponseMediaBinding,
-            CandidateResponseMediaBinding.candidate_media_asset_id == CandidateMediaAsset.id,
-        )
-        .join(
-            CandidateResponseRevision,
-            CandidateResponseRevision.id
-            == CandidateResponseMediaBinding.candidate_response_revision_id,
-        )
-        .join(
-            CandidateResponse,
-            CandidateResponse.id == CandidateResponseRevision.candidate_response_id,
-        )
-        .where(
-            CandidateMediaAsset.id == asset_id,
-            CandidateMediaAsset.organisation_id == organisation_id,
-            CandidateMediaAsset.attempt_id == attempt_id,
-            CandidateMediaAsset.exam_version_item_binding_id == binding_id,
-            CandidateMediaAsset.status == CandidateMediaStatus.READY,
-            CandidateResponseRevision.attempt_id == attempt_id,
-            CandidateResponse.exam_version_item_binding_id == binding_id,
-        )
-    )
-    if asset is None or context.user_id == asset.candidate_user_id:
+    try:
+        assets = reviewer_assets(session, context, organisation_id, asset_id)
+    except Exception as exc:
+        raise audio_error(exc) from exc
+    asset = assets[0] if assets else None
+    if (
+        asset is None
+        or asset.attempt_id != attempt_id
+        or asset.exam_version_item_binding_id != binding_id
+    ):
         raise HTTPException(status_code=404, detail="audio asset not found")
     return _audio_response(
         asset=asset,
         request=request,
-        storage=build_object_storage(get_settings()),
+        storage=_audio_storage(),
         session=session,
         context=context,
         purpose="reviewer_playback",
@@ -369,7 +391,6 @@ def list_organisation_assignments(
     context = _context(principal)
     if context.organisation_id != organisation_id:
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
-    from app.authorization import AuthorizationService
 
     try:
         AuthorizationService.require_permission(context, "exam_assignment.read", organisation_id)
@@ -550,11 +571,28 @@ def save_response(
             session, _context(principal), attempt_id, binding_id, **payload.model_dump()
         )
         session.commit()
-        return {
+        revision = session.scalar(
+            select(CandidateResponseRevision).where(
+                CandidateResponseRevision.attempt_id == attempt_id,
+                CandidateResponseRevision.client_operation_id == payload.client_operation_id,
+            )
+        )
+        if revision is None:
+            raise RuntimeError("response acknowledgement is unavailable")
+        result = {
             "response_id": str(response.id),
-            "revision": response.current_revision,
-            "payload": response.current_payload,
+            "revision": revision.revision_number,
+            "payload": revision.payload,
         }
+        if "media_asset_id" in revision.payload:
+            result.update(
+                {
+                    "attachment_status": "ATTACHED",
+                    "media_asset_id": revision.payload["media_asset_id"],
+                    "candidate_response_revision_id": str(revision.id),
+                }
+            )
+        return result
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _runtime_error(exc) from exc

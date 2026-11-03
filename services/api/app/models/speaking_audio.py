@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event
-from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    select,
+)
+from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
 from app.models.enums import CandidateMediaStatus, TranscriptionStatus
@@ -40,6 +50,19 @@ class CandidateAudioRecordingSession(UUIDPrimaryKeyMixin, Base):
     )
     operation_id: Mapped[uuid.UUID] = mapped_column(nullable=False, unique=True)
     policy_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    storage_key: Mapped[Optional[str]] = mapped_column(String(500), unique=True)
+    upload_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    upload_byte_size: Mapped[Optional[int]] = mapped_column(Integer)
+    upload_content_type: Mapped[Optional[str]] = mapped_column(String(120))
+    verified_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    validation_provenance: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    evidence_identity: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    upload_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    upload_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    upload_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_error_category: Mapped[Optional[str]] = mapped_column(String(80))
     asset: Mapped[Optional[CandidateMediaAsset]] = relationship(back_populates="recording_session")
 
 
@@ -62,7 +85,7 @@ class CandidateMediaAsset(UUIDPrimaryKeyMixin, Base):
     )
     content_type: Mapped[str] = mapped_column(String(120), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
-    sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     storage_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     original_filename: Mapped[Optional[str]] = mapped_column(String(255))
@@ -70,6 +93,9 @@ class CandidateMediaAsset(UUIDPrimaryKeyMixin, Base):
         enum_type(CandidateMediaStatus), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    validation_provenance: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
     recording_session: Mapped[CandidateAudioRecordingSession] = relationship(back_populates="asset")
     transcriptions: Mapped[list[SpeechTranscription]] = relationship(
         back_populates="asset", cascade="all, delete-orphan"
@@ -189,3 +215,128 @@ def _prevent_completed_transcription_mutation(
     }
     if any(state.attrs[name].history.has_changes() for name in protected if name in state.attrs):
         raise ValueError("completed transcription versions are immutable")
+
+
+def _check_audio_history(session: Session) -> None:
+    """Also catch nested JSON edits that plain SQLAlchemy JSON does not track."""
+
+    def same(left: Any, right: Any) -> bool:
+        if isinstance(left, datetime) and isinstance(right, datetime):
+            left = (
+                left.astimezone(timezone.utc) if left.tzinfo else left.replace(tzinfo=timezone.utc)
+            )
+            right = (
+                right.astimezone(timezone.utc)
+                if right.tzinfo
+                else right.replace(tzinfo=timezone.utc)
+            )
+        return bool(left == right)
+
+    connection = session.connection()
+    from app.models.enums import PackResponseMode, QuestionBankLifecycleStatus
+    from app.models.question_bank import QuestionBankItemVersion
+
+    for target in list(session.identity_map.values()):
+        if not isinstance(
+            target,
+            (
+                CandidateMediaAsset,
+                CandidateAudioRecordingSession,
+                CandidateResponseMediaBinding,
+                QuestionBankItemVersion,
+            ),
+        ):
+            continue
+        stored = (
+            connection.execute(select(target.__table__).where(target.__table__.c.id == target.id))
+            .mappings()
+            .first()
+        )
+        if stored is None:
+            continue
+        if isinstance(target, QuestionBankItemVersion):
+            if stored["response_mode"] is PackResponseMode.AUDIO and stored["status"] in {
+                QuestionBankLifecycleStatus.PUBLISHED,
+                QuestionBankLifecycleStatus.ACTIVE,
+                QuestionBankLifecycleStatus.RETIRED,
+                QuestionBankLifecycleStatus.SUPERSEDED,
+            }:
+                protected = (
+                    "content",
+                    "checksum",
+                    "response_mode",
+                    "item_id",
+                    "scoring_policy",
+                    "skill",
+                    "language",
+                    "max_points",
+                    "rubric_reference",
+                )
+                if target in session.deleted or any(
+                    not same(getattr(target, name), stored[name]) for name in protected
+                ):
+                    raise ValueError("published AUDIO content and recording policy are immutable")
+            continue
+        allowed: set[str] = set()
+        if isinstance(target, CandidateMediaAsset):
+            frozen = stored["status"] == CandidateMediaStatus.READY
+        elif isinstance(target, CandidateResponseMediaBinding):
+            frozen = True
+        else:
+            frozen = (
+                stored["upload_sha256"] is not None
+                or stored["status"] == CandidateMediaStatus.READY
+            )
+            allowed = {"status", "upload_completed_at", "last_error_category"}
+            if stored["status"] == CandidateMediaStatus.READY and target.status not in {
+                CandidateMediaStatus.READY,
+                CandidateMediaStatus.CANCELLED,
+            }:
+                raise ValueError("READY recording history cannot return to an upload state")
+        if frozen and (
+            target in session.deleted
+            or any(
+                not same(getattr(target, column.name), stored[column.name])
+                for column in target.__table__.columns
+                if column.name not in allowed
+            )
+        ):
+            raise ValueError("finalized audio identity, stage and response binding are immutable")
+
+
+@event.listens_for(Session, "before_flush")
+def _audio_history_before_flush(session: Session, _context: Any, _instances: Any) -> None:
+    from app.models.question_bank import QuestionBankItemVersion
+
+    if any(
+        isinstance(
+            item,
+            (
+                CandidateMediaAsset,
+                CandidateAudioRecordingSession,
+                CandidateResponseMediaBinding,
+                QuestionBankItemVersion,
+            ),
+        )
+        for item in session.identity_map.values()
+    ):
+        _check_audio_history(session)
+
+
+@event.listens_for(Session, "before_commit")
+def _audio_history_before_commit(session: Session) -> None:
+    from app.models.question_bank import QuestionBankItemVersion
+
+    if any(
+        isinstance(
+            item,
+            (
+                CandidateMediaAsset,
+                CandidateAudioRecordingSession,
+                CandidateResponseMediaBinding,
+                QuestionBankItemVersion,
+            ),
+        )
+        for item in session.identity_map.values()
+    ):
+        _check_audio_history(session)

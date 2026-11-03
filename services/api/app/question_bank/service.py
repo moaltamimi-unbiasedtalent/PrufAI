@@ -102,7 +102,7 @@ def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
         "presigned_url",
     ):
         content.pop(protected_key, None)
-    return {
+    projection = {
         "item_version_id": str(version.id),
         "version_label": version.version_label,
         "assessment_family": version.assessment_family.value,
@@ -112,6 +112,17 @@ def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
         "content": content,
         "media_requirement": version.media_requirement.value,
     }
+    if version.response_mode is PackResponseMode.AUDIO:
+        from app.question_bank.schemas import AudioRecordingPolicy
+
+        raw_policy = content.get("audio_policy")
+        projection["audio_policy"] = (
+            AudioRecordingPolicy.model_validate(raw_policy).model_dump()
+            if raw_policy is not None
+            else None
+        )
+        projection["item_version_checksum"] = version.checksum
+    return projection
 
 
 def item_rule_facts(version: QuestionBankItemVersion, cefr_levels: list[str]) -> dict[str, Any]:
@@ -925,6 +936,15 @@ class QuestionBankService:
                 f"invalid item lifecycle transition: {version.status.value} -> {target.value}"
             )
         if target in {QuestionBankLifecycleStatus.APPROVED, QuestionBankLifecycleStatus.PUBLISHED}:
+            if version.response_mode is PackResponseMode.AUDIO:
+                from app.question_bank.schemas import AudioRecordingPolicy
+
+                try:
+                    AudioRecordingPolicy.model_validate(version.content.get("audio_policy"))
+                except ValueError as exc:
+                    raise ValueError(
+                        "recorded AUDIO publication requires a usable governed policy"
+                    ) from exc
             if checksum and checksum != version.checksum:
                 raise ValueError("stale item review checksum")
             if validation is None or validation.status != "PASS":

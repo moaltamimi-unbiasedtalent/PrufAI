@@ -608,6 +608,27 @@ class ScoringService:
         return run
 
     @staticmethod
+    def review_projection(session: Session, version: ResultVersion) -> dict[str, Any] | None:
+        """Read-only review state for an already-authorized result projection."""
+        review = session.scalar(
+            select(HumanReviewRequest)
+            .where(
+                HumanReviewRequest.entity_type == "RESULT_VERSION",
+                HumanReviewRequest.entity_id == version.id,
+                HumanReviewRequest.reviewed_checksum == version.checksum,
+            )
+            .order_by(HumanReviewRequest.requested_at.desc(), HumanReviewRequest.id.desc())
+            .limit(1)
+        )
+        if review is None:
+            return None
+        return {
+            "id": str(review.id),
+            "status": review.status.value,
+            "reviewed_checksum": review.reviewed_checksum,
+        }
+
+    @staticmethod
     def request_review(
         session: Session, context: TenantContext, version_id: uuid.UUID
     ) -> HumanReviewRequest:

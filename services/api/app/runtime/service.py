@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
-from app.authorization import AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.exams.service import exam_checksum
 from app.models import (
     CandidateExamAssignment,
@@ -30,9 +30,12 @@ from app.models.enums import (
     CandidateAssignmentStatus,
     CandidateAttemptStatus,
     ExamVersionStatus,
+    MembershipStatus,
     PackResponseMode,
     QuestionBankLifecycleStatus,
     QuestionBankRightsStatus,
+    RoleScope,
+    UserStatus,
 )
 from app.question_bank.service import delivery_projection
 from app.speaking_audio.service import SpeakingAudioService
@@ -71,6 +74,71 @@ def _payload_checksum(payload: dict[str, Any]) -> str:
 
 
 class CandidateRuntimeService:
+    @staticmethod
+    def assignment_options(session: Session, context: TenantContext) -> dict[str, Any]:
+        """Resolve bounded, tenant-scoped choices for the existing assignment action."""
+        from app.models import MembershipRole, OrganisationMembership, Role, User
+
+        if context.organisation_id is None:
+            raise AuthorizationError("organisation context required")
+        for permission in ("exam_assignment.manage", "exam.read", "membership.read"):
+            AuthorizationService.require_permission(context, permission, context.organisation_id)
+        candidates = session.scalars(
+            select(User)
+            .join(OrganisationMembership, OrganisationMembership.user_id == User.id)
+            .join(MembershipRole, MembershipRole.membership_id == OrganisationMembership.id)
+            .join(Role, Role.id == MembershipRole.role_id)
+            .where(
+                OrganisationMembership.organisation_id == context.organisation_id,
+                OrganisationMembership.status == MembershipStatus.ACTIVE,
+                User.status == UserStatus.ACTIVE,
+                Role.scope == RoleScope.TENANT,
+                Role.key == "EXAMINER",
+            )
+            .order_by(User.display_name, User.id)
+            .limit(100)
+        )
+        from app.models import Exam
+
+        versions = session.scalars(
+            select(ExamVersion)
+            .join(Exam)
+            .where(
+                ExamVersion.status.in_([ExamVersionStatus.PUBLISHED, ExamVersionStatus.ACTIVE]),
+                (Exam.scope_type == "PLATFORM_SHARED")
+                | (
+                    (Exam.scope_type == "ORGANISATION_PRIVATE")
+                    & (Exam.organisation_id == context.organisation_id)
+                ),
+            )
+            .order_by(Exam.name, ExamVersion.created_at.desc(), ExamVersion.id)
+            .limit(100)
+        )
+        eligible = []
+        for version in versions:
+            try:
+                CandidateRuntimeService._safe_plan(session, version)
+            except ValueError:
+                continue
+            eligible.append(
+                {
+                    "id": str(version.id),
+                    "exam_id": str(version.exam_id),
+                    "exam_name": version.exam.name,
+                    "version_label": version.version_label,
+                    "status": version.status.value,
+                    "classification": version.classification.value,
+                    "standard_pack_version_id": str(version.standard_pack_version_id),
+                    "checksum": version.checksum,
+                }
+            )
+        return {
+            "candidates": [
+                {"id": str(user.id), "display_name": user.display_name} for user in candidates
+            ],
+            "exam_versions": eligible,
+        }
+
     @staticmethod
     def _require_candidate(context: TenantContext, candidate_user_id: uuid.UUID) -> None:
         if context.user_id != candidate_user_id:

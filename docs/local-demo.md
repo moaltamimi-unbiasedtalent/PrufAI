@@ -75,7 +75,7 @@ account's offline queue. No tokens or response payloads are put in URL parameter
 
 ## Demo access
 
-All five accounts use the same local-only password: `Demo-PrufAI-2026!`.
+All six accounts use the same local-only password: `Demo-PrufAI-2026!`.
 
 | Account | Role | Walkthrough |
 | --- | --- | --- |
@@ -83,6 +83,7 @@ All five accounts use the same local-only password: `Demo-PrufAI-2026!`.
 | `reviewer@demo.prufai.local` | Existing EXAM_MANAGER role | institution candidate/exam/result inspection |
 | `admin@demo.prufai.local` | Existing INSTITUTION_ADMIN role | institution inspection and authorized governance queues |
 | `history@demo.prufai.local` | Candidate | existing genuine submitted objective attempt and practice result |
+| `golden.candidate@demo.prufai.local` | Candidate | integrated B1 journey; starts without an assignment, attempt or result |
 | `platform.admin@demo.prufai.local` | Existing PRUFAI_SUPER_ADMIN platform role | read-only Control Centre; no tenant membership or candidate impersonation |
 
 These credentials are synthetic and must never be reused outside local development.
@@ -90,6 +91,43 @@ Operators can set `PRUFAI_DEMO_PASSWORD` when seeding. Passwords are not printed
 the seed, persisted in browser token storage, or filled into the login form.
 The default guide describes the default local password; with a custom seed
 password, use the operator-provided value instead.
+
+### Integrated B1 seed fixture
+
+`Golden B1 Practice Candidate` is separate from the legacy `candidate@` runtime
+fixture and the `history@` inspection result. Its exam is **Golden B1 German
+Practice — SYNTHETIC DEMO DATA — NOT OFFICIAL MATERIAL**, version
+`golden-b1-v1`. It uses the existing LANGUAGE/de/B1/PRACTICE models, one active
+original SELECT_ONE reading item, and the deterministic one-point answer key.
+The visible Tuesday course question offers `Um 9 Uhr.` (one point) and
+`Um 10 Uhr.` (zero points). No pass/fail threshold or official qualification is
+implied; the current scorer reports raw points and an undetermined outcome when
+no outcome rule is configured.
+
+The seed creates the candidate roster entry and deliverable exam, but **does not
+assign, start, submit, score, approve or release the golden candidate's journey**.
+An authenticated Institution Admin must select that candidate and exam in the
+product workflow. Subsequent scoring and human approval/release use the actual
+services. Reseeding preserves any existing assignment, saved revisions, submitted
+attempt and result history; it cannot reset a completed golden journey. Use a
+fresh isolated demo database for a new end-to-end walkthrough.
+
+The new Standard Pack pins a small original internal practice-policy document
+version. Its full original content is stored in the development seed and durably
+in document notes with its exact SHA-256 checksum. The explicitly invoked seed
+records this prerequisite as **seeded human-approved internal policy metadata**.
+It is not provider material, an uploaded object or proof of source ingestion:
+there is no storage key, uploaded file, extracted page or ingestion job.
+`KnowledgeRegistryService.approve` is not claimed to have run for this metadata
+fixture. Standard Pack validation and lifecycle transitions, and Exam Studio's
+checksum, review, approval, publication and activation, execute their existing
+services with the seeded authorized platform operator.
+
+The CLI returns `golden_candidate_user_id`, `golden_exam_version_id`,
+`golden_pack_version_id` and `golden_item_version_id` for acceptance tooling.
+The product selects actual API roster/exam records; it does not hard-code these
+identifiers. A conflicting unrelated identity using the golden email is refused
+without changing its credentials or granting membership.
 
 ## Click-through order
 

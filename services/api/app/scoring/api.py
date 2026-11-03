@@ -35,10 +35,15 @@ def _error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=409, detail=str(exc))
 
 
-def _admin_version(version: ResultVersion, result: AssessmentResult) -> dict[str, Any]:
+def _admin_version(
+    session: Session, version: ResultVersion, result: AssessmentResult
+) -> dict[str, Any]:
     return {
         "result_id": str(result.id),
         "result_version_id": str(version.id),
+        "version_number": version.version_number,
+        "scoring_run_id": str(version.scoring_run_id),
+        "review": ScoringService.review_projection(session, version),
         "attempt_id": str(result.attempt_id),
         "status": version.status.value,
         "raw_awarded_points": str(version.raw_awarded_points)
@@ -123,7 +128,7 @@ def get_result(
     )
     if current is None:
         raise HTTPException(status_code=404, detail="result version not found")
-    return _admin_version(current, result)
+    return _admin_version(session, current, result)
 
 
 @scoring_router.get("/{organisation_id}/results/{result_id}/versions")
@@ -138,7 +143,7 @@ def list_result_versions(
     result = session.get(AssessmentResult, result_id)
     if result is None or result.organisation_id != organisation_id:
         raise HTTPException(status_code=404, detail="result not found")
-    return [_admin_version(version, result) for version in result.versions]
+    return [_admin_version(session, version, result) for version in result.versions]
 
 
 @scoring_router.post("/{organisation_id}/result-versions/{version_id}/request-review")

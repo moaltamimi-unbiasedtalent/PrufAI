@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
-from app.models import CertificateRecord, ResultRelease, StatementOfResults
+from app.models import CertificateRecord, ResultRelease, ResultVersion, StatementOfResults
 from app.result_release.service import ResultReleaseError, ResultReleaseService
 
 router = APIRouter(prefix="/api/v1/organisations", tags=["result-release"])
@@ -85,6 +85,7 @@ def _payload(session: Session, release: ResultRelease, *, detail: bool = False) 
         "status": release.status.value,
         "effective_status": ResultReleaseService.effective_status(session, release),
         "released_at": release.released_at,
+        "released_by_user_id": str(release.released_by_user_id),
         "checksum": release.checksum,
         "result_checksum": release.metadata_json.get("result_checksum"),
         "supersedes_release_id": str(release.supersedes_release_id)
@@ -92,6 +93,22 @@ def _payload(session: Session, release: ResultRelease, *, detail: bool = False) 
         else None,
     }
     if detail:
+        version = session.get(ResultVersion, release.result_version_id)
+        result["result"] = (
+            {
+                "result_version_id": str(version.id),
+                "raw_awarded_points": str(version.raw_awarded_points)
+                if version.raw_awarded_points is not None
+                else None,
+                "raw_maximum_points": str(version.raw_maximum_points)
+                if version.raw_maximum_points is not None
+                else None,
+                "outcome": version.outcome.value if version.outcome else None,
+                "result_checksum": version.checksum,
+            }
+            if version is not None
+            else None
+        )
         result["statements"] = [
             _artifact(session, release, row)
             for row in session.scalars(

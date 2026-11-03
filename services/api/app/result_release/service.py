@@ -376,8 +376,20 @@ class ResultReleaseService:
             ResultReleaseService._artifact_scope(existing, release)
             return existing
         ResultReleaseService._active(session, release)
+        version = session.get(ResultVersion, release.result_version_id)
+        if version is None:
+            raise ResultReleaseError("statement result version is unavailable")
         payload = {
             "statement_type": "Statement of Results",
+            "issued_by_user_id": str(context.user_id),
+            "raw_awarded_points": str(version.raw_awarded_points)
+            if version.raw_awarded_points is not None
+            else None,
+            "raw_maximum_points": str(version.raw_maximum_points)
+            if version.raw_maximum_points is not None
+            else None,
+            "outcome": version.outcome.value if version.outcome else None,
+            "result_checksum": version.checksum,
             "classification": release.classification,
             "result_release_id": str(release.id),
             "result_version_id": str(release.result_version_id),

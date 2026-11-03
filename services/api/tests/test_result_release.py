@@ -1,5 +1,6 @@
 """Service-level release security tests; PostgreSQL acceptance is separate."""
 
+import copy
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -67,6 +68,27 @@ def test_release_tables_are_registered():
         "certification_authorizations",
         "certificate_records",
     } <= set(Base.metadata.tables)
+
+
+def test_new_statement_pins_issuer_and_score_without_rewriting_replayed_history(session):
+    scenario, context, release, _ = recorded_legacy_release(session)
+    operation = str(uuid.uuid4())
+    statement = ResultReleaseService.statement(session, context, release.id, operation_id=operation)
+    original = copy.deepcopy(statement.payload)
+    checksum = statement.checksum
+    assert original["issued_by_user_id"] == str(context.user_id)
+    assert original["result_checksum"] == scenario.result_version_r1.checksum
+    assert original["raw_awarded_points"] == str(scenario.result_version_r1.raw_awarded_points)
+    assert original["raw_maximum_points"] == str(scenario.result_version_r1.raw_maximum_points)
+    assert original["outcome"] == scenario.result_version_r1.outcome.value
+    replay = ResultReleaseService.statement(
+        session,
+        replace(context, user_id=scenario.second_candidate.id),
+        release.id,
+        operation_id=operation,
+    )
+    assert replay.id == statement.id
+    assert replay.payload == original and replay.checksum == checksum
 
 
 def test_historical_release_records_exact_provenance_without_rewriting_results(session):

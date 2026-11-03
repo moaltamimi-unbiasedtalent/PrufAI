@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../../lib/auth";
+
 import { useEffect, useState } from "react";
 import { authenticatedFetch } from "../../../../lib/api";
 
@@ -17,7 +19,7 @@ type ModerationCase = {
 export default function ModerationCasePage({ params }: Props) {
   const [item, setItem] = useState<ModerationCase | null>(null);
   const [message, setMessage] = useState("Loading moderation case…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     void params.then(({ caseId }) => {
       authenticatedFetch(

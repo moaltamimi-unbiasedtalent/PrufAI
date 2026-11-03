@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../lib/auth";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { speakingReviewApi, type SpeakingReviewSummary } from "./review-api";
@@ -7,7 +9,8 @@ import { speakingReviewApi, type SpeakingReviewSummary } from "./review-api";
 export default function SpeakingReviewQueuePage() {
   const [reviews, setReviews] = useState<SpeakingReviewSummary[]>([]);
   const [message, setMessage] = useState("Loading review queue…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const { organisationId: activeOrganisationId, demoMode } = useAuth();
+  const organisationId = activeOrganisationId ?? "";
   useEffect(() => {
     if (!organisationId) {
       setMessage("Organisation context is required.");
@@ -41,6 +44,15 @@ export default function SpeakingReviewQueuePage() {
           </tr>
         </thead>
         <tbody>
+          {!message && reviews.length === 0 && (
+            <tr>
+              <td colSpan={3}>
+                No speaking assessments are available for this organisation.
+                {demoMode &&
+                  " Recorded audio, transcripts and speaking assessments are not included in this demo."}
+              </td>
+            </tr>
+          )}
           {reviews.map((review) => (
             <tr key={review.assessment_id}>
               <td>

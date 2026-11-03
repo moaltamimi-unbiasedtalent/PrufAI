@@ -5,12 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CandidateExamRuntimePage from "./app/candidate/exams/[attemptId]/page";
 import {
   RuntimeTimer,
+  applySavedResponse,
   formatRemaining,
   runtimeStateMessage,
 } from "./app/candidate/exams/[attemptId]/runtime-ux";
+import type { RuntimeState } from "./app/candidate/api";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ attemptId: "attempt-123" }),
+  useRouter: () => ({ replace: vi.fn() }),
 }));
 
 describe("candidate runtime accessibility", () => {
@@ -35,5 +38,33 @@ describe("candidate runtime accessibility", () => {
     expect(runtimeStateMessage("Conflict")).toContain("newer response");
     expect(runtimeStateMessage("Expired")).toContain("no longer writable");
     expect(runtimeStateMessage("Submitted")).toBeNull();
+    expect(runtimeStateMessage("Save failed")).toContain("not confirmed");
+  });
+
+  it("inserts first-save revision and replaces it on the second save without duplicates", () => {
+    const initial = {
+      responses: [],
+      status: "IN_PROGRESS",
+    } as unknown as RuntimeState;
+    const first = applySavedResponse(initial, "binding-1", {
+      revision: 1,
+      payload: { option_id: "a" },
+    });
+    expect(first.responses).toEqual([
+      { binding_id: "binding-1", revision: 1, payload: { option_id: "a" } },
+    ]);
+    const second = applySavedResponse(first, "binding-1", {
+      revision: 2,
+      payload: { option_id: "b" },
+    });
+    expect(second.responses).toHaveLength(1);
+    expect(second.responses[0].revision).toBe(2);
+    expect(second.responses[0].payload).toEqual({ option_id: "b" });
+    expect(initial.responses).toEqual([]);
+    const another = applySavedResponse(second, "binding-2", {
+      revision: 1,
+      payload: { text: "answer" },
+    });
+    expect(another.responses.map((item) => item.revision)).toEqual([2, 1]);
   });
 });

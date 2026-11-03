@@ -1,12 +1,21 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { ACCESS_TOKEN_KEY, authenticatedFetch } from "../../lib/api";
-import { styles } from "../../lib/auth";
+import { useRouter } from "next/navigation";
+import { styles, useAuth } from "../../lib/auth";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("candidate@demo.prufai.local");
-  const [password, setPassword] = useState("Demo-PrufAI-2026!");
+  const router = useRouter();
+  const {
+    signIn,
+    signOut,
+    user,
+    loading,
+    demoMode,
+    error: sessionError,
+  } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent) {
@@ -14,17 +23,9 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const response = await authenticatedFetch("/api/v1/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      if (!response.ok)
-        throw new Error(
-          "Sign in failed. Check the demo account and try again.",
-        );
-      const result = (await response.json()) as { access_token: string };
-      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, result.access_token);
-      window.location.assign("/");
+      await signIn(email, password);
+      setPassword("");
+      router.replace("/");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Sign in failed.");
     } finally {
@@ -37,16 +38,33 @@ export default function LoginPage() {
         onSubmit={submit}
         style={{ ...styles.card, width: "min(100%, 440px)" }}
       >
-        <p style={styles.kicker}>PrüfAI local demo</p>
+        <p style={styles.kicker}>PrüfAI</p>
         <h1>Sign in</h1>
-        <p>
-          These are synthetic development accounts. They are not production
-          credentials.
-        </p>
+        {loading && <p role="status">Restoring your session…</p>}
+        {user && (
+          <p>
+            Signed in as {user.email}.{" "}
+            <button type="button" onClick={() => router.replace("/")}>
+              Open workspace
+            </button>{" "}
+            <button
+              type="button"
+              onClick={() =>
+                void signOut().catch((cause) => setError(String(cause)))
+              }
+            >
+              Sign out to switch account
+            </button>
+          </p>
+        )}
+        <p>Enter your account email and password.</p>
         <label style={{ display: "grid", gap: "0.35rem", marginTop: "1rem" }}>
           Email
           <input
             required
+            type="email"
+            autoComplete="username"
+            disabled={busy || loading || Boolean(user)}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             style={inputStyle}
@@ -57,18 +75,20 @@ export default function LoginPage() {
           <input
             required
             type="password"
+            autoComplete="current-password"
+            disabled={busy || loading || Boolean(user)}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             style={inputStyle}
           />
         </label>
-        {error && (
+        {(error || sessionError) && (
           <p role="alert" style={{ color: "#a42b2b" }}>
-            {error}
+            {error || sessionError}
           </p>
         )}
         <button
-          disabled={busy}
+          disabled={busy || loading || Boolean(user)}
           style={{
             ...styles.primary,
             border: 0,
@@ -76,12 +96,14 @@ export default function LoginPage() {
             cursor: busy ? "wait" : "pointer",
           }}
         >
-          {busy ? "Signing in…" : "Open demo workspace"}
+          {busy ? "Signing in…" : "Sign in to workspace"}
         </button>
-        <p style={{ fontSize: "0.85rem", marginTop: "1.5rem" }}>
-          Demo accounts are documented in{" "}
-          <a href="/docs">the walkthrough guide</a> for local operators.
-        </p>
+        {demoMode && (
+          <p style={{ fontSize: "0.85rem", marginTop: "1.5rem" }}>
+            Synthetic development accounts are documented in{" "}
+            <a href="/docs">the walkthrough guide</a> for local operators.
+          </p>
+        )}
       </form>
     </main>
   );

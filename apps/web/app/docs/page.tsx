@@ -1,28 +1,44 @@
 import Link from "next/link";
-import { styles } from "../../lib/auth";
+import { notFound } from "next/navigation";
+import { developmentDemoEnabled } from "../../lib/demo";
+import { OfflinePrivacyCheck } from "./offline-check";
 
 export default function DemoDocsPage() {
+  if (
+    !developmentDemoEnabled(
+      process.env.NODE_ENV,
+      process.env.PRUFAI_DEMO_ENABLED,
+    )
+  )
+    notFound();
   return (
-    <div>
-      <p style={styles.kicker}>Operator guide</p>
+    <main
+      style={{
+        maxWidth: 800,
+        margin: "3rem auto",
+        padding: "1.5rem",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      <p>Development operator guide</p>
       <h1>Local walkthrough guide</h1>
       <p style={{ maxWidth: "720px", lineHeight: 1.6 }}>
-        Use the synthetic demo accounts to explore candidate delivery,
-        institution review, moderation, and appeals. The full setup guide is in{" "}
-        <code>docs/local-demo.md</code>.
+        Use synthetic accounts to complete an original objective practice exam
+        and inspect real candidate, exam and result records as institution
+        staff. The full setup guide is in <code>docs/local-demo.md</code>.
       </p>
-      <section style={{ ...styles.card, maxWidth: "720px" }}>
+      <section>
         <h2>Demo accounts</h2>
         <ul>
           <li>
             <code>candidate@demo.prufai.local</code> — candidate runtime
           </li>
           <li>
-            <code>reviewer@demo.prufai.local</code> — writing and speaking
-            review
+            <code>reviewer@demo.prufai.local</code> — institution inspection
           </li>
           <li>
-            <code>admin@demo.prufai.local</code> — moderation and appeals
+            <code>admin@demo.prufai.local</code> — institution administration
+            and inspection
           </li>
         </ul>
         <p>
@@ -34,8 +50,14 @@ export default function DemoDocsPage() {
         </p>
       </section>
       <p>
+        The data contains no fabricated Writing or Speaking assessment. Local
+        audio playback, transcription and AI proposals are unavailable in this
+        demonstration. Full Control Centre is deferred to a separate milestone.
+      </p>
+      <OfflinePrivacyCheck />
+      <p>
         <Link href="/">← Back to workspace</Link>
       </p>
-    </div>
+    </main>
   );
 }

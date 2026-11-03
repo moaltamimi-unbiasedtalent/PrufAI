@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../../lib/auth";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { authenticatedFetch } from "../../../lib/api";
@@ -16,7 +18,7 @@ type ModerationCase = {
 export default function ResultModerationPage() {
   const [cases, setCases] = useState<ModerationCase[]>([]);
   const [message, setMessage] = useState("Loading moderation queue…");
-  const organisationId = process.env.NEXT_PUBLIC_ORGANISATION_ID ?? "";
+  const organisationId = useAuth().organisationId ?? "";
   useEffect(() => {
     if (!organisationId) {
       setMessage("Organisation context is required.");
@@ -57,6 +59,13 @@ export default function ResultModerationPage() {
           </tr>
         </thead>
         <tbody>
+          {!message && cases.length === 0 && (
+            <tr>
+              <td colSpan={4}>
+                No result moderation cases are available for this organisation.
+              </td>
+            </tr>
+          )}
           {cases.map((item) => (
             <tr key={item.id}>
               <td>

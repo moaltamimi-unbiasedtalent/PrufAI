@@ -14,6 +14,7 @@ from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.exams.service import exam_checksum
 from app.models import (
+    CandidateAudioRecordingSession,
     CandidateExamAssignment,
     CandidateExamAttempt,
     CandidateExamSession,
@@ -592,11 +593,10 @@ class CandidateRuntimeService:
         client_operation_id: uuid.UUID,
         expected_revision: int,
         client_observed_at: Optional[datetime] = None,
+        audio_storage: Any = None,
     ) -> CandidateResponse:
-        attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
+        attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
-        if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
-            raise RuntimeExpired("attempt is not writable")
         item, mode = CandidateRuntimeService._binding_payload(attempt, binding_id)
         CandidateRuntimeService._validate_payload(item, mode, payload)
         digest = _payload_checksum(payload)
@@ -607,12 +607,66 @@ class CandidateRuntimeService:
             )
         )
         if existing_operation:
-            if existing_operation.payload_checksum != digest:
+            if (
+                existing_operation.payload_checksum != digest
+                or expected_revision != existing_operation.revision_number - 1
+            ):
                 raise RuntimeConflict("RUNTIME.IDEMPOTENCY_KEY_REUSED")
             response = session.get(CandidateResponse, existing_operation.candidate_response_id)
-            if response is None:
-                raise RuntimeError("response history is inconsistent")
+            if response is None or response.exam_version_item_binding_id != binding_id:
+                raise RuntimeConflict("RUNTIME.IDEMPOTENCY_KEY_REUSED")
+            if mode == PackResponseMode.AUDIO.value:
+                from app.config import get_settings
+                from app.knowledge.storage import StorageError, build_object_storage
+
+                replay_asset = session.get(
+                    CandidateMediaAsset, uuid.UUID(str(payload["media_asset_id"]))
+                )
+                if replay_asset is None:
+                    raise RuntimeConflict("audio attachment history is unavailable")
+                SpeakingAudioService.bind_to_response_revision(
+                    session, revision=existing_operation, asset=replay_asset
+                )
+                replay_storage = SpeakingAudioService.durable_storage(
+                    audio_storage or build_object_storage(get_settings())
+                )
+                if not SpeakingAudioService._object_matches(
+                    replay_storage,
+                    replay_asset.storage_key,
+                    replay_asset.sha256,
+                    replay_asset.byte_size,
+                ):
+                    raise StorageError("attached audio object is missing")
             return response
+        if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
+            raise RuntimeExpired("attempt is not writable")
+        asset = None
+        if mode == PackResponseMode.AUDIO.value:
+            from app.config import get_settings
+            from app.knowledge.storage import build_object_storage
+
+            asset = session.get(CandidateMediaAsset, uuid.UUID(str(payload["media_asset_id"])))
+            if asset is None:
+                raise ValueError("audio media asset is unavailable")
+            if (
+                asset.organisation_id != context.organisation_id
+                or asset.candidate_user_id != context.user_id
+            ):
+                raise PermissionError("audio asset ownership required")
+            session.scalar(
+                select(CandidateAudioRecordingSession)
+                .where(CandidateAudioRecordingSession.id == asset.recording_session_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            SpeakingAudioService.validate_asset_identity(session, attempt, binding_id, asset)
+            backend = SpeakingAudioService.durable_storage(
+                audio_storage or build_object_storage(get_settings())
+            )
+            if not SpeakingAudioService._object_matches(
+                backend, asset.storage_key, asset.sha256, asset.byte_size
+            ):
+                raise ValueError("audio object is missing; attachment was not committed")
         response = session.scalar(
             select(CandidateResponse)
             .where(
@@ -666,8 +720,7 @@ class CandidateRuntimeService:
                     return stored
             raise RuntimeConflict("RUNTIME.IDEMPOTENCY_KEY_REUSED") from exc
         if mode == PackResponseMode.AUDIO.value:
-            asset = session.get(CandidateMediaAsset, uuid.UUID(str(payload["media_asset_id"])))
-            if asset is None or asset.status.value != "READY" or asset.attempt_id != attempt.id:
+            if asset is None:
                 raise ValueError("audio media asset is not ready for this attempt")
             SpeakingAudioService.bind_to_response_revision(session, revision=revision, asset=asset)
             session.flush()
@@ -707,12 +760,13 @@ class CandidateRuntimeService:
     def submit(
         session: Session, context: TenantContext, attempt_id: uuid.UUID
     ) -> CandidateExamAttempt:
-        attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
+        attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.SUBMITTED:
             return attempt
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
             raise RuntimeExpired("attempt cannot be submitted")
+        SpeakingAudioService.assert_submittable(session, attempt)
         attempt.status = CandidateAttemptStatus.SUBMITTED
         attempt.submitted_at = _now()
         if attempt.assignment:

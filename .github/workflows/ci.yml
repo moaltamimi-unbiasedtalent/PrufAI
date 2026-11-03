@@ -27,6 +27,52 @@ jobs:
       - run: npm run test
       - run: npm run build
 
+  browser:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: prufai
+          POSTGRES_PASSWORD: prufai_ci
+          POSTGRES_DB: prufai_browser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U prufai -d prufai_browser"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: python -m pip install -e services/api[dev]
+      - run: npm ci
+        working-directory: apps/web
+      - name: Install isolated browser acceptance tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/prufai-browser-tool" --no-save --ignore-scripts @playwright/test@1.56.1
+          node "$RUNNER_TEMP/prufai-browser-tool/node_modules/@playwright/test/cli.js" install --with-deps chromium
+      - name: Real three-application browser acceptance
+        env:
+          DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai_browser
+          PRUFAI_BROWSER_TOOL_DIR: ${{ runner.temp }}/prufai-browser-tool
+          PRUFAI_E2E_ARTIFACT_DIR: ${{ runner.temp }}/prufai-browser-evidence
+        run: bash scripts/run-integrated-browser.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integrated-browser-evidence
+          path: ${{ runner.temp }}/prufai-browser-evidence
+          retention-days: 7
+
   python:
     runs-on: ubuntu-latest
     services:
@@ -143,6 +189,13 @@ jobs:
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -m pytest tests/test_control_centre_postgresql_integration.py
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Integrated three-application practice journey (required PostgreSQL)
+        run: python -m pytest tests/test_integrated_practice_postgresql_integration.py -v
         working-directory: services/api
         env:
           CI: true

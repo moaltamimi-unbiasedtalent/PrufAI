@@ -14,7 +14,15 @@ REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPOSITORY_ROOT"
 export PYTHONPATH="$REPOSITORY_ROOT/services/api"
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
-export AUTH_RATE_LIMIT_BACKEND=memory OBJECT_STORAGE_BACKEND=memory
+export AUTH_RATE_LIMIT_BACKEND=memory
+# Recorded evidence acceptance must use durable private storage. This preflight
+# never replaces a configured bucket or falls back to the standards memory mode.
+: "${OBJECT_STORAGE_ENDPOINT:?Set the real private MinIO/S3 endpoint}"
+: "${OBJECT_STORAGE_BUCKET:?Set the real private bucket}"
+: "${OBJECT_STORAGE_ACCESS_KEY:?Set development storage credentials}"
+: "${OBJECT_STORAGE_SECRET_KEY:?Set development storage credentials}"
+export OBJECT_STORAGE_BACKEND=s3
+python3 scripts/initialize-audio-storage.py
 export PRUFAI_E2E_ALLOW_DEMO=1
 export NODE_PATH="$PRUFAI_BROWSER_TOOL_DIR/node_modules"
 export PRUFAI_E2E_ARTIFACT_DIR="${PRUFAI_E2E_ARTIFACT_DIR:-$(mktemp -d /tmp/prufai-integrated-browser.XXXXXX)}"

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -443,6 +443,12 @@ class SubjectiveAssessmentService:
                 raise RubricError("explicit AI_ASSISTED Writing policy is required")
             if not _execution_origin:
                 raise RubricError("Writing AI assessment requires a durable execution request")
+        if skill is QuestionBankSkill.SPEAKING and not _human_origin:
+            from app.speaking_execution.execution import SpeakingExecutionService
+
+            SpeakingExecutionService.assert_audio_policy(rubric)
+            if not _execution_origin:
+                raise RubricError("Speaking AI assessment requires a durable execution request")
         RubricService.assert_executable(rubric)
         if rubric.skill is not skill:
             raise RubricError("rubric skill is incompatible with subjective assessment")
@@ -766,7 +772,25 @@ class SubjectiveAssessmentService:
         expected_checksum: str | None = None,
         reason: str | None = None,
     ) -> SubjectiveAssessmentVersion:
-        from app.models import WritingExecutionJob
+        from app.models import SpeakingExecutionJob, WritingExecutionJob
+
+        if session.scalar(
+            select(SpeakingExecutionJob.id).where(
+                SpeakingExecutionJob.assessment_version_id == version_id
+            )
+        ):
+            from app.speaking_execution.review import decide
+
+            return decide(
+                session,
+                context,
+                version_id,
+                decision=HumanReviewStatus.APPROVED,
+                corrections=corrections,
+                operation_id=operation_id,
+                expected_checksum=expected_checksum,
+                reason=reason,
+            )
 
         if session.scalar(
             select(WritingExecutionJob.id).where(
@@ -871,7 +895,27 @@ class SubjectiveAssessmentService:
         if rubric is None or assessment is None:
             raise RubricError("assessment correction references unavailable data")
         is_human = source.assessment_origin == "HUMAN"
-        from app.models import WritingExecutionJob
+        from app.models import SpeakingExecutionJob, WritingExecutionJob
+
+        is_speaking_execution = bool(
+            session.scalar(
+                select(SpeakingExecutionJob.id).where(
+                    or_(
+                        SpeakingExecutionJob.assessment_version_id == source.id,
+                        and_(
+                            SpeakingExecutionJob.ai_run_id.is_not(None),
+                            SpeakingExecutionJob.ai_run_id == source.ai_run_id,
+                        ),
+                    )
+                )
+            )
+        )
+        if is_speaking_execution:
+            from app.speaking_execution.review import authorize_correction
+
+            authorize_correction(
+                session, context, source, review, _review_metadata, _execution_review_token
+            )
 
         if session.scalar(
             select(WritingExecutionJob.id).where(
@@ -981,8 +1025,10 @@ class SubjectiveAssessmentService:
                 approved_level=level,
                 approved_points=points,
                 confidence=criterion.confidence,
-                evidence=list(criterion.evidence),
-                rationale=criterion.rationale,
+                evidence=list(correction["evidence"])
+                if is_speaking_execution
+                else list(criterion.evidence),
+                rationale=correction["rationale"] if is_speaking_execution else criterion.rationale,
                 uncertainties=list(criterion.uncertainties),
                 disagreement=dict(criterion.disagreement),
                 status=SubjectiveCriterionStatus.APPROVED,
@@ -1084,7 +1130,24 @@ class SubjectiveAssessmentService:
         operation_id: uuid.UUID | None = None,
         expected_checksum: str | None = None,
     ) -> SubjectiveAssessmentVersion:
-        from app.models import WritingExecutionJob
+        from app.models import SpeakingExecutionJob, WritingExecutionJob
+
+        if session.scalar(
+            select(SpeakingExecutionJob.id).where(
+                SpeakingExecutionJob.assessment_version_id == version_id
+            )
+        ):
+            from app.speaking_execution.review import decide
+
+            return decide(
+                session,
+                context,
+                version_id,
+                decision=decision,
+                operation_id=operation_id,
+                expected_checksum=expected_checksum,
+                reason=reason,
+            )
 
         if session.scalar(
             select(WritingExecutionJob.id).where(

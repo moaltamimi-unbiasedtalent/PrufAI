@@ -173,8 +173,13 @@ def _run_bounded(
     source: Path | None = None,
     counter: _FrameSummary | None = None,
     strict_diagnostics: bool = False,
+    *,
+    maximum_output: int | None = None,
 ) -> bytes:
     """Drain both pipes under one wall clock and output limit, without logging them."""
+    limit = MAX_INSPECTION_OUTPUT if maximum_output is None else maximum_output
+    if type(limit) is not int or not 1 <= limit <= 20_000_000:
+        raise AudioMediaError("AUDIO.INVALID_OUTPUT_LIMIT")
     input_file = source.open("rb") if source else None
     try:
         process = subprocess.Popen(
@@ -212,7 +217,7 @@ def _run_bounded(
                 if not key.data:
                     diagnostic = True
                 total += len(chunk)
-                if total > MAX_INSPECTION_OUTPUT:
+                if total > limit:
                     raise AudioMediaError("AUDIO.MEDIA_VALIDATION_OUTPUT_LIMIT")
                 if key.data:
                     output.extend(chunk)
@@ -243,6 +248,8 @@ def _inspect_command(
     arguments: list[str],
     source: Path,
     counter: _FrameSummary | None = None,
+    *,
+    maximum_output: int | None = None,
 ) -> bytes:
     container_name = "prufai-media-" + uuid.uuid4().hex
     if settings.audio_media_runtime == "docker":
@@ -307,6 +314,7 @@ def _inspect_command(
             source if settings.audio_media_runtime == "docker" else None,
             counter=counter,
             strict_diagnostics=arguments != ["-version"],
+            maximum_output=maximum_output,
         )
     finally:
         if settings.audio_media_runtime == "docker":

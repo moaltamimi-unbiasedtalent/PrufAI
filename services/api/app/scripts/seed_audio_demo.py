@@ -230,9 +230,22 @@ def reconcile_audio_demo(
     human_speaking: bool = False,
     speaking_results: bool = False,
     transcription_execution: bool = False,
+    ai_proposals: bool = False,
+    ai_policy: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     if settings.environment != "development" or not enabled:
         raise RuntimeError("Audio demo requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1.")
+    if ai_proposals and (human_speaking or speaking_results or transcription_execution):
+        raise RuntimeError("AI Speaking prerequisites require their isolated scenario.")
+    if ai_proposals and (
+        not ai_policy
+        or ai_policy.get("enabled") is not True
+        or ai_policy.get("mode") != "AI_ASSISTED"
+        or ai_policy.get("evidence_mode") != "AUDIO"
+        or not ai_policy.get("execution_profile_id")
+        or not ai_policy.get("execution_profile_version")
+    ):
+        raise RuntimeError("AI Speaking prerequisites require an exact approved AUDIO profile.")
     # A separate immutable namespace preserves the previously published evidence-only
     # scenario. The human scenario adds a DRAFT rubric, never a judged recording.
     from app.scripts.seed_speaking_human_demo import (
@@ -284,7 +297,22 @@ def reconcile_audio_demo(
         policy_content = TRANSCRIPTION_POLICY_CONTENT
         candidate_email = TRANSCRIPTION_CANDIDATE_EMAIL
         candidate_name = "Transcription Execution Practice Candidate"
-    tasks = AUDIO_TASKS[:1] if human_speaking or transcription_execution else AUDIO_TASKS
+    if ai_proposals:
+        from app.scripts.seed_ai_speaking_demo import (
+            AI_SPEAKING_CANDIDATE_EMAIL,
+            AI_SPEAKING_EXAM_NAME,
+            AI_SPEAKING_POLICY_CONTENT,
+        )
+
+        namespace = "ai-speaking-execution-"
+        version_label = "ai-speaking-execution-b1-v1"
+        scenario_code = "PRUFAI_AI_SPEAKING_B1"
+        scenario_name = AI_SPEAKING_EXAM_NAME
+        policy_content = AI_SPEAKING_POLICY_CONTENT
+        candidate_email = AI_SPEAKING_CANDIDATE_EMAIL
+        candidate_name = "AI Speaking Technical Practice Candidate"
+    assessed_speaking = human_speaking or ai_proposals
+    tasks = AUDIO_TASKS[:1] if assessed_speaking or transcription_execution else AUDIO_TASKS
 
     def ensure(model: type[Model], key: str, **values: Any) -> Model:
         return _ensure(session, model, key, namespace=namespace, **values)
@@ -310,7 +338,7 @@ def reconcile_audio_demo(
         code=scenario_code,
         name=(
             scenario_name
-            if human_speaking or transcription_execution
+            if assessed_speaking or transcription_execution
             else f"Original recorded audio practice — {AUDIO_LABEL}"
         ),
         assessment_family=AssessmentFamily.LANGUAGE,
@@ -371,7 +399,9 @@ def reconcile_audio_demo(
     authority = ensure(
         KnowledgeAuthority,
         "policy-authority",
-        code="PRUFAI_TRANSCRIPTION_EXECUTION_INTERNAL"
+        code="PRUFAI_AI_SPEAKING_INTERNAL"
+        if ai_proposals
+        else "PRUFAI_TRANSCRIPTION_EXECUTION_INTERNAL"
         if transcription_execution
         else "PRUFAI_SPEAKING_RESULTS_INTERNAL"
         if speaking_results
@@ -449,12 +479,15 @@ def reconcile_audio_demo(
                 session, version, pack_target, actor_id=platform_operator.id, context=publisher
             )
     rubric_version = None
-    if human_speaking:
+    if assessed_speaking:
         rubric = ensure(
             AssessmentRubric,
             "rubric",
             code=scenario_code,
-            name=f"Original human Speaking rubric — {AUDIO_LABEL}",
+            name=(
+                f"Original {'TEST ONLY AI-assisted' if ai_proposals else 'human'} "
+                f"Speaking rubric — {AUDIO_LABEL}"
+            ),
             organisation_id=organisation.id,
             status=RubricVersionStatus.DRAFT,
         )
@@ -480,14 +513,18 @@ def reconcile_audio_demo(
                     "required": True,
                     "minimum_references": 1,
                     "time_unit": "milliseconds",
+                    **({"source_backed": False} if ai_proposals else {}),
                 },
-                ai_assessment_policy={"enabled": False, "mode": "HUMAN_ONLY"},
+                ai_assessment_policy=dict(ai_policy or {})
+                if ai_proposals
+                else {"enabled": False, "mode": "HUMAN_ONLY"},
                 human_review_policy={"required": True, "separation_of_duties": True},
                 evidence_bindings=[
                     {
                         "knowledge_document_version_id": str(document.id),
                         "source_checksum": digest,
                         "purpose": "ORIGINAL_PRACTICE_POLICY",
+                        **({"required": False} if ai_proposals else {}),
                     }
                 ],
                 context=author,
@@ -542,6 +579,11 @@ def reconcile_audio_demo(
                         "TEST ONLY: Diese technische Übung prüft dauerhafte Verarbeitung. "
                         "Die Test-Transkription erkennt keine Sprache und vergibt keine Bewertung. "
                         if transcription_execution
+                        else "TEST ONLY: Diese technische KI-Übung prüft Verarbeitung und "
+                        "menschliche Freigabe. Der Testadapter versteht keine Sprache und "
+                        "belegt keine echte KI-Bewertungsqualität. Originalaudio bleibt die "
+                        "primäre Evidenz; keine automatische Bewertung oder Ergebnisfreigabe. "
+                        if ai_proposals
                         else "Diese originale Übung wird von zwei berechtigten Menschen "
                         "anhand einer "
                         "zuvor veröffentlichten Rubrik geprüft. Keine KI oder Transkription. "
@@ -554,11 +596,11 @@ def reconcile_audio_demo(
                 },
                 scoring_policy=(
                     QuestionBankScoringPolicy.RUBRIC_REQUIRED
-                    if human_speaking
+                    if assessed_speaking
                     else QuestionBankScoringPolicy.MANUAL_REVIEW
                 ),
-                max_points=Decimal("6") if human_speaking else None,
-                scoring_metadata={"rubric_required": True} if human_speaking else {},
+                max_points=Decimal("6") if assessed_speaking else None,
+                scoring_metadata={"rubric_required": True} if assessed_speaking else {},
                 rubric_reference=str(rubric_version.id) if rubric_version else None,
                 rights_status=QuestionBankRightsStatus.PRUFAI_ORIGINAL,
                 rights_holder="PrüfAI original synthetic practice",
@@ -665,9 +707,15 @@ def reconcile_audio_demo(
             "transcription_execution_pack_version_id": str(version.id),
             "transcription_execution_item_version_id": str(items[0].id),
         }
-    if human_speaking:
+    if assessed_speaking:
         assert rubric_version is not None
-        prefix = "speaking_results" if speaking_results else "speaking_human"
+        prefix = (
+            "ai_speaking"
+            if ai_proposals
+            else "speaking_results"
+            if speaking_results
+            else "speaking_human"
+        )
         return {
             f"{prefix}_candidate_user_id": str(candidate.id),
             f"{prefix}_exam_version_id": str(exam_version.id),

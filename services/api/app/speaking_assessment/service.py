@@ -2,23 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.authorization import AuthorizationService, TenantContext
+from app.audit import AuditService
+from app.authorization import TenantContext
 from app.models import (
-    AgentVersion,
-    AIModelProfile,
-    AIRun,
     CandidateMediaAsset,
+    CandidateResponseRevision,
     HumanReviewRequest,
     RubricVersion,
-    SpeechTranscriptionVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
     SubjectiveCriterionAssessment,
@@ -191,7 +191,7 @@ class SpeakingAssessmentService:
         if str(reference.get("candidate_media_asset_id")) != str(asset_id):
             raise SpeakingAssessmentError("audio evidence references the wrong asset")
         start, end = reference.get("start_ms"), reference.get("end_ms")
-        if not isinstance(start, int) or not isinstance(end, int) or start < 0 or end <= start:
+        if type(start) is not int or type(end) is not int or start < 0 or end <= start:
             raise SpeakingAssessmentError("invalid audio evidence bounds")
         if duration_ms is not None and end > duration_ms:
             raise SpeakingAssessmentError("audio evidence exceeds verified duration")
@@ -230,7 +230,10 @@ class SpeakingAssessmentService:
     @classmethod
     def _reject_protected_inference(cls, value: Any) -> None:
         encoded = json.dumps(value, ensure_ascii=False).casefold()
-        if any(term in encoded for term in cls.PROTECTED_TERMS):
+        if any(
+            re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", encoded)
+            for term in cls.PROTECTED_TERMS
+        ):
             raise SpeakingAssessmentError("protected-characteristic inference is prohibited")
 
     @classmethod
@@ -454,143 +457,151 @@ class SpeakingAssessmentService:
         *,
         ai_run_id: uuid.UUID,
     ) -> SubjectiveAssessmentVersion:
-        """Persist a bounded Speaking proposal and create mandatory review."""
-        AuthorizationService.require_permission(
-            context, "subjective.assess", context.organisation_id
+        """Accept only the validated completed durable Speaking receipt."""
+        from app.models.enums import ActorType
+        from app.speaking_assessment.governance import HumanSpeakingService
+        from app.speaking_execution.execution import (
+            SpeakingExecutionError,
+            SpeakingExecutionService,
         )
-        version = session.get(SubjectiveAssessmentVersion, version_id)
+        from app.writing_assessment.service import SubjectiveAssessmentService, canonical_checksum
+
+        version = session.scalar(
+            select(SubjectiveAssessmentVersion)
+            .where(SubjectiveAssessmentVersion.id == version_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if version is None or version.candidate_media_asset_id is None:
             raise SpeakingAssessmentError("speaking assessment version is unavailable")
         assessment = session.get(SubjectiveAssessment, version.subjective_assessment_id)
-        rubric = session.get(RubricVersion, version.rubric_version_id)
-        if (
-            assessment is None
-            or rubric is None
-            or assessment.organisation_id != context.organisation_id
-        ):
+        if assessment is None or assessment.organisation_id != context.organisation_id:
             raise SpeakingAssessmentError(
                 "speaking assessment is not available in this organisation"
             )
+        context = SpeakingExecutionService.authorize(
+            session,
+            context,
+            assessment.organisation_id,
+            "subjective.assess",
+            candidate_user_id=assessment.candidate_user_id,
+        )
+        rubric = session.get(RubricVersion, version.rubric_version_id)
         if (
-            version.assessment_origin == "HUMAN"
+            rubric is None
+            or version.assessment_origin == "HUMAN"
             or rubric.ai_assessment_policy.get("mode") == "HUMAN_ONLY"
         ):
             raise SpeakingAssessmentError("human-only Speaking cannot accept AI proposals")
-        if version.status not in {
-            SubjectiveAssessmentStatus.CREATED,
-            SubjectiveAssessmentStatus.FAILED,
-        }:
-            raise SpeakingAssessmentError("speaking assessment is not awaiting evaluation")
-        run = session.get(AIRun, ai_run_id)
-        if run is None or run.organisation_id != context.organisation_id:
-            raise SpeakingAssessmentError("exact AI run provenance is required")
-        if run.workflow_version_id is None or run.agent_version_id is None:
-            raise SpeakingAssessmentError("AI run lacks exact workflow and agent provenance")
-        agent = session.get(AgentVersion, run.agent_version_id)
-        if agent is None:
-            raise SpeakingAssessmentError("AI run agent provenance is missing")
-        version.workflow_version_id = run.workflow_version_id
-        version.agent_version_id = run.agent_version_id
-        version.prompt_version_id = agent.prompt_version_id
-        version.model_profile_id = agent.model_profile_id
-        profile = (
-            session.get(AIModelProfile, version.model_profile_id)
-            if version.model_profile_id
-            else None
+        proposal = proposal_factory(1)
+        job = SpeakingExecutionService.validate_handoff(session, version, ai_run_id, proposal)
+        expected_checksum = canonical_checksum(
+            {
+                "execution_job_id": str(job.id),
+                "source": job.source_identity,
+                "profile_version": job.profile_version,
+                "provider_input_checksum": job.provider_input_checksum,
+                "output_checksum": job.output_checksum,
+            }
         )
-        requires_audio = any(
-            cls.evidence_mode(item) in {AUDIO, AUDIO_AND_TRANSCRIPT} for item in rubric.criteria
-        )
-        cls.assert_profile_eligible(profile, requires_audio=requires_audio)
-        transcription = (
-            session.get(SpeechTranscriptionVersion, version.speech_transcription_version_id)
-            if version.speech_transcription_version_id
-            else None
-        )
-        segment_ids = {
-            str(item.get("segment_id"))
-            for item in (transcription.segments if transcription else [])
+        if version.status is SubjectiveAssessmentStatus.AI_PROPOSED:
+            if (
+                version.ai_run_id == job.ai_run_id
+                and version.ai_proposal == job.validated_proposal
+                and version.checksum == expected_checksum
+            ):
+                return version
+            raise SpeakingExecutionError("SPEAKING_HANDOFF_ALREADY_FINALIZED")
+        if (
+            version.status is not SubjectiveAssessmentStatus.AI_EVALUATION_RUNNING
+            or version.criterion_assessments
+        ):
+            raise SpeakingExecutionError("SPEAKING_HANDOFF_ALREADY_FINALIZED")
+        snapshot = job.execution_snapshot
+        version.assessment_origin = "AI"
+        version.ai_run_id = job.ai_run_id
+        version.workflow_version_id = uuid.UUID(snapshot["workflow_version_id"])
+        version.agent_version_id = uuid.UUID(snapshot["agent_version_id"])
+        version.prompt_version_id = uuid.UUID(snapshot["prompt_version_id"])
+        version.model_profile_id = uuid.UUID(snapshot["model_profile_id"])
+        version.speech_transcription_version_id = None
+        version.transcript_checksum = None
+        version.evidence_mode_summary = {c["code"]: "AUDIO" for c in rubric.criteria}
+        version.ai_proposal = job.validated_proposal
+        version.consistency_summary = proposal["consistency"]
+        version.confidence_summary = {
+            c["criterion_code"]: c["confidence"] for c in proposal["criteria"]
         }
-        asset = session.get(CandidateMediaAsset, version.candidate_media_asset_id)
-        duration_ms = getattr(asset, "duration_ms", None)
-        result = cls.run(
-            candidate_content=transcription.transcript if transcription else "",
-            criteria=rubric.criteria,
-            performance_levels=rubric.performance_levels,
-            asset_id=version.candidate_media_asset_id,
-            duration_ms=duration_ms,
-            transcription_version_id=version.speech_transcription_version_id,
-            segment_ids=segment_ids,
-            proposal_factory=proposal_factory,
+        version.disagreement_summary = {}
+        version.proposed_score = SubjectiveAssessmentService._aggregate(
+            rubric,
+            {c["criterion_code"]: Decimal(c["proposed_points"]) for c in proposal["criteria"]},
         )
-        cls.persist_provenance(
-            version,
-            prepared_input={
-                "candidate_media_asset_id": str(version.candidate_media_asset_id),
-                "audio_sha256": version.audio_sha256,
-                "speech_transcription_version_id": str(version.speech_transcription_version_id)
-                if version.speech_transcription_version_id
-                else None,
-                "transcript_checksum": version.transcript_checksum,
-                "model_profile_id": (
-                    str(version.model_profile_id) if version.model_profile_id else None
-                ),
-                "ai_run_id": str(ai_run_id),
-                "workflow_version_id": str(version.workflow_version_id),
-                "agent_version_id": str(version.agent_version_id),
-                "prompt_version_id": str(version.prompt_version_id)
-                if version.prompt_version_id
-                else None,
-            },
-            criteria=rubric.criteria,
-            result=result,
-        )
-        if result.status == "FAILED":
-            version.status = SubjectiveAssessmentStatus.FAILED
-            session.flush()
-            return version
-        version.status = SubjectiveAssessmentStatus.AI_PROPOSED
-        version.ai_run_id = ai_run_id
-        version.ai_proposal = {
-            "criteria": [
-                {
-                    "criterion_code": item.criterion_code,
-                    "proposed_level": item.proposed_level,
-                    "proposed_points": str(item.proposed_points),
-                    "evidence": list(item.evidence),
-                    "confidence": item.confidence,
-                    "uncertainties": list(item.uncertainties),
-                }
-                for item in result.criteria
-            ]
+        version.approved_score = None
+        version.human_approved_values = {}
+        revision = session.get(CandidateResponseRevision, job.candidate_response_revision_id)
+        asset = session.get(CandidateMediaAsset, job.candidate_media_asset_id)
+        assert revision is not None and asset is not None
+        version.provenance = {
+            "assessment_origin": "AI",
+            "skill": "SPEAKING",
+            "assessment_mode": "AI_ASSISTED",
+            "evidence_mode": "AUDIO",
+            "audio_evidence": HumanSpeakingService.audio_pins(asset, revision),
+            "execution_provenance": SpeakingExecutionService.execution_provenance(session, version),
+            "workflow_nodes": [node["id"] for node in snapshot["workflow_graph"]["nodes"]],
+            "tool_policy": snapshot["tool_policy"],
+            "audio_primary_transcript_derived": True,
+            "human_review_required": True,
+            "audio_span_relevance_requires_human_verification": True,
+            "confidence_is_model_self_report": True,
+            "test_only": snapshot["provider"] == "DETERMINISTIC_TEST",
         }
-        for item in result.criteria:
+        for row in proposal["criteria"]:
             session.add(
                 SubjectiveCriterionAssessment(
                     subjective_assessment_version_id=version.id,
-                    criterion_code=item.criterion_code,
-                    proposed_level=item.proposed_level,
-                    proposed_points=item.proposed_points,
-                    confidence=SubjectiveConfidence(item.confidence),
-                    evidence=list(item.evidence),
-                    rationale=item.rationale,
-                    uncertainties=list(item.uncertainties),
-                    disagreement=item.disagreement,
+                    criterion_code=row["criterion_code"],
+                    proposed_level=row["proposed_level"],
+                    proposed_points=Decimal(row["proposed_points"]),
+                    confidence=SubjectiveConfidence(row["confidence"]),
+                    evidence=row["evidence"],
+                    rationale=row["rationale"],
+                    uncertainties=row["uncertainties"],
+                    disagreement=row["disagreement"],
                     status=SubjectiveCriterionStatus.PROPOSED,
+                    ai_run_step_id=job.active_step_id,
                 )
             )
-        version.checksum = checksum(version.ai_proposal)
+        version.checksum = expected_checksum
+        version.status = SubjectiveAssessmentStatus.AI_PROPOSED
         session.add(
             HumanReviewRequest(
                 review_type="SPEAKING_ASSESSMENT",
                 entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
                 entity_id=version.id,
-                ai_run_id=ai_run_id,
+                ai_run_id=job.ai_run_id,
                 status=HumanReviewStatus.PENDING,
                 requested_by=context.user_id,
                 requested_at=datetime.now(timezone.utc),
                 reviewed_checksum=version.checksum,
             )
+        )
+        AuditService.record(
+            session,
+            context,
+            event_type="speaking_assessment.proposed",
+            entity_type="SubjectiveAssessmentVersion",
+            entity_id=str(version.id),
+            organisation_id=assessment.organisation_id,
+            actor_type=ActorType.SYSTEM_SERVICE,
+            require_audit_permission=False,
+            metadata={
+                "execution_job_id": str(job.id),
+                "ai_run_id": str(job.ai_run_id),
+                "output_checksum": job.output_checksum,
+                "test_only": snapshot["provider"] == "DETERMINISTIC_TEST",
+            },
         )
         session.flush()
         return version

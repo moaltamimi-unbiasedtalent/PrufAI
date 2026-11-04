@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -25,6 +25,7 @@ from app.models import (
     PromptDefinition,
     PromptVersion,
     RubricVersion,
+    SpeakingExecutionJob,
     SubjectiveAssessmentVersion,
     WritingExecutionJob,
 )
@@ -47,15 +48,25 @@ class AIOrchestrationService:
     }
 
     @staticmethod
-    def _writing_job(session: Session, run_id: uuid.UUID) -> WritingExecutionJob | None:
-        return session.scalar(
+    def _execution_job(
+        session: Session, run_id: uuid.UUID
+    ) -> WritingExecutionJob | SpeakingExecutionJob | None:
+        writing = session.scalar(
             select(WritingExecutionJob).where(WritingExecutionJob.ai_run_id == run_id)
         )
+        speaking = session.scalar(
+            select(SpeakingExecutionJob).where(SpeakingExecutionJob.ai_run_id == run_id)
+        )
+        if writing is not None and speaking is not None:
+            raise ValueError("ambiguous subjective execution run")
+        return writing if writing is not None else speaking
 
     @staticmethod
     def _require_generic_run(session: Session, run: AIRun) -> None:
-        if AIOrchestrationService._writing_job(session, run.id) is not None:
-            raise ValueError("Writing execution requires its domain governed action")
+        job = AIOrchestrationService._execution_job(session, run.id)
+        if job is not None:
+            domain = "Speaking" if isinstance(job, SpeakingExecutionJob) else "Writing"
+            raise ValueError(f"{domain} execution requires its domain governed action")
 
     @staticmethod
     def _assert_not_human_governance_target(session: Session, entity_id: uuid.UUID) -> None:
@@ -72,12 +83,40 @@ class AIOrchestrationService:
             .limit(1)
         )
         linked = session.scalar(
-            select(WritingExecutionJob.id).where(
-                WritingExecutionJob.assessment_version_id == entity_id
+            select(WritingExecutionJob.id)
+            .join(
+                SubjectiveAssessmentVersion,
+                SubjectiveAssessmentVersion.id == WritingExecutionJob.assessment_version_id,
+            )
+            .where(
+                or_(
+                    SubjectiveAssessmentVersion.id == entity_id,
+                    SubjectiveAssessmentVersion.subjective_assessment_id == entity_id,
+                )
+            )
+        )
+        speaking = session.scalar(
+            select(SpeakingExecutionJob.id)
+            .join(
+                SubjectiveAssessmentVersion,
+                or_(
+                    SubjectiveAssessmentVersion.id == SpeakingExecutionJob.assessment_version_id,
+                    and_(
+                        SpeakingExecutionJob.ai_run_id.is_not(None),
+                        SubjectiveAssessmentVersion.ai_run_id == SpeakingExecutionJob.ai_run_id,
+                    ),
+                ),
+            )
+            .where(
+                or_(
+                    SubjectiveAssessmentVersion.id == entity_id,
+                    SubjectiveAssessmentVersion.subjective_assessment_id == entity_id,
+                )
             )
         )
         if (
             linked is not None
+            or speaking is not None
             or human is not None
             or session.get(RubricVersion, entity_id) is not None
             or session.get(AssessmentRubric, entity_id) is not None
@@ -319,7 +358,7 @@ class AIOrchestrationService:
         execution_job_id: Optional[uuid.UUID] = None,
         claim_token: Optional[uuid.UUID] = None,
     ) -> AIRun:
-        job = AIOrchestrationService._writing_job(session, run.id)
+        job = AIOrchestrationService._execution_job(session, run.id)
         if job is not None:
             step = session.get(AIRunStep, job.active_step_id) if job.active_step_id else None
             now = datetime.now(timezone.utc)
@@ -338,7 +377,12 @@ class AIOrchestrationService:
                 or step.status != AIRunStatus.SUCCEEDED
                 or not job.output_checksum
                 or step.output_checksum != job.output_checksum
-                or step.input_checksum != job.input_checksum
+                or step.input_checksum
+                != (
+                    job.provider_input_checksum
+                    if isinstance(job, SpeakingExecutionJob)
+                    else job.input_checksum
+                )
                 or step.provider_request_id != job.provider_request_id
             ):
                 raise ValueError(

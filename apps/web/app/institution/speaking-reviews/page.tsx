@@ -10,6 +10,7 @@ import {
   type AudioEvidenceAsset,
 } from "./review-api";
 import css from "../assessment.module.css";
+import { AISpeakingExecutionPanel } from "./execution-panel";
 import {
   speakingFoundationApi,
   eligibleSpeakingRubrics,
@@ -127,6 +128,7 @@ export default function SpeakingReviewQueuePage() {
           {!data && !error && (
             <p role="status">Loading recorded audio evidence…</p>
           )}
+          <AISpeakingExecutionPanel />
           {data && (
             <>
               {canInitialize && data.options && (

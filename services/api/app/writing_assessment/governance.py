@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.models import (
+    AuditEvent,
     CandidateExamAttempt,
     CandidateResponseRevision,
     ExamVersionItemBinding,
@@ -165,7 +166,12 @@ class RubricGovernanceService:
         if version.skill is QuestionBankSkill.SPEAKING:
             from app.speaking_assessment.governance import HumanSpeakingService
 
-            HumanSpeakingService.assert_human_mode(version)
+            if version.ai_assessment_policy.get("mode") == "HUMAN_ONLY":
+                HumanSpeakingService.assert_human_mode(version)
+            else:
+                from app.speaking_execution.execution import SpeakingExecutionService
+
+                SpeakingExecutionService.assert_audio_policy(version)
         if canonical_checksum(RubricService.checksum_payload(version)) != version.checksum:
             raise RubricError("rubric content does not match its reviewed checksum")
 
@@ -193,6 +199,48 @@ class RubricGovernanceService:
         if version.checksum != expected_checksum:
             raise RubricError("stale rubric checksum")
         cls._validate(version)
+        if (
+            version.skill is QuestionBankSkill.SPEAKING
+            and version.ai_assessment_policy.get("mode") == "AI_ASSISTED"
+        ):
+            from app.speaking_execution.registry import (
+                approved_profile_record,
+                snapshot_execution_profile,
+            )
+
+            policy = version.ai_assessment_policy
+            approval = session.scalar(
+                select(AuditEvent)
+                .where(
+                    AuditEvent.event_type == "speaking_execution.profile_approved",
+                    AuditEvent.entity_id == str(policy["execution_profile_id"]),
+                )
+                .order_by(AuditEvent.timestamp.desc(), AuditEvent.id.desc())
+                .limit(1)
+            )
+            try:
+                data = (approval.metadata_json or {}) if approval else {}
+                profile = snapshot_execution_profile(
+                    session,
+                    **{
+                        key: uuid.UUID(str(data[key]))
+                        for key in (
+                            "model_profile_id",
+                            "prompt_version_id",
+                            "agent_version_id",
+                            "workflow_version_id",
+                        )
+                    },
+                )
+                if (
+                    profile["profile_version"] != policy["execution_profile_version"]
+                    or approved_profile_record(session, profile) is None
+                ):
+                    raise ValueError("approval mismatch")
+            except (ValueError, TypeError, KeyError, AttributeError) as exc:
+                raise RubricError(
+                    "Speaking rubric requires an exact approved audio-capable execution profile"
+                ) from exc
         from app.models import StandardPackTaskSpecification, StandardPackVersion
 
         pack = session.get(StandardPackVersion, version.standard_pack_version_id)

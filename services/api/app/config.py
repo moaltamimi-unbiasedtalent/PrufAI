@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     writing_test_adapter_enabled: bool = False
     writing_provider_timeout_seconds: int = Field(default=60, ge=1, le=120)
     writing_approved_profile_fingerprints: list[str] = []
+    speaking_test_adapter_enabled: bool = False
+    speaking_provider_timeout_seconds: int = Field(default=90, ge=1, le=120)
+    speaking_approved_profile_fingerprints: list[str] = []
     certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -70,11 +73,14 @@ class Settings(BaseSettings):
             raise ValueError("TEST ONLY speech transcription is forbidden in production")
         if self.environment == "production" and self.writing_test_adapter_enabled:
             raise ValueError("TEST ONLY Writing execution is forbidden in production")
+        if self.environment == "production" and self.speaking_test_adapter_enabled:
+            raise ValueError("TEST ONLY Speaking execution is forbidden in production")
         if any(
             re.fullmatch(r"[a-f0-9]{64}", value) is None
             for value in (
                 self.speech_transcription_approved_profile_fingerprints
                 + self.writing_approved_profile_fingerprints
+                + self.speaking_approved_profile_fingerprints
             )
         ):
             raise ValueError("approved execution profiles require exact SHA256 fingerprints")

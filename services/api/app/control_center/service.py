@@ -51,6 +51,7 @@ SAFE_EVENT_PREFIXES = frozenset(
         "speech_transcription",
         "writing",
         "writing_execution",
+        "speaking_execution",
         "speaking",
         "result",
         "statement",
@@ -297,6 +298,61 @@ def _writing_executor(session: Session, settings: Settings) -> dict[str, Any]:
     }
 
 
+def _speaking_executor(session: Session, settings: Settings) -> dict[str, Any]:
+    from app.speaking_execution.registry import approved_profile_record, snapshot_execution_profile
+    from app.speaking_execution.runtime import validate_execution_configuration
+
+    approvals = session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.event_type == "speaking_execution.profile_approved")
+        .order_by(AuditEvent.timestamp.desc())
+        .limit(100)
+    )
+    for approval in approvals:
+        try:
+            data = approval.metadata_json or {}
+            ids = {
+                key: uuid.UUID(str(data[key]))
+                for key in (
+                    "model_profile_id",
+                    "prompt_version_id",
+                    "agent_version_id",
+                    "workflow_version_id",
+                )
+            }
+            snapshot = snapshot_execution_profile(session, **ids)
+            if approved_profile_record(session, snapshot) is None:
+                continue
+            availability = validate_execution_configuration(snapshot, settings)["availability"]
+            if availability not in {"CONFIGURED", "TEST_ONLY"}:
+                continue
+            return {
+                "status": availability,
+                "description": (
+                    "TEST ONLY technical Speaking worker configuration; linguistic accuracy and "
+                    "authentic AI assessment are not verified. Original audio remains primary."
+                    if availability == "TEST_ONLY"
+                    else "Approved Speaking configuration is available to the separate worker. "
+                    "Worker health and successful genuine provider execution are not asserted."
+                ),
+                "provider": snapshot["provider"],
+                "model_name": snapshot["model_name"],
+                "adapter_version": snapshot["adapter_version"],
+                "execution_profile_id": snapshot["execution_profile_id"],
+                "profile_version": snapshot["profile_version"],
+                "workflow_version_id": snapshot["workflow_version_id"],
+                "test_only": availability == "TEST_ONLY",
+            }
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return {
+        "status": "UNCONFIGURED",
+        "description": "No approved deployment Speaking proposal configuration is available. "
+        "Human-only Speaking remains independent. No provider execution is asserted.",
+        "test_only": False,
+    }
+
+
 def _safe_writing_operation(row: dict[str, Any]) -> None:
     from app.writing_execution.execution import SAFE_FAILURES
     from app.writing_execution.runtime import MODEL
@@ -328,6 +384,78 @@ def _safe_writing_operation(row: dict[str, Any]) -> None:
     try:
         row["workflow_version_id"] = str(uuid.UUID(str(row.get("workflow_version_id"))))
     except (ValueError, TypeError, AttributeError):
+        row["workflow_version_id"] = None
+    row["test_only"] = row.get("provider") == "DETERMINISTIC_TEST"
+    started, completed = row.get("started_at"), row.get("completed_at")
+    row["duration_ms"] = (
+        max(0, int((completed - started).total_seconds() * 1000))
+        if isinstance(started, datetime) and isinstance(completed, datetime)
+        else None
+    )
+
+
+def _safe_speaking_operation(session: Session, row: dict[str, Any]) -> None:
+    from app.speaking_execution.execution import SAFE_FAILURES
+    from app.speaking_execution.registry import approved_profile_record, snapshot_execution_profile
+    from app.speaking_execution.runtime import MODEL, PROVIDER
+
+    for key, allowed in (
+        ("status", {"QUEUED", "RUNNING", "RETRYABLE", "COMPLETED", "FAILED", "CANCELLED"}),
+        ("provider", {PROVIDER, "DETERMINISTIC_TEST"}),
+        ("model_name", {MODEL, "speaking-fixture-v1"}),
+        ("adapter_version", {"1"}),
+        ("failure_category", {None, *SAFE_FAILURES}),
+        (
+            "human_review_status",
+            {
+                None,
+                "PENDING",
+                "IN_REVIEW",
+                "APPROVED",
+                "REJECTED",
+                "CHANGES_REQUESTED",
+                "CANCELLED",
+            },
+        ),
+        (
+            "assessment_status",
+            {
+                "CREATED",
+                "AI_EVALUATION_RUNNING",
+                "AI_PROPOSED",
+                "REVIEW_REQUIRED",
+                "IN_REVIEW",
+                "SUPERSEDED",
+                "APPROVED",
+                "REJECTED",
+                "CHANGES_REQUESTED",
+                "VOIDED",
+                "FAILED",
+            },
+        ),
+    ):
+        value = row.get(key)
+        if not isinstance(value, (str, type(None))) or value not in allowed:
+            row[key] = "REDACTED"
+    for key in ("profile_version", "model_version"):
+        if not isinstance(row.get(key), str) or re.fullmatch(r"[a-f0-9]{64}", row[key]) is None:
+            row[key] = None
+    ids = {
+        key: row.pop("_" + key, None)
+        for key in ("model_profile_id", "prompt_version_id", "agent_version_id")
+    }
+    row["approval_status"] = "UNAVAILABLE"
+    try:
+        ids["workflow_version_id"] = row.get("workflow_version_id")
+        parsed = {key: uuid.UUID(str(value)) for key, value in ids.items()}
+        row["workflow_version_id"] = str(parsed["workflow_version_id"])
+        snapshot = snapshot_execution_profile(session, **parsed)
+        if (
+            snapshot["profile_version"] == row["profile_version"]
+            and approved_profile_record(session, snapshot) is not None
+        ):
+            row["approval_status"] = "APPROVED"
+    except (ValueError, TypeError, KeyError, AttributeError):
         row["workflow_version_id"] = None
     row["test_only"] = row.get("provider") == "DETERMINISTIC_TEST"
     started, completed = row.get("started_at"), row.get("completed_at")
@@ -551,11 +679,14 @@ class ControlCenterService:
             "checkpoints",
             "transcriptions",
             "writing-proposals",
+            "speaking-proposals",
         }:
             raise ValueError("unsupported AI metadata view")
         page = ControlCenterRepository.ai_operations(session, kind, offset, limit)
         for row in page["items"]:
-            if kind == "writing-proposals":
+            if kind == "speaking-proposals":
+                _safe_speaking_operation(session, row)
+            elif kind == "writing-proposals":
                 _safe_writing_operation(row)
             elif kind == "transcriptions":
                 _safe_transcription_operation(row)
@@ -660,6 +791,7 @@ class ControlCenterService:
             },
             "speech_transcription_executor": _transcription_executor(session, settings),
             "writing_proposal_executor": _writing_executor(session, settings),
+            "speaking_proposal_executor": _speaking_executor(session, settings),
             "certification": {
                 "official_issuance": "DISABLED",
                 "synthetic_issuance_enabled": settings.certification_issuance_enabled,

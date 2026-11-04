@@ -30,6 +30,14 @@ export type PlatformSystem = {
     adapter_version?: string;
     test_only: boolean;
   };
+  speaking_proposal_executor?: {
+    status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";
+    description: string;
+    provider?: string;
+    model_name?: string;
+    adapter_version?: string;
+    test_only: boolean;
+  };
   speech_transcription_executor?: {
     status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";
     description: string;

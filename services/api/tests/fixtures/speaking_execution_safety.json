@@ -1,0 +1,205 @@
+[
+  {
+    "id": "speaking-missing-criterion",
+    "mutation": "missing-criterion",
+    "category": "unsupported_criteria",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-unknown-criterion",
+    "mutation": "unknown-criterion",
+    "category": "unsupported_criteria",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-duplicate-criterion",
+    "mutation": "duplicate-criterion",
+    "category": "unsupported_criteria",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-unknown-level",
+    "mutation": "unknown-level",
+    "category": "unsupported_criteria",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-above-maximum",
+    "mutation": "above-maximum",
+    "category": "score_bounds",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-negative-mark",
+    "mutation": "negative-mark",
+    "category": "score_bounds",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-nan-mark",
+    "mutation": "nan-mark",
+    "category": "score_bounds",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-boolean-mark",
+    "mutation": "boolean-mark",
+    "category": "score_bounds",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-precision",
+    "mutation": "precision",
+    "category": "score_bounds",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-missing-evidence",
+    "mutation": "missing-evidence",
+    "category": "acoustic_evidence",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-outside-span",
+    "mutation": "outside-span",
+    "category": "invalid_acoustic_spans",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-reversed-span",
+    "mutation": "reversed-span",
+    "category": "invalid_acoustic_spans",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-negative-span",
+    "mutation": "negative-span",
+    "category": "invalid_acoustic_spans",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-boolean-span",
+    "mutation": "boolean-span",
+    "category": "invalid_acoustic_spans",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-fractional-span",
+    "mutation": "fractional-span",
+    "category": "invalid_acoustic_spans",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-missing-rationale",
+    "mutation": "missing-rationale",
+    "category": "malformed_output",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-overlong-rationale",
+    "mutation": "overlong-rationale",
+    "category": "malformed_output",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-execution",
+    "mutation": "wrong-execution",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-run",
+    "mutation": "wrong-run",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-response",
+    "mutation": "wrong-response",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-response-revision",
+    "mutation": "wrong-response-revision",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-rubric",
+    "mutation": "wrong-rubric",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-media",
+    "mutation": "wrong-media",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-sha",
+    "mutation": "wrong-sha",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-duration",
+    "mutation": "wrong-duration",
+    "category": "wrong_provenance",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-transcript-only",
+    "mutation": "transcript-only",
+    "category": "incorrect_modality",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-wrong-modality",
+    "mutation": "wrong-modality",
+    "category": "incorrect_modality",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-authority-escalation",
+    "mutation": "authority-escalation",
+    "category": "prompt_injection_authority_boundary",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  },
+  {
+    "id": "speaking-malformed-output",
+    "mutation": "malformed-output",
+    "category": "malformed_output",
+    "claim_scope": "TECHNICAL_SAFETY_ONLY",
+    "limitation": "Original tone fixtures prove structural rejection only; no spoken instruction resistance or linguistic scoring quality is established."
+  }
+]

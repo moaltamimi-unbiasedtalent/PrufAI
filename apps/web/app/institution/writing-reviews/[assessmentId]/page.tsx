@@ -16,6 +16,13 @@ import {
   type HumanCriterionEntry,
 } from "../governance-ui";
 import css from "../../assessment.module.css";
+import {
+  AIWritingExecutionEvidence,
+  AIWritingReviewerFields,
+  buildAIWritingCorrections,
+  canReviewExecutedAIWriting,
+  type AIReviewerCriterion,
+} from "../ai-review";
 
 export default function WritingReviewWorkspacePage({
   params,
@@ -23,7 +30,12 @@ export default function WritingReviewWorkspacePage({
   params: Promise<{ assessmentId: string }>;
 }) {
   const { organisationId, permissions, user } = useAuth();
-  const [review, setReview] = useState<WritingReview | null>(null);
+  const contextKey = `${user?.id ?? ""}:${organisationId ?? ""}:${[...permissions].sort().join(",")}`;
+  const currentContext = useRef(contextKey);
+  currentContext.current = contextKey;
+  const [loadedContext, setLoadedContext] = useState<string | null>(null);
+  const [storedReview, setReview] = useState<WritingReview | null>(null);
+  const review = loadedContext === contextKey ? storedReview : null;
   const [history, setHistory] = useState<
     Array<{
       id: string;
@@ -34,6 +46,9 @@ export default function WritingReviewWorkspacePage({
   >([]);
   const [values, setValues] = useState<Record<string, HumanCriterionEntry>>({});
   const [reason, setReason] = useState("");
+  const [aiValues, setAIValues] = useState<Record<string, AIReviewerCriterion>>(
+    {},
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -46,6 +61,8 @@ export default function WritingReviewWorkspacePage({
     setHistory([]);
     setError(null);
     setValues({});
+    setAIValues({});
+    setLoadedContext(null);
     if (!organisationId || !allowed) return;
     void params
       .then(async ({ assessmentId }) => {
@@ -53,13 +70,14 @@ export default function WritingReviewWorkspacePage({
           writingReviewApi.detail(organisationId, assessmentId),
           writingReviewApi.history(organisationId, assessmentId),
         ]);
-        if (!cancelled) {
+        if (!cancelled && currentContext.current === contextKey) {
           setReview(workspace);
           setHistory(versions.versions);
+          setLoadedContext(contextKey);
         }
       })
       .catch((cause: unknown) => {
-        if (!cancelled)
+        if (!cancelled && currentContext.current === contextKey)
           setError(
             cause instanceof Error
               ? cause.message
@@ -69,7 +87,13 @@ export default function WritingReviewWorkspacePage({
     return () => {
       cancelled = true;
     };
-  }, [organisationId, allowed, params, reload]);
+  }, [contextKey, organisationId, allowed, params, reload]);
+  useEffect(() => {
+    operations.current = {};
+    setReason("");
+    setNotice(null);
+    setBusy(false);
+  }, [contextKey]);
   const human = review?.assessment_origin === "HUMAN";
   const legacyAI =
     review?.assessment_origin === "UNSPECIFIED" &&
@@ -78,13 +102,23 @@ export default function WritingReviewWorkspacePage({
     review && user ? humanWritingActions(review, permissions, user.id) : null;
   const canPropose = actions?.propose ?? false;
   const canDecide = actions?.decide ?? false;
-  const canDecideAI = actions?.decideAI ?? false;
+  const executedAI = Boolean(
+    review?.execution_provenance || review?.assessment_mode === "AI_ASSISTED",
+  );
+  const canDecideAI = executedAI
+    ? Boolean(
+        review &&
+          user &&
+          canReviewExecutedAIWriting(review, permissions, user.id),
+      )
+    : (actions?.decideAI ?? false);
   async function propose(event: FormEvent) {
     event.preventDefault();
     if (!organisationId || !review?.rubric || !canPropose || busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
+    const requestedContext = contextKey;
     try {
       const criteria = buildHumanCriteria(
         review.rubric,
@@ -100,18 +134,20 @@ export default function WritingReviewWorkspacePage({
         criteria,
         operation,
       );
+      if (currentContext.current !== requestedContext) return;
       setNotice(
         "Human criterion judgments submitted. An independent authorised reviewer must now decide this exact version.",
       );
       setReload((value) => value + 1);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Human assessment could not be submitted. Refresh before continuing.",
-      );
+      if (currentContext.current === requestedContext)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Human assessment could not be submitted. Refresh before continuing.",
+        );
     } finally {
-      setBusy(false);
+      if (currentContext.current === requestedContext) setBusy(false);
     }
   }
   async function decide(
@@ -119,13 +155,14 @@ export default function WritingReviewWorkspacePage({
   ) {
     if (!organisationId || !review || busy || (!canDecide && !canDecideAI))
       return;
-    if (decision !== "APPROVED" && human && !reason.trim()) {
+    if ((executedAI || (decision !== "APPROVED" && human)) && !reason.trim()) {
       setError("A decision reason is required.");
       return;
     }
     setBusy(true);
     setError(null);
     setNotice(null);
+    const requestedContext = contextKey;
     try {
       if (human) {
         const key = `${review.version_id}:${review.checksum}:${decision}:${reason.trim()}`;
@@ -146,6 +183,32 @@ export default function WritingReviewWorkspacePage({
             reason.trim(),
             operation,
           );
+      } else if (executedAI) {
+        const corrections =
+          decision === "APPROVED" && review.rubric
+            ? buildAIWritingCorrections(review.rubric, aiValues)
+            : undefined;
+        const key = `${review.version_id}:${review.checksum}:${decision}:${reason.trim()}:${JSON.stringify(corrections)}`;
+        const operation = (operations.current[key] ??= crypto.randomUUID());
+        const governance = {
+          operation_id: operation,
+          expected_checksum: review.checksum,
+          reason: reason.trim(),
+          ...(corrections ? { corrections } : {}),
+        };
+        if (decision === "APPROVED")
+          await writingReviewApi.approve(
+            organisationId,
+            review.version_id,
+            governance,
+          );
+        else
+          await writingReviewApi.decide(
+            organisationId,
+            review.version_id,
+            decision,
+            governance,
+          );
       } else if (decision === "APPROVED")
         await writingReviewApi.approve(organisationId, review.version_id);
       else
@@ -154,18 +217,20 @@ export default function WritingReviewWorkspacePage({
           review.version_id,
           decision,
         );
+      if (currentContext.current !== requestedContext) return;
       setNotice(
         "The authorised decision was recorded. Inspect the persisted status and provenance below.",
       );
       setReload((value) => value + 1);
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The decision could not be confirmed. Refresh before continuing.",
-      );
+      if (currentContext.current === requestedContext)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "The decision could not be confirmed. Refresh before continuing.",
+        );
     } finally {
-      setBusy(false);
+      if (currentContext.current === requestedContext) setBusy(false);
     }
   }
   return (
@@ -203,6 +268,9 @@ export default function WritingReviewWorkspacePage({
               <p>
                 <strong>Assessment status:</strong> {review.status}
               </p>
+              {review.assessment_mode && (
+                <p>Assessment mode: {review.assessment_mode}</p>
+              )}
               <p className={css.notice}>
                 {human
                   ? "This is a HUMAN assessment. No AI proposal or model confidence is generated or used by this workflow."
@@ -212,6 +280,7 @@ export default function WritingReviewWorkspacePage({
                       ? `AI proposal provenance: ${review.ai_run_id ?? "Not exposed in this historical record"}. An authorised human must decide it.`
                       : "Assessment origin is not specified in this historical record. No AI execution is inferred."}
               </p>
+              {executedAI && <AIWritingExecutionEvidence review={review} />}
               <section className={css.card}>
                 <h2>{review.task_label ?? "Exact Writing task"}</h2>
                 <p>
@@ -322,7 +391,9 @@ export default function WritingReviewWorkspacePage({
                       {!human && (
                         <p>
                           Model confidence:{" "}
-                          {String(criterion.confidence ?? "Unavailable")}
+                          {review.execution_provenance?.test_only
+                            ? "Not established — TEST ONLY execution"
+                            : String(criterion.confidence ?? "Unavailable")}
                         </p>
                       )}
                     </article>
@@ -345,9 +416,24 @@ export default function WritingReviewWorkspacePage({
                     criterion judgments above. The server enforces the current
                     checksum and actor permissions.
                   </p>
-                  {human && (
+                  {executedAI && review.rubric && (
+                    <AIWritingReviewerFields
+                      rubric={review.rubric}
+                      values={aiValues}
+                      disabled={busy}
+                      onChange={(code, value) =>
+                        setAIValues((current) => ({
+                          ...current,
+                          [code]: value,
+                        }))
+                      }
+                    />
+                  )}
+                  {(human || executedAI) && (
                     <label className={css.form}>
-                      Decision reason for rejection or changes
+                      {executedAI
+                        ? "Human review decision reason"
+                        : "Decision reason for rejection or changes"}
                       <textarea
                         rows={3}
                         maxLength={2000}

@@ -11,6 +11,7 @@ import {
   type HumanWritingOptions,
 } from "./foundation-api";
 import { GovernanceError } from "./governance-ui";
+import { AIWritingExecutionPanel } from "./execution-panel";
 import css from "../assessment.module.css";
 
 export default function WritingReviewQueuePage() {
@@ -109,6 +110,7 @@ export default function WritingReviewQueuePage() {
         </p>
       ) : (
         <>
+          <AIWritingExecutionPanel />
           {error && (
             <GovernanceError
               error={error}

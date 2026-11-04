@@ -40,6 +40,10 @@ approval boundary are documented in
 [Governed transcription execution](docs/transcription-execution.md). Technical
 TEST ONLY execution is separate from authentic speech-recognition acceptance.
 
+The separate governed Writing proposal worker, exact registry and deployment
+approval gates, and technical acceptance boundary are documented in
+[AI-assisted Writing proposal execution](docs/ai-writing-proposals.md).
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d
 ```

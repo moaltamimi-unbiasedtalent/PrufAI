@@ -47,6 +47,7 @@ PAGES = (
     "/ai-operations?kind=reviews",
     "/ai-operations?kind=checkpoints",
     "/ai-operations?kind=transcriptions",
+    "/ai-operations?kind=writing-proposals",
     "/certification",
     "/certification?kind=certificates",
 )

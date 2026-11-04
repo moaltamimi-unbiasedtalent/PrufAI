@@ -88,6 +88,7 @@ from app.models.enums import (
 from app.question_bank.service import item_checksum
 from app.runtime.service import CandidateRuntimeService
 from app.scoring.service import ScoringService, checksum
+from app.scripts.seed_ai_writing_demo import reconcile_ai_writing_demo
 from app.scripts.seed_audio_demo import reconcile_audio_demo
 from app.scripts.seed_speaking_human_demo import reconcile_speaking_human_demo
 from app.scripts.seed_speaking_results_demo import reconcile_speaking_results_demo
@@ -722,6 +723,15 @@ def reconcile_demo(
         platform_operator=platform_administrator,
         password=password,
     )
+    ai_writing = reconcile_ai_writing_demo(
+        session,
+        settings,
+        enabled=enabled,
+        organisation=organisation,
+        administrator=administrator,
+        platform_operator=platform_administrator,
+        password=password,
+    )
     session.commit()
     return {
         "organisation_id": str(organisation.id),
@@ -739,6 +749,7 @@ def reconcile_demo(
         **speaking_human,
         **speaking_results,
         **transcription_execution,
+        **ai_writing,
     }
 
 

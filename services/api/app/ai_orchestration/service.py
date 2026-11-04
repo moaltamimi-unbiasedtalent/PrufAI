@@ -16,6 +16,7 @@ from app.models import (
     AgentVersion,
     AIModelProfile,
     AIRun,
+    AIRunStep,
     AIWorkflowCheckpoint,
     AIWorkflowDefinition,
     AIWorkflowVersion,
@@ -25,6 +26,7 @@ from app.models import (
     PromptVersion,
     RubricVersion,
     SubjectiveAssessmentVersion,
+    WritingExecutionJob,
 )
 from app.models.enums import AIArtifactStatus, AIRunStatus, HumanReviewStatus
 
@@ -45,6 +47,17 @@ class AIOrchestrationService:
     }
 
     @staticmethod
+    def _writing_job(session: Session, run_id: uuid.UUID) -> WritingExecutionJob | None:
+        return session.scalar(
+            select(WritingExecutionJob).where(WritingExecutionJob.ai_run_id == run_id)
+        )
+
+    @staticmethod
+    def _require_generic_run(session: Session, run: AIRun) -> None:
+        if AIOrchestrationService._writing_job(session, run.id) is not None:
+            raise ValueError("Writing execution requires its domain governed action")
+
+    @staticmethod
     def _assert_not_human_governance_target(session: Session, entity_id: uuid.UUID) -> None:
         """Resolve the target itself; caller-supplied type labels cannot confer authority."""
         human = session.scalar(
@@ -58,8 +71,14 @@ class AIOrchestrationService:
             )
             .limit(1)
         )
+        linked = session.scalar(
+            select(WritingExecutionJob.id).where(
+                WritingExecutionJob.assessment_version_id == entity_id
+            )
+        )
         if (
-            human is not None
+            linked is not None
+            or human is not None
             or session.get(RubricVersion, entity_id) is not None
             or session.get(AssessmentRubric, entity_id) is not None
         ):
@@ -86,6 +105,7 @@ class AIOrchestrationService:
             status=AIArtifactStatus.DRAFT,
             configuration=configuration or {},
             supports_structured_output=True,
+            created_by=context.user_id if context is not None else None,
         )
         session.add(item)
         session.flush()
@@ -133,6 +153,7 @@ class AIOrchestrationService:
             **payload,
             status=AIArtifactStatus.DRAFT,
             checksum=_checksum(payload),
+            created_by=context.user_id if context is not None else None,
         )
         session.add(item)
         session.flush()
@@ -187,6 +208,7 @@ class AIOrchestrationService:
             output_schema=output_schema,
             status=AIArtifactStatus.DRAFT,
             checksum=_checksum(payload),
+            created_by=context.user_id if context is not None else None,
         )
         session.add(item)
         session.flush()
@@ -245,6 +267,7 @@ class AIOrchestrationService:
             graph_definition=graph_definition,
             status=AIArtifactStatus.DRAFT,
             checksum=_checksum(payload),
+            created_by=context.user_id if context is not None else None,
         )
         session.add(item)
         session.flush()
@@ -289,8 +312,38 @@ class AIOrchestrationService:
 
     @staticmethod
     def complete_run(
-        session: Session, run: AIRun, context: Optional[TenantContext] = None
+        session: Session,
+        run: AIRun,
+        context: Optional[TenantContext] = None,
+        *,
+        execution_job_id: Optional[uuid.UUID] = None,
+        claim_token: Optional[uuid.UUID] = None,
     ) -> AIRun:
+        job = AIOrchestrationService._writing_job(session, run.id)
+        if job is not None:
+            step = session.get(AIRunStep, job.active_step_id) if job.active_step_id else None
+            now = datetime.now(timezone.utc)
+            lease = job.lease_expires_at
+            if lease is not None and lease.tzinfo is None:
+                lease = lease.replace(tzinfo=timezone.utc)
+            if (
+                job.id != execution_job_id
+                or job.status != "RUNNING"
+                or job.claim_token != claim_token
+                or claim_token is None
+                or lease is None
+                or lease <= now
+                or step is None
+                or step.run_id != run.id
+                or step.status != AIRunStatus.SUCCEEDED
+                or not job.output_checksum
+                or step.output_checksum != job.output_checksum
+                or step.input_checksum != job.input_checksum
+                or step.provider_request_id != job.provider_request_id
+            ):
+                raise ValueError(
+                    "Writing run completion requires a validated live execution receipt"
+                )
         if run.status is not AIRunStatus.RUNNING:
             raise ValueError("run is not running")
         run.status = AIRunStatus.SUCCEEDED
@@ -306,6 +359,7 @@ class AIOrchestrationService:
         failure_category: str,
         context: Optional[TenantContext] = None,
     ) -> AIRun:
+        AIOrchestrationService._require_generic_run(session, run)
         if run.status in {AIRunStatus.SUCCEEDED, AIRunStatus.CANCELLED, AIRunStatus.REJECTED}:
             raise ValueError("run is already terminal")
         run.status = AIRunStatus.FAILED
@@ -326,6 +380,7 @@ class AIOrchestrationService:
         checksum: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
+        AIOrchestrationService._require_generic_run(session, run)
         AIOrchestrationService._assert_not_human_governance_target(session, entity_id)
         if run.status not in {AIRunStatus.RUNNING, AIRunStatus.WAITING_FOR_HUMAN}:
             raise ValueError("run is not reviewable")
@@ -356,6 +411,10 @@ class AIOrchestrationService:
         reason: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> HumanReviewRequest:
+        if review.ai_run_id:
+            linked_run = session.get(AIRun, review.ai_run_id)
+            if linked_run is not None:
+                AIOrchestrationService._require_generic_run(session, linked_run)
         if review.review_type in {
             "RUBRIC_PUBLICATION",
             "HUMAN_WRITING_ASSESSMENT",
@@ -409,6 +468,7 @@ class AIOrchestrationService:
         run = session.get(AIRun, review.ai_run_id)
         if run is None or run.status is not AIRunStatus.WAITING_FOR_HUMAN:
             raise ValueError("run is not waiting for resume")
+        AIOrchestrationService._require_generic_run(session, run)
         run.status = AIRunStatus.RUNNING
         session.flush()
         AIOrchestrationService._audit(session, context, "ai.workflow.resumed", run)
@@ -416,6 +476,7 @@ class AIOrchestrationService:
 
     @staticmethod
     def cancel_run(session: Session, run: AIRun, context: Optional[TenantContext] = None) -> AIRun:
+        AIOrchestrationService._require_generic_run(session, run)
         if run.status is AIRunStatus.CANCELLED:
             return run
         if run.status not in {
@@ -442,6 +503,7 @@ class AIOrchestrationService:
         state: dict[str, Any],
         organisation_id: Optional[uuid.UUID] = None,
     ) -> AIWorkflowCheckpoint:
+        AIOrchestrationService._require_generic_run(session, run)
         if run.status is not AIRunStatus.WAITING_FOR_HUMAN:
             raise ValueError("checkpoint requires a human-waiting run")
         checkpoint = session.scalar(
@@ -466,6 +528,7 @@ class AIOrchestrationService:
     def load_checkpoint(
         session: Session, run: AIRun, *, organisation_id: Optional[uuid.UUID] = None
     ) -> AIWorkflowCheckpoint:
+        AIOrchestrationService._require_generic_run(session, run)
         checkpoint = session.scalar(
             select(AIWorkflowCheckpoint).where(AIWorkflowCheckpoint.run_id == run.id)
         )

@@ -122,6 +122,17 @@ def delivery_projection(version: QuestionBankItemVersion) -> dict[str, Any]:
             else None
         )
         projection["item_version_checksum"] = version.checksum
+    elif (
+        version.response_mode
+        in {
+            PackResponseMode.TEXT,
+            PackResponseMode.LONG_TEXT,
+        }
+        and version.skill is QuestionBankSkill.WRITING
+    ):
+        # Newly delivered Writing work pins its exact published item version.
+        # Historical HUMAN_ONLY attempts remain readable and use their own path.
+        projection["item_version_checksum"] = version.checksum
     return projection
 
 

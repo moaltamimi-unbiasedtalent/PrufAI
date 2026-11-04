@@ -81,6 +81,12 @@ export default function SystemPage() {
                   ? `${system.speech_transcription_executor.status} — ${system.speech_transcription_executor.description}`
                   : "NOT VERIFIED"}
               </dd>
+              <dt>Writing proposal executor</dt>
+              <dd>
+                {system.writing_proposal_executor
+                  ? `${system.writing_proposal_executor.status} — ${system.writing_proposal_executor.description}`
+                  : "NOT VERIFIED"}
+              </dd>
               <dt>Official issuance</dt>
               <dd>{system.certification.official_issuance}</dd>
               <dt>Nonofficial synthetic issuance setting</dt>

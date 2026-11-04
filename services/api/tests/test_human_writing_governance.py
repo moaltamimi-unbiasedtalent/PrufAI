@@ -193,7 +193,17 @@ def _published(session):
     )
     session.commit()
     assert session.scalar(select(func.count()).select_from(AuditEvent)) == audit_count
-    assert session.scalar(select(func.count()).select_from(WritingGovernanceOperation)) == 1
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(WritingGovernanceOperation)
+            .where(
+                WritingGovernanceOperation.operation_id == operation,
+                WritingGovernanceOperation.target_id == version.id,
+            )
+        )
+        == 1
+    )
     with pytest.raises(PermissionError, match="independent reviewer"):
         RubricGovernanceService.approve(
             session,

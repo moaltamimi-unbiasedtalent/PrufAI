@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import (
@@ -67,6 +67,9 @@ class PromptVersion(UUIDPrimaryKeyMixin, Base):
     configuration: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[AIArtifactStatus] = mapped_column(enum_type(AIArtifactStatus), nullable=False)
     checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
@@ -108,6 +111,9 @@ class AgentVersion(UUIDPrimaryKeyMixin, Base):
     output_schema: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status: Mapped[AIArtifactStatus] = mapped_column(enum_type(AIArtifactStatus), nullable=False)
     checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     definition: Mapped[AgentDefinition] = relationship(back_populates="versions")
     model_profile: Mapped[AIModelProfile] = relationship()
@@ -138,6 +144,9 @@ class AIWorkflowVersion(UUIDPrimaryKeyMixin, Base):
     graph_definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status: Mapped[AIArtifactStatus] = mapped_column(enum_type(AIArtifactStatus), nullable=False)
     checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     definition: Mapped[AIWorkflowDefinition] = relationship(back_populates="versions")
 

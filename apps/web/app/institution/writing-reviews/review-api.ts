@@ -2,6 +2,17 @@ import { authenticatedFetch } from "../../../lib/api";
 import { AssessmentApiError } from "../assessment-api";
 import type { RubricEvidence } from "./governance-ui";
 import type { ReviewRecord } from "./foundation-api";
+import type { WritingExecutionProvenance } from "./execution-api";
+
+export type AIWritingReviewDecision = {
+  operation_id: string;
+  expected_checksum: string;
+  reason: string;
+  corrections?: Record<
+    string,
+    { approved_points: string; approved_level: string }
+  >;
+};
 
 export type WritingReview = {
   id: string;
@@ -12,6 +23,9 @@ export type WritingReview = {
   rubric: RubricEvidence | null;
   criteria: Array<Record<string, unknown>>;
   assessment_origin: "HUMAN" | "AI" | "UNSPECIFIED";
+  assessment_mode?: string;
+  execution_provenance?: WritingExecutionProvenance | null;
+  human_review_policy?: { required: boolean; separation_of_duties: boolean };
   assessor_id?: string | null;
   reviewer_id?: string | null;
   assessed_at?: string | null;
@@ -25,6 +39,7 @@ export type WritingReview = {
   question_bank_item_version_id?: string;
   candidate_response_revision_id?: string;
   response_checksum?: string;
+  rubric_checksum?: string;
   standard_pack_version_id?: string;
   ai_run_id?: string | null;
   legacy_ai_review_eligible?: boolean;
@@ -84,18 +99,23 @@ export const writingReviewApi = {
     }>(
       `/api/v1/organisations/${organisationId}/subjective-assessments/${assessmentId}/versions`,
     ),
-  approve: (organisationId: string, versionId: string) =>
+  approve: (
+    organisationId: string,
+    versionId: string,
+    decision?: AIWritingReviewDecision,
+  ) =>
     request(
       `/api/v1/organisations/${organisationId}/subjective-assessments/${versionId}/approve`,
-      { method: "POST", body: JSON.stringify({}) },
+      { method: "POST", body: JSON.stringify(decision ?? {}) },
     ),
   decide: (
     organisationId: string,
     versionId: string,
     decision: "REJECTED" | "CHANGES_REQUESTED",
+    governance?: AIWritingReviewDecision,
   ) =>
     request(
       `/api/v1/organisations/${organisationId}/subjective-assessments/${versionId}/decision`,
-      { method: "POST", body: JSON.stringify({ decision }) },
+      { method: "POST", body: JSON.stringify({ ...governance, decision }) },
     ),
 };

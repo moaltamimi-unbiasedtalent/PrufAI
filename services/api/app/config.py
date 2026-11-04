@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Deployment approval is separate from a platform actor approving a profile.
     # These are exact immutable profile fingerprints, never API credentials.
     speech_transcription_approved_profile_fingerprints: list[str] = []
+    writing_test_adapter_enabled: bool = False
+    writing_provider_timeout_seconds: int = Field(default=60, ge=1, le=120)
+    writing_approved_profile_fingerprints: list[str] = []
     certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -65,11 +68,16 @@ class Settings(BaseSettings):
 
         if self.environment == "production" and self.speech_transcription_test_adapter_enabled:
             raise ValueError("TEST ONLY speech transcription is forbidden in production")
+        if self.environment == "production" and self.writing_test_adapter_enabled:
+            raise ValueError("TEST ONLY Writing execution is forbidden in production")
         if any(
             re.fullmatch(r"[a-f0-9]{64}", value) is None
-            for value in self.speech_transcription_approved_profile_fingerprints
+            for value in (
+                self.speech_transcription_approved_profile_fingerprints
+                + self.writing_approved_profile_fingerprints
+            )
         ):
-            raise ValueError("approved speech profiles require exact SHA256 fingerprints")
+            raise ValueError("approved execution profiles require exact SHA256 fingerprints")
         return self
 
     @field_validator("auth_access_token_ttl_minutes")

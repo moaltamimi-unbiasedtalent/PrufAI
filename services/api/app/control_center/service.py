@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.authorization import AuthorizationError, TenantContext
 from app.config import Settings, get_settings
 from app.control_center.repository import OVERVIEW_MODELS, ControlCenterRepository
-from app.models import AIModelProfile, Base
+from app.models import AIModelProfile, AuditEvent, Base
 from app.models.enums import AIArtifactStatus
 from app.result_release.service import ResultReleaseService
 from app.speech_transcription.runtime import validate_profile_configuration
@@ -50,6 +50,7 @@ SAFE_EVENT_PREFIXES = frozenset(
         "candidate_audio",
         "speech_transcription",
         "writing",
+        "writing_execution",
         "speaking",
         "result",
         "statement",
@@ -239,6 +240,102 @@ def _transcription_executor(session: Session, settings: Settings) -> dict[str, A
         "Original audio and human-only assessment remain available.",
         "test_only": False,
     }
+
+
+def _writing_executor(session: Session, settings: Settings) -> dict[str, Any]:
+    from app.writing_execution.registry import approved_profile_record, snapshot_execution_profile
+    from app.writing_execution.runtime import validate_execution_configuration
+
+    approvals = session.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.event_type == "writing_execution.profile_approved")
+        .order_by(AuditEvent.timestamp.desc())
+        .limit(100)
+    )
+    for approval in approvals:
+        try:
+            data = approval.metadata_json or {}
+            ids = {
+                key: uuid.UUID(str(data[key]))
+                for key in (
+                    "model_profile_id",
+                    "prompt_version_id",
+                    "agent_version_id",
+                    "workflow_version_id",
+                )
+            }
+            snapshot = snapshot_execution_profile(session, **ids)
+            if approved_profile_record(session, snapshot) is None:
+                continue
+            availability = validate_execution_configuration(snapshot, settings)["availability"]
+            if availability not in {"CONFIGURED", "TEST_ONLY"}:
+                continue
+            return {
+                "status": availability,
+                "description": (
+                    "TEST ONLY technical Writing worker configuration; linguistic accuracy and "
+                    "authentic AI assessment are not verified."
+                    if availability == "TEST_ONLY"
+                    else "Approved Writing configuration is available to the separate worker. "
+                    "Worker health and successful genuine provider execution are not asserted."
+                ),
+                "provider": snapshot["provider"],
+                "model_name": snapshot["model_name"],
+                "adapter_version": snapshot["adapter_version"],
+                "execution_profile_id": snapshot["execution_profile_id"],
+                "profile_version": snapshot["profile_version"],
+                "workflow_version_id": snapshot["workflow_version_id"],
+                "test_only": availability == "TEST_ONLY",
+            }
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return {
+        "status": "UNCONFIGURED",
+        "description": "No approved deployment Writing proposal configuration is available. "
+        "Human-only Writing remains independent. No provider execution is asserted.",
+        "test_only": False,
+    }
+
+
+def _safe_writing_operation(row: dict[str, Any]) -> None:
+    from app.writing_execution.execution import SAFE_FAILURES
+    from app.writing_execution.runtime import MODEL
+
+    for key, values in (
+        ("status", {"QUEUED", "RUNNING", "RETRYABLE", "COMPLETED", "FAILED", "CANCELLED"}),
+        ("provider", {"OPENAI", "DETERMINISTIC_TEST"}),
+        ("model_name", {MODEL, "writing-fixture-v1"}),
+        ("adapter_version", {"1"}),
+        ("failure_category", {None, *SAFE_FAILURES}),
+        (
+            "human_review_status",
+            {
+                None,
+                "PENDING",
+                "IN_REVIEW",
+                "APPROVED",
+                "REJECTED",
+                "CHANGES_REQUESTED",
+                "CANCELLED",
+            },
+        ),
+    ):
+        if row.get(key) not in values:
+            row[key] = "REDACTED"
+    for key in ("profile_version", "model_version"):
+        if not isinstance(row.get(key), str) or re.fullmatch(r"[a-f0-9]{64}", row[key]) is None:
+            row[key] = None
+    try:
+        row["workflow_version_id"] = str(uuid.UUID(str(row.get("workflow_version_id"))))
+    except (ValueError, TypeError, AttributeError):
+        row["workflow_version_id"] = None
+    row["test_only"] = row.get("provider") == "DETERMINISTIC_TEST"
+    started, completed = row.get("started_at"), row.get("completed_at")
+    row["duration_ms"] = (
+        max(0, int((completed - started).total_seconds() * 1000))
+        if isinstance(started, datetime) and isinstance(completed, datetime)
+        else None
+    )
 
 
 class ControlCenterService:
@@ -446,11 +543,21 @@ class ControlCenterService:
     ) -> dict[str, Any]:
         ControlCenterService.require(context, "ai.read")
         ControlCenterService._page(offset, limit)
-        if kind not in {"models", "workflows", "runs", "reviews", "checkpoints", "transcriptions"}:
+        if kind not in {
+            "models",
+            "workflows",
+            "runs",
+            "reviews",
+            "checkpoints",
+            "transcriptions",
+            "writing-proposals",
+        }:
             raise ValueError("unsupported AI metadata view")
         page = ControlCenterRepository.ai_operations(session, kind, offset, limit)
         for row in page["items"]:
-            if kind == "transcriptions":
+            if kind == "writing-proposals":
+                _safe_writing_operation(row)
+            elif kind == "transcriptions":
                 _safe_transcription_operation(row)
             elif kind == "runs":
                 row["request_id"] = safe_reference(row["request_id"])
@@ -552,6 +659,7 @@ class ControlCenterService:
                 "is connected to this API.",
             },
             "speech_transcription_executor": _transcription_executor(session, settings),
+            "writing_proposal_executor": _writing_executor(session, settings),
             "certification": {
                 "official_issuance": "DISABLED",
                 "synthetic_issuance_enabled": settings.certification_issuance_enabled,

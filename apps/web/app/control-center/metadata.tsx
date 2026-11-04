@@ -235,6 +235,30 @@ export const metadataSections: Record<string, Section> = {
           ["human_review_status", "Human review"],
         ],
       },
+      "speaking-proposals": {
+        label: "Speaking proposal jobs",
+        permission: "ai.read",
+        columns: [
+          ["id", "Execution job"],
+          ["organisation_id", "Organisation"],
+          ["status", "State"],
+          ["provider", "Provider"],
+          ["model_name", "Model"],
+          ["profile_version", "Pinned execution profile"],
+          ["workflow_version_id", "Workflow version"],
+          ["ai_run_id", "AI run"],
+          ["test_only", "TEST ONLY"],
+          ["attempt_count", "Execution attempts"],
+          ["created_at", "Requested"],
+          ["started_at", "Started"],
+          ["completed_at", "Completed"],
+          ["duration_ms", "Execution duration (ms)"],
+          ["failure_category", "Safe failure classification"],
+          ["human_review_status", "Human review"],
+          ["assessment_status", "Proposal version status"],
+          ["approval_status", "Registry approval"],
+        ],
+      },
       transcriptions: {
         label: "Transcription jobs",
         permission: "ai.read",
@@ -560,6 +584,11 @@ export function MetadataBrowser({ section }: { section: string }) {
           {overview?.service_health?.writing_proposal_executor?.status ??
             "NOT VERIFIED"}
           . {overview?.service_health?.writing_proposal_executor?.description}
+          <br />
+          Speaking proposal executor:{" "}
+          {overview?.service_health?.speaking_proposal_executor?.status ??
+            "NOT VERIFIED"}
+          . {overview?.service_health?.speaking_proposal_executor?.description}
         </p>
       )}
     </>

@@ -147,6 +147,7 @@ def ai_operations(
         "checkpoints",
         "transcriptions",
         "writing-proposals",
+        "speaking-proposals",
     ] = "models",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=25, ge=1, le=100),

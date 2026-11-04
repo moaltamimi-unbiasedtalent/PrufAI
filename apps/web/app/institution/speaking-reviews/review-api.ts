@@ -1,5 +1,6 @@
 import { authenticatedFetch } from "../../../lib/api";
 import { AssessmentApiError } from "../assessment-api";
+import type { SpeakingExecutionProvenance } from "./execution-api";
 import type { AudioMediaAsset } from "../../candidate/api";
 import type {
   RubricVersionDetail,
@@ -28,6 +29,17 @@ export type SpeakingReviewSummary = {
 
 export type SpeakingReview = SpeakingReviewSummary & {
   original_audio_primary_evidence: boolean;
+  assessment_mode?: string;
+  evidence_mode?: string;
+  rubric_checksum?: string;
+  exam_version_id?: string;
+  exam_version_item_binding_id?: string;
+  standard_pack_checksum?: string;
+  recording_policy_checksum?: string;
+  assessment_policy_checksum?: string;
+  ai_run_id?: string | null;
+  human_review_policy?: { required: boolean; separation_of_duties: boolean };
+  execution_provenance?: SpeakingExecutionProvenance | null;
   derived_transcription: boolean;
   candidate_media_asset_id: string;
   audio_sha256: string | null;

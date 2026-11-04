@@ -32,10 +32,12 @@ from app.models import (
     ResultAppeal,
     ResultModerationCase,
     ResultRelease,
+    SpeakingExecutionJob,
     SpeechTranscriptionJob,
     StandardPack,
     StandardPackSourceBinding,
     StandardPackVersion,
+    SubjectiveAssessmentVersion,
     User,
     WritingExecutionJob,
 )
@@ -403,7 +405,63 @@ class ControlCenterRepository:
         limit: int,
     ) -> dict[str, Any]:
         query: MetadataQuery
-        if kind == "writing-proposals":
+        if kind == "speaking-proposals":
+            review_status = (
+                select(HumanReviewRequest.status)
+                .where(HumanReviewRequest.entity_id == SpeakingExecutionJob.assessment_version_id)
+                .order_by(HumanReviewRequest.requested_at.desc(), HumanReviewRequest.id.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            query = (
+                select(
+                    SpeakingExecutionJob.id,
+                    SpeakingExecutionJob.organisation_id,
+                    SpeakingExecutionJob.status,
+                    SpeakingExecutionJob.execution_profile_id,
+                    SpeakingExecutionJob.profile_version,
+                    SpeakingExecutionJob.execution_snapshot["model_version"]
+                    .as_string()
+                    .label("model_version"),
+                    SpeakingExecutionJob.execution_snapshot["provider"]
+                    .as_string()
+                    .label("provider"),
+                    SpeakingExecutionJob.execution_snapshot["model_name"]
+                    .as_string()
+                    .label("model_name"),
+                    SpeakingExecutionJob.execution_snapshot["adapter_version"]
+                    .as_string()
+                    .label("adapter_version"),
+                    SpeakingExecutionJob.execution_snapshot["workflow_version_id"]
+                    .as_string()
+                    .label("workflow_version_id"),
+                    SpeakingExecutionJob.ai_run_id,
+                    SpeakingExecutionJob.attempt_count,
+                    SpeakingExecutionJob.max_attempts,
+                    SpeakingExecutionJob.created_at,
+                    SpeakingExecutionJob.updated_at,
+                    SpeakingExecutionJob.started_at,
+                    SpeakingExecutionJob.completed_at,
+                    SpeakingExecutionJob.failure_category,
+                    review_status.label("human_review_status"),
+                    SubjectiveAssessmentVersion.status.label("assessment_status"),
+                    SpeakingExecutionJob.execution_snapshot["model_profile_id"]
+                    .as_string()
+                    .label("_model_profile_id"),
+                    SpeakingExecutionJob.execution_snapshot["prompt_version_id"]
+                    .as_string()
+                    .label("_prompt_version_id"),
+                    SpeakingExecutionJob.execution_snapshot["agent_version_id"]
+                    .as_string()
+                    .label("_agent_version_id"),
+                )
+                .join(
+                    SubjectiveAssessmentVersion,
+                    SubjectiveAssessmentVersion.id == SpeakingExecutionJob.assessment_version_id,
+                )
+                .order_by(SpeakingExecutionJob.created_at.desc(), SpeakingExecutionJob.id)
+            )
+        elif kind == "writing-proposals":
             review_status = (
                 select(HumanReviewRequest.status)
                 .where(HumanReviewRequest.entity_id == WritingExecutionJob.assessment_version_id)

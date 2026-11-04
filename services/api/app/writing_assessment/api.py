@@ -73,6 +73,38 @@ def _speaking_private_access(
             raise _error(exc) from exc
 
 
+def _writing_execution_private_access(
+    session: Session,
+    context: TenantContext,
+    version: SubjectiveAssessmentVersion | None,
+) -> None:
+    """Execution-linked Writing evidence requires a live institution grant."""
+    if version is None:
+        return
+    from sqlalchemy import or_
+
+    from app.models import WritingExecutionJob
+    from app.writing_execution.execution import WritingExecutionService
+
+    conditions = [WritingExecutionJob.assessment_version_id == version.id]
+    if version.ai_run_id:
+        conditions.append(WritingExecutionJob.ai_run_id == version.ai_run_id)
+    linked_job = session.scalar(select(WritingExecutionJob).where(or_(*conditions)))
+    if linked_job is not None:
+        try:
+            WritingExecutionService.authorize(
+                session,
+                context,
+                linked_job.organisation_id,
+                "subjective.read",
+                candidate_user_id=linked_job.candidate_user_id,
+            )
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403, detail="active institution Writing permission required"
+            ) from exc
+
+
 def _legacy_ai_review_eligible(session: Session, version: SubjectiveAssessmentVersion) -> bool:
     """Recognize pinned legacy association without claiming authentic inference."""
     if version.assessment_origin != "UNSPECIFIED" or version.status.value != "AI_PROPOSED":
@@ -126,6 +158,7 @@ def list_assessments(
         rubric = session.get(RubricVersion, current.rubric_version_id) if current else None
         try:
             _speaking_private_access(session, context, rubric, current)
+            _writing_execution_private_access(session, context, current)
         except HTTPException:
             continue
         result.append(
@@ -176,6 +209,9 @@ def get_assessment_workspace(
     revision = session.get(CandidateResponseRevision, current.candidate_response_revision_id)
     rubric = session.get(RubricVersion, current.rubric_version_id)
     _speaking_private_access(session, context, rubric, current)
+    _writing_execution_private_access(session, context, current)
+    from app.writing_execution.execution import WritingExecutionService
+
     binding = session.get(ExamVersionItemBinding, current.exam_version_item_binding_id)
     task = (
         session.get(StandardPackTaskSpecification, binding.task.standard_pack_task_spec_id)
@@ -189,6 +225,16 @@ def get_assessment_workspace(
         "status": current.status.value,
         "checksum": current.checksum,
         "assessment_origin": current.assessment_origin,
+        "assessment_mode": rubric.ai_assessment_policy.get("mode", "LEGACY")
+        if rubric
+        else "LEGACY",
+        "execution_provenance": WritingExecutionService.execution_provenance(session, current),
+        "human_review_policy": {
+            "required": rubric.human_review_policy.get("required") is True,
+            "separation_of_duties": rubric.human_review_policy.get("separation_of_duties") is True,
+        }
+        if rubric
+        else None,
         "ai_run_id": str(current.ai_run_id) if current.ai_run_id else None,
         "legacy_ai_review_eligible": _legacy_ai_review_eligible(session, current),
         "skill": rubric.skill.value if rubric else None,
@@ -402,7 +448,15 @@ def approve_assessment(
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
     try:
         version = SubjectiveAssessmentService.approve(
-            session, context, version_id, (payload or {}).get("corrections")
+            session,
+            context,
+            version_id,
+            (payload or {}).get("corrections"),
+            operation_id=uuid.UUID(str(payload["operation_id"]))
+            if payload and payload.get("operation_id")
+            else None,
+            expected_checksum=(payload or {}).get("expected_checksum"),
+            reason=(payload or {}).get("reason"),
         )
         session.commit()
         return {
@@ -429,7 +483,15 @@ def decide_assessment(
     try:
         decision = HumanReviewStatus(str(payload["decision"]))
         version = SubjectiveAssessmentService.decide(
-            session, context, version_id, decision, payload.get("reason")
+            session,
+            context,
+            version_id,
+            decision,
+            payload.get("reason"),
+            operation_id=uuid.UUID(str(payload["operation_id"]))
+            if payload.get("operation_id")
+            else None,
+            expected_checksum=payload.get("expected_checksum"),
         )
         session.commit()
         return {"id": str(version.id), "status": version.status.value}
@@ -459,6 +521,7 @@ def list_assessment_versions(
         current = SubjectiveAssessmentService.current_version(assessment)
         rubric = session.get(RubricVersion, current.rubric_version_id) if current else None
         _speaking_private_access(session, context, rubric, current)
+        _writing_execution_private_access(session, context, current)
         return {
             "current_version_id": str(current.id) if current else None,
             "versions": [
@@ -509,6 +572,8 @@ def diff_assessment_versions(
         _speaking_private_access(
             session, context, session.get(RubricVersion, left.rubric_version_id), left
         )
+        _writing_execution_private_access(session, context, left)
+        _writing_execution_private_access(session, context, right)
         return SubjectiveAssessmentService.diff(left, right)
     except HTTPException:
         raise

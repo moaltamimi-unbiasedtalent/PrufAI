@@ -37,6 +37,7 @@ from app.models import (
     StandardPackSourceBinding,
     StandardPackVersion,
     User,
+    WritingExecutionJob,
 )
 from app.models.enums import AppealStatus, ModerationStatus
 
@@ -402,7 +403,44 @@ class ControlCenterRepository:
         limit: int,
     ) -> dict[str, Any]:
         query: MetadataQuery
-        if kind == "transcriptions":
+        if kind == "writing-proposals":
+            review_status = (
+                select(HumanReviewRequest.status)
+                .where(HumanReviewRequest.entity_id == WritingExecutionJob.assessment_version_id)
+                .order_by(HumanReviewRequest.requested_at.desc(), HumanReviewRequest.id.desc())
+                .limit(1)
+                .scalar_subquery()
+            )
+            query = select(
+                WritingExecutionJob.id,
+                WritingExecutionJob.organisation_id,
+                WritingExecutionJob.status,
+                WritingExecutionJob.execution_profile_id,
+                WritingExecutionJob.profile_version,
+                WritingExecutionJob.execution_snapshot["model_version"]
+                .as_string()
+                .label("model_version"),
+                WritingExecutionJob.execution_snapshot["provider"].as_string().label("provider"),
+                WritingExecutionJob.execution_snapshot["model_name"]
+                .as_string()
+                .label("model_name"),
+                WritingExecutionJob.execution_snapshot["adapter_version"]
+                .as_string()
+                .label("adapter_version"),
+                WritingExecutionJob.execution_snapshot["workflow_version_id"]
+                .as_string()
+                .label("workflow_version_id"),
+                WritingExecutionJob.ai_run_id,
+                WritingExecutionJob.attempt_count,
+                WritingExecutionJob.max_attempts,
+                WritingExecutionJob.created_at,
+                WritingExecutionJob.updated_at,
+                WritingExecutionJob.started_at,
+                WritingExecutionJob.completed_at,
+                WritingExecutionJob.failure_category,
+                review_status.label("human_review_status"),
+            ).order_by(WritingExecutionJob.created_at.desc(), WritingExecutionJob.id)
+        elif kind == "transcriptions":
             # Intentionally no audio identity, candidate, profile config, object
             # key, transcript, claim token or arbitrary provider payload projection.
             query = select(

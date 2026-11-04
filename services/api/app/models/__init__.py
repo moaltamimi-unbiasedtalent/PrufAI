@@ -223,9 +223,12 @@ __all__ = [
     "SubjectiveAssessmentVersion",
     "SubjectiveCriterionAssessment",
     "WritingGovernanceOperation",
+    "WritingExecutionJob",
     "CandidateAudioRecordingSession",
     "CandidateMediaAsset",
     "CandidateResponseMediaBinding",
     "SpeechTranscription",
     "SpeechTranscriptionVersion",
 ]
+
+from app.models.writing_execution import WritingExecutionJob

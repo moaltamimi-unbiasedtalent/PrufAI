@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import uuid
@@ -13,8 +14,6 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.models import (
-    AgentVersion,
-    AIRun,
     AssessmentRubric,
     CandidateExamAttempt,
     CandidateMediaAsset,
@@ -43,7 +42,6 @@ from app.models.enums import (
     SubjectiveConfidence,
     SubjectiveCriterionStatus,
 )
-from app.writing_assessment.evaluation import WRITING_WORKFLOW_STAGES, validate_stage_output
 
 
 class RubricError(ValueError):
@@ -419,6 +417,7 @@ class SubjectiveAssessmentService:
         media_asset_id: uuid.UUID | None = None,
         transcription_version_id: uuid.UUID | None = None,
         _human_origin: bool = False,
+        _execution_origin: bool = False,
         _human_successor_of: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         AuthorizationService.require_permission(
@@ -439,6 +438,11 @@ class SubjectiveAssessmentService:
             raise RubricError("rubric version not found")
         if rubric.ai_assessment_policy.get("mode") == "HUMAN_ONLY" and not _human_origin:
             raise RubricError("HUMAN_ONLY rubric requires the governed human workflow")
+        if skill is QuestionBankSkill.WRITING and not _human_origin:
+            if rubric.ai_assessment_policy.get("mode") != "AI_ASSISTED":
+                raise RubricError("explicit AI_ASSISTED Writing policy is required")
+            if not _execution_origin:
+                raise RubricError("Writing AI assessment requires a durable execution request")
         RubricService.assert_executable(rubric)
         if rubric.skill is not skill:
             raise RubricError("rubric skill is incompatible with subjective assessment")
@@ -612,6 +616,7 @@ class SubjectiveAssessmentService:
         *,
         ai_run_id: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
+        """Handoff only a validated completed execution; never a client-authored run."""
         AuthorizationService.require_permission(
             context, "subjective.assess", context.organisation_id
         )
@@ -620,140 +625,127 @@ class SubjectiveAssessmentService:
             raise RubricError("subjective assessment version not found")
         if version.assessment_origin == "HUMAN":
             raise RubricError("human assessments cannot accept AI proposals")
+        assessment = session.get(SubjectiveAssessment, version.subjective_assessment_id)
+        rubric = session.get(RubricVersion, version.rubric_version_id)
+        if assessment is None or assessment.organisation_id != context.organisation_id:
+            raise RubricError("subjective assessment is not available in this organisation")
+        if rubric is None or rubric.skill is not QuestionBankSkill.WRITING:
+            raise RubricError("Writing proposal requires its dedicated governed workflow")
+        if rubric.ai_assessment_policy.get("mode") != "AI_ASSISTED":
+            raise RubricError("explicit AI_ASSISTED policy required")
+        if ai_run_id is None:
+            raise RubricError("exact completed AI run provenance is required")
+        from app.writing_execution.execution import WritingExecutionService
+
+        context = WritingExecutionService.authorize(
+            session,
+            context,
+            assessment.organisation_id,
+            "subjective.assess",
+            candidate_user_id=assessment.candidate_user_id,
+        )
+        job = WritingExecutionService.validate_handoff(session, version, ai_run_id, proposal)
+        if version.status is SubjectiveAssessmentStatus.AI_PROPOSED:
+            reviews = list(
+                session.scalars(
+                    select(HumanReviewRequest).where(
+                        HumanReviewRequest.entity_type == "SUBJECTIVE_ASSESSMENT_VERSION",
+                        HumanReviewRequest.entity_id == version.id,
+                    )
+                )
+            )
+            if (
+                version.ai_run_id == ai_run_id
+                and len(reviews) == 1
+                and version.ai_proposal == proposal
+            ):
+                return version
+            raise RubricError("Writing handoff is already finalized")
         if version.status not in {
             SubjectiveAssessmentStatus.CREATED,
             SubjectiveAssessmentStatus.AI_EVALUATION_RUNNING,
         }:
             raise RubricError("subjective assessment cannot accept another AI proposal")
-        assessment = session.get(SubjectiveAssessment, version.subjective_assessment_id)
-        if assessment is None or assessment.organisation_id != context.organisation_id:
-            raise RubricError("subjective assessment is not available in this organisation")
-        rubric = session.get(RubricVersion, version.rubric_version_id)
-        if rubric is None:
-            raise RubricError("rubric version not found")
-        RubricService.assert_executable(rubric)
-        if ai_run_id is None:
-            raise RubricError("exact AI run provenance is required for a proposal")
-        entries = proposal.get("criteria")
-        if not isinstance(entries, list):
-            raise RubricError("AI proposal must contain structured criteria")
-        expected = SubjectiveAssessmentService._criterion_map(rubric)
-        if {str(item.get("criterion_code")) for item in entries} != set(expected):
-            raise RubricError("AI proposal criterion coverage does not match rubric")
-        score_values: dict[str, Decimal] = {}
-        confidence: dict[str, str] = {}
-        disagreement: dict[str, Any] = {}
-        for entry in entries:
-            code = str(entry["criterion_code"])
-            criterion = expected[code]
-            points = _decimal(entry.get("proposed_points"))
-            maximum = _decimal(criterion["max_points"])
-            allowed_levels = {str(level.get("code")) for level in rubric.performance_levels}
-            if (
-                points < 0
-                or points > maximum
-                or str(entry.get("proposed_level")) not in allowed_levels
-            ):
-                raise RubricError("AI proposal exceeds rubric bounds")
-            if str(entry.get("confidence")) not in {item.value for item in SubjectiveConfidence}:
-                raise RubricError("AI proposal confidence is invalid")
-            evidence = entry.get("evidence")
-            if not isinstance(evidence, list):
-                raise RubricError("AI proposal evidence must be structured")
-            score_values[code] = points
-            confidence[code] = str(entry["confidence"])
-            disagreement[code] = entry.get("disagreement", {})
-        version.proposed_score = SubjectiveAssessmentService._aggregate(rubric, score_values)
-        version.confidence_summary = confidence
-        version.disagreement_summary = disagreement
+        snapshot = job.execution_snapshot
+        entries = proposal["criteria"]
+        # All validation happened before any proposal, criterion or review mutation.
+        version.proposed_score = SubjectiveAssessmentService._aggregate(
+            rubric,
+            {entry["criterion_code"]: _decimal(entry["proposed_points"]) for entry in entries},
+        )
+        version.ai_proposal = copy.deepcopy(proposal)
+        version.confidence_summary = {
+            entry["criterion_code"]: entry["confidence"] for entry in entries
+        }
+        version.disagreement_summary = {}
+        version.consistency_summary = copy.deepcopy(proposal["consistency"])
+        version.ai_run_id, version.assessment_origin = ai_run_id, "AI"
+        version.workflow_version_id = uuid.UUID(snapshot["workflow_version_id"])
+        version.agent_version_id = uuid.UUID(snapshot["agent_version_id"])
+        version.prompt_version_id = uuid.UUID(snapshot["prompt_version_id"])
+        version.model_profile_id = uuid.UUID(snapshot["model_profile_id"])
         version.provenance = {
             "candidate_text_untrusted": True,
-            "workflow_stages": list(WRITING_WORKFLOW_STAGES),
-            "ai_run_id": str(ai_run_id) if ai_run_id else None,
-            "tool_allowlist": [
-                "KNOWLEDGE_RETRIEVAL",
-                "STANDARD_PACK_READ",
-                "RULES_EVALUATE",
-                "CITATION_RESOLVE",
-                "RUBRIC_READ",
-            ],
+            "execution_job_id": str(job.id),
+            "execution_profile_id": str(job.execution_profile_id),
+            "profile_version": job.profile_version,
+            "model_version": snapshot["model_version"],
+            "approval": copy.deepcopy(snapshot["approval"]),
+            "snapshot_checksum": job.snapshot_checksum,
+            "input_checksum": job.input_checksum,
+            "output_checksum": job.output_checksum,
+            "source": {
+                key: value
+                for key, value in job.source_identity.items()
+                if key not in {"candidate_user_id", "organisation_id"}
+            },
+            "ai_run_id": str(ai_run_id),
+            "ai_run_step_id": str(job.active_step_id),
+            "provider": snapshot["provider"],
+            "model_name": snapshot["model_name"],
+            "adapter_version": snapshot["adapter_version"],
+            "test_only": snapshot["provider"] == "DETERMINISTIC_TEST",
+            "workflow_stages": [node["type"] for node in snapshot["workflow_graph"]["nodes"]],
+            "tool_allowlist": copy.deepcopy(snapshot["tool_policy"]),
+            "consistency_source": "SINGLE_PROVIDER_OUTPUT_NOT_INDEPENDENT_REVIEW",
+            "confidence_semantics": "MODEL_SELF_REPORTED_UNCALIBRATED",
         }
-        version.ai_run_id = ai_run_id
-        version.assessment_origin = "AI"
-        if ai_run_id is not None:
-            ai_run = session.get(AIRun, ai_run_id)
-            if (
-                ai_run is None
-                or ai_run.workflow_version_id is None
-                or ai_run.agent_version_id is None
-            ):
-                raise RubricError("AI run lacks exact workflow and agent provenance")
-            agent = session.get(AgentVersion, ai_run.agent_version_id)
-            if agent is None:
-                raise RubricError("AI run agent provenance is missing")
-            SubjectiveAssessmentService.assert_model_profile_eligible(agent.model_profile)
-            version.workflow_version_id = ai_run.workflow_version_id
-            version.agent_version_id = agent.id
-            version.prompt_version_id = agent.prompt_version_id
-            version.model_profile_id = agent.model_profile_id
-        version.status = SubjectiveAssessmentStatus.AI_PROPOSED
-        try:
-            validate_stage_output(
-                criteria=entries,
-                rubric_criteria=rubric.criteria,
-                performance_levels=rubric.performance_levels,
-                response_text=str(version.provenance.get("candidate_text", "")),
-            )
-        except ValueError as exc:
-            raise RubricError(str(exc)) from exc
         for entry in entries:
-            session.add(
+            version.criterion_assessments.append(
                 SubjectiveCriterionAssessment(
-                    subjective_assessment_version_id=version.id,
-                    criterion_code=str(entry["criterion_code"]),
-                    proposed_level=str(entry["proposed_level"]),
+                    criterion_code=entry["criterion_code"],
+                    proposed_level=entry["proposed_level"],
                     proposed_points=_decimal(entry["proposed_points"]),
-                    confidence=SubjectiveConfidence(str(entry["confidence"])),
-                    evidence=entry["evidence"],
-                    rationale=str(entry.get("rationale", ""))[:2000],
-                    uncertainties=entry.get("uncertainties", []),
-                    disagreement=entry.get("disagreement", {}),
+                    confidence=SubjectiveConfidence(entry["confidence"]),
+                    evidence=copy.deepcopy(entry["evidence"]),
+                    rationale=entry["rationale"],
+                    uncertainties=copy.deepcopy(entry["uncertainties"]),
+                    disagreement={},
                     status=SubjectiveCriterionStatus.PROPOSED,
+                    ai_run_step_id=job.active_step_id,
                 )
             )
-        session.flush()
         version.checksum = canonical_checksum(
             {
                 "response_checksum": version.response_checksum,
                 "rubric_checksum": version.rubric_checksum,
-                "proposed_score": str(version.proposed_score),
-                "criteria": proposal["criteria"],
+                "proposal": proposal,
                 "provenance": version.provenance,
-                "workflow_version_id": str(version.workflow_version_id)
-                if version.workflow_version_id
-                else None,
-                "agent_version_id": str(version.agent_version_id)
-                if version.agent_version_id
-                else None,
-                "prompt_version_id": str(version.prompt_version_id)
-                if version.prompt_version_id
-                else None,
-                "model_profile_id": str(version.model_profile_id)
-                if version.model_profile_id
-                else None,
             }
         )
-        review = HumanReviewRequest(
-            review_type="SUBJECTIVE_ASSESSMENT",
-            entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
-            entity_id=version.id,
-            ai_run_id=ai_run_id,
-            status=HumanReviewStatus.PENDING,
-            requested_by=context.user_id,
-            requested_at=datetime.now(timezone.utc),
-            reviewed_checksum=version.checksum,
+        version.status = SubjectiveAssessmentStatus.AI_PROPOSED
+        session.add(
+            HumanReviewRequest(
+                review_type="SUBJECTIVE_ASSESSMENT",
+                entity_type="SUBJECTIVE_ASSESSMENT_VERSION",
+                entity_id=version.id,
+                ai_run_id=ai_run_id,
+                status=HumanReviewStatus.PENDING,
+                requested_by=context.user_id,
+                requested_at=datetime.now(timezone.utc),
+                reviewed_checksum=version.checksum,
+            )
         )
-        session.add(review)
         session.flush()
         SubjectiveAssessmentService._audit(
             session, context, "subjective_assessment.ai_proposed", version
@@ -769,7 +761,30 @@ class SubjectiveAssessmentService:
         context: TenantContext,
         version_id: uuid.UUID,
         corrections: dict[str, dict[str, Any]] | None = None,
+        *,
+        operation_id: uuid.UUID | None = None,
+        expected_checksum: str | None = None,
+        reason: str | None = None,
     ) -> SubjectiveAssessmentVersion:
+        from app.models import WritingExecutionJob
+
+        if session.scalar(
+            select(WritingExecutionJob.id).where(
+                WritingExecutionJob.assessment_version_id == version_id
+            )
+        ):
+            from app.writing_execution.review import decide
+
+            return decide(
+                session,
+                context,
+                version_id,
+                decision=HumanReviewStatus.APPROVED,
+                corrections=corrections,
+                operation_id=operation_id,
+                expected_checksum=expected_checksum,
+                reason=reason,
+            )
         AuthorizationService.require_permission(
             context, "subjective.review", context.organisation_id
         )
@@ -847,6 +862,8 @@ class SubjectiveAssessmentService:
         review: HumanReviewRequest,
         *,
         result_correction_id: uuid.UUID | None = None,
+        _review_metadata: dict[str, Any] | None = None,
+        _execution_review_token: object | None = None,
     ) -> SubjectiveAssessmentVersion:
         """Create an approved successor; never overwrite AI proposal values."""
         rubric = session.get(RubricVersion, source.rubric_version_id)
@@ -854,6 +871,18 @@ class SubjectiveAssessmentService:
         if rubric is None or assessment is None:
             raise RubricError("assessment correction references unavailable data")
         is_human = source.assessment_origin == "HUMAN"
+        from app.models import WritingExecutionJob
+
+        if session.scalar(
+            select(WritingExecutionJob.id).where(
+                WritingExecutionJob.assessment_version_id == source.id
+            )
+        ):
+            from app.writing_execution.review import authorize_correction
+
+            authorize_correction(
+                session, context, source, review, _review_metadata, _execution_review_token
+            )
         if is_human:
             if rubric.skill is not QuestionBankSkill.WRITING:
                 raise RubricError(
@@ -902,6 +931,7 @@ class SubjectiveAssessmentService:
                 **source.provenance,
                 "human_correction": True,
                 "reviewed_by": str(context.user_id),
+                **(_review_metadata or {}),
                 **(
                     {
                         "reviewed_at": decision_time.isoformat(),
@@ -1050,7 +1080,28 @@ class SubjectiveAssessmentService:
         version_id: uuid.UUID,
         decision: HumanReviewStatus,
         reason: str | None = None,
+        *,
+        operation_id: uuid.UUID | None = None,
+        expected_checksum: str | None = None,
     ) -> SubjectiveAssessmentVersion:
+        from app.models import WritingExecutionJob
+
+        if session.scalar(
+            select(WritingExecutionJob.id).where(
+                WritingExecutionJob.assessment_version_id == version_id
+            )
+        ):
+            from app.writing_execution.review import decide
+
+            return decide(
+                session,
+                context,
+                version_id,
+                decision=decision,
+                operation_id=operation_id,
+                expected_checksum=expected_checksum,
+                reason=reason,
+            )
         AuthorizationService.require_permission(
             context, "subjective.review", context.organisation_id
         )

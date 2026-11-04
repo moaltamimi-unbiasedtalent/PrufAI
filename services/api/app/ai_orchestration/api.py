@@ -6,6 +6,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai_orchestration.service import AIOrchestrationService
@@ -22,6 +23,13 @@ from app.models import (
 from app.models.enums import HumanReviewStatus
 from app.speech_transcription.execution import snapshot_profile
 from app.speech_transcription.profiles import approve_profile, profile_descriptor
+from app.writing_execution.registry import (
+    approve_execution_profile,
+    approved_profile_record,
+    create_execution_profile,
+    snapshot_execution_profile,
+)
+from app.writing_execution.runtime import validate_execution_configuration
 
 router = APIRouter(prefix="/api/v1/platform/ai", tags=["ai-orchestration"])
 
@@ -53,6 +61,104 @@ class RunRequest(BaseModel):
 class TranscriptionProfileApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_profile_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class WritingProfileCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=3, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]+$")
+    name: str = Field(min_length=1, max_length=200)
+    provider: str = Field(min_length=1, max_length=80)
+    model_name: str = Field(min_length=1, max_length=160)
+    configuration: dict[str, Any]
+    system_template: str = Field(min_length=1, max_length=16000)
+    instruction_template: Optional[str] = Field(default=None, max_length=16000)
+
+
+class WritingProfileApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_profile_id: uuid.UUID
+    prompt_version_id: uuid.UUID
+    agent_version_id: uuid.UUID
+    workflow_version_id: uuid.UUID
+    expected_profile_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+def _writing_profile_payload(
+    session: Session, snapshot: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
+    # Registry content and processing references are not platform metadata projections.
+    keys = (
+        "execution_profile_id",
+        "profile_version",
+        "model_profile_id",
+        "model_version",
+        "prompt_version_id",
+        "prompt_checksum",
+        "agent_version_id",
+        "agent_checksum",
+        "workflow_version_id",
+        "workflow_checksum",
+        "provider",
+        "model_name",
+        "adapter_version",
+    )
+    return {
+        **{key: snapshot[key] for key in keys},
+        **validate_execution_configuration(snapshot, settings),
+        "registry_approved": approved_profile_record(session, snapshot) is not None,
+        "external_processing_authorized": False,
+    }
+
+
+@router.post("/writing-execution-profiles", status_code=status.HTTP_201_CREATED)
+def create_writing_execution_profile(
+    payload: WritingProfileCreate,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = _require(principal, "ai.manage")
+    try:
+        snapshot = create_execution_profile(session, context=context, **payload.model_dump())
+        session.commit()
+    except AuthorizationError as exc:
+        session.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="WRITING_PROFILE_NAMESPACE_CONFLICT") from exc
+    return _writing_profile_payload(session, snapshot, settings)
+
+
+@router.post("/writing-execution-profiles/approve")
+def approve_writing_execution_profile(
+    payload: WritingProfileApproval,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = _require(principal, "ai.manage")
+    try:
+        ids = payload.model_dump(exclude={"expected_profile_version"})
+        snapshot = snapshot_execution_profile(session, **ids)
+        approved = approve_execution_profile(
+            session,
+            snapshot=snapshot,
+            context=context,
+            settings=settings,
+            expected_profile_version=payload.expected_profile_version,
+        )
+        session.commit()
+    except AuthorizationError as exc:
+        session.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _writing_profile_payload(session, approved, settings)
 
 
 class ReviewDecision(BaseModel):

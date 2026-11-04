@@ -27,6 +27,7 @@ from app.speaking_assessment.api import router as speaking_assessment_router
 from app.speech_transcription.api import router as speech_transcription_router
 from app.standard_packs.api import router as standard_packs_router
 from app.writing_assessment.api import writing_router
+from app.writing_execution.api import router as writing_execution_router
 
 app = FastAPI(title="PrüfAI API", version="0.1.0")
 
@@ -87,3 +88,6 @@ app.include_router(control_center_router)
 @app.get("/health")
 def health(settings: Settings = Depends(settings_dependency)) -> dict[str, str]:  # noqa: B008
     return {"service": settings.service_name, "status": "ok"}
+
+
+app.include_router(writing_execution_router)

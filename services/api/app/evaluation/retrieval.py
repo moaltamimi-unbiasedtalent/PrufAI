@@ -17,11 +17,11 @@ class RetrievalCase:
 
 @dataclass(frozen=True)
 class QualityGate:
-    provider_contamination_rate: float = 0.0
-    assessment_contamination_rate: float = 0.0
-    scope_compliance_rate: float = 1.0
-    citation_validity_rate: float = 1.0
-    historical_version_accuracy: float = 1.0
+    provider_contamination_rate: float | None = None
+    assessment_contamination_rate: float | None = None
+    scope_compliance_rate: float | None = None
+    citation_validity_rate: float | None = None
+    historical_version_accuracy: float | None = None
 
     def passed(self) -> bool:
         return (

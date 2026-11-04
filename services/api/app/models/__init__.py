@@ -15,6 +15,13 @@ from app.models.ai_orchestration import (
 )
 from app.models.audit import AuditEvent
 from app.models.base import Base
+from app.models.evaluation import (
+    EvaluationCaseResult,
+    EvaluationDataset,
+    EvaluationDatasetVersion,
+    EvaluationReview,
+    EvaluationRun,
+)
 from app.models.exam import (
     Exam,
     ExamVersion,
@@ -130,6 +137,11 @@ from app.models.writing_assessment import (
 )
 
 __all__ = [
+    "EvaluationDataset",
+    "EvaluationDatasetVersion",
+    "EvaluationRun",
+    "EvaluationCaseResult",
+    "EvaluationReview",
     "SpeechTranscriptionJob",
     "AuditEvent",
     "AIModelProfile",

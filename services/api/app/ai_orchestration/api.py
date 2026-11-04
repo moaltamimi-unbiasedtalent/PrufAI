@@ -4,13 +4,14 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai_orchestration.service import AIOrchestrationService
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.config import Settings, get_settings
 from app.db import get_db_session
 from app.models import (
     AIModelProfile,
@@ -19,6 +20,8 @@ from app.models import (
     HumanReviewRequest,
 )
 from app.models.enums import HumanReviewStatus
+from app.speech_transcription.execution import snapshot_profile
+from app.speech_transcription.profiles import approve_profile, profile_descriptor
 
 router = APIRouter(prefix="/api/v1/platform/ai", tags=["ai-orchestration"])
 
@@ -47,6 +50,11 @@ class RunRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=120)
 
 
+class TranscriptionProfileApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_profile_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class ReviewDecision(BaseModel):
     decision: HumanReviewStatus
     checksum: Optional[str] = None
@@ -71,6 +79,7 @@ def list_models(
             "provider": item.provider,
             "model_name": item.model_name,
             "status": item.status.value,
+            **profile_descriptor(item),
         }
         for item in session.scalars(select(AIModelProfile).order_by(AIModelProfile.code))
     ]
@@ -85,11 +94,48 @@ def create_model(
     context = _require(principal, "ai.manage")
     try:
         item = AIOrchestrationService.create_model(session, context=context, **payload.model_dump())
+        if item.purpose == "SPEECH_TRANSCRIPTION":
+            # Persist the creator for an independent, exact-version approval.
+            item.created_by = context.user_id
+            languages = item.configuration.get("languages", [])
+            snapshot_profile(item, languages[0] if languages else "de", {})
         session.commit()
     except Exception as exc:
         session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"id": str(item.id), "code": item.code, "status": item.status.value}
+
+
+@router.post("/models/{profile_id}/approve-transcription")
+def approve_transcription_profile(
+    profile_id: uuid.UUID,
+    payload: TranscriptionProfileApproval,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = _require(principal, "ai.manage")
+    try:
+        profile = approve_profile(
+            session,
+            profile_id=profile_id,
+            expected_version=payload.expected_profile_version,
+            context=context,
+            settings=settings,
+        )
+        session.commit()
+    except AuthorizationError as exc:
+        session.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "id": str(profile.id),
+        "status": profile.status.value,
+        **profile_descriptor(profile),
+        "external_processing_authorized": False,
+    }
 
 
 @router.post("/workflow-versions/{version_id}/run", status_code=status.HTTP_202_ACCEPTED)

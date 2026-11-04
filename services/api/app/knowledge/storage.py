@@ -14,6 +14,10 @@ class StorageError(ValueError):
     pass
 
 
+class StorageIntegrityError(StorageError):
+    """The private object no longer matches pinned evidence metadata."""
+
+
 class ObjectStorage(Protocol):
     def put(self, key: str, content: bytes, mime_type: str) -> None: ...
 
@@ -84,6 +88,28 @@ class S3CompatibleObjectStorage:
             return int(response["ContentLength"])
         except Exception as exc:
             raise StorageError("source file is unavailable") from exc
+
+    def get_bounded(self, key: str, *, max_bytes: int, expected_size: int) -> bytes:
+        """Read private original audio with a hard cap and close the S3 stream."""
+        if not 0 < expected_size <= max_bytes:
+            raise StorageIntegrityError("source audio exceeds bounded request size")
+        body: Any = None
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            if response.get("ContentLength") != expected_size:
+                raise StorageIntegrityError("source audio size does not match evidence")
+            content = bytes(body.read(expected_size + 1))
+            if len(content) != expected_size:
+                raise StorageIntegrityError("source audio size does not match evidence")
+            return content
+        except StorageIntegrityError:
+            raise
+        except Exception as exc:
+            raise StorageError("bounded source audio read failed") from exc
+        finally:
+            if body is not None:
+                body.close()
 
     def read_range(self, key: str, start: int, end: int) -> bytes:
         if start < 0 or end < start:

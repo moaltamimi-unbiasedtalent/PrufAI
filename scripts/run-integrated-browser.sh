@@ -14,6 +14,9 @@ REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPOSITORY_ROOT"
 export PYTHONPATH="$REPOSITORY_ROOT/services/api"
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
+# Explicit synthetic technical execution only. Production refuses this adapter;
+# neither an external provider nor authentic speech recognition is asserted.
+export SPEECH_TRANSCRIPTION_TEST_ADAPTER_ENABLED=1
 export AUTH_RATE_LIMIT_BACKEND=memory
 # Recorded evidence acceptance must use durable private storage. This preflight
 # never replaces a configured bucket or falls back to the standards memory mode.

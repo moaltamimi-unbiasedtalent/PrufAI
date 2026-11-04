@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../../../../../lib/auth";
 import { speakingReviewApi, type AudioEvidenceAsset } from "../../review-api";
 import { AudioEvidenceView } from "../../audio-evidence-view";
+import { TranscriptionEvidencePanel } from "../../transcription-evidence";
 
 export default function RecordedAudioPage({
   params,
@@ -65,7 +66,13 @@ export default function RecordedAudioPage({
           </button>
         </div>
       ) : data && organisationId ? (
-        <AudioEvidenceView item={data} organisationId={organisationId} />
+        <>
+          <AudioEvidenceView item={data} organisationId={organisationId} />
+          <TranscriptionEvidencePanel
+            item={data}
+            organisationId={organisationId}
+          />
+        </>
       ) : (
         <p role="status">Loading exact audio evidence…</p>
       )}

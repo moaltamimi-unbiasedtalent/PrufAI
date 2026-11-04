@@ -75,6 +75,12 @@ export default function SystemPage() {
               <dd>
                 {system.ai_executor.status} — {system.ai_executor.description}
               </dd>
+              <dt>Speech transcription executor</dt>
+              <dd>
+                {system.speech_transcription_executor
+                  ? `${system.speech_transcription_executor.status} — ${system.speech_transcription_executor.description}`
+                  : "NOT VERIFIED"}
+              </dd>
               <dt>Official issuance</dt>
               <dd>{system.certification.official_issuance}</dd>
               <dt>Nonofficial synthetic issuance setting</dt>

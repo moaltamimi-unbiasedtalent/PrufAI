@@ -229,6 +229,7 @@ def reconcile_audio_demo(
     password: str,
     human_speaking: bool = False,
     speaking_results: bool = False,
+    transcription_execution: bool = False,
 ) -> dict[str, str]:
     if settings.environment != "development" or not enabled:
         raise RuntimeError("Audio demo requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1.")
@@ -269,7 +270,21 @@ def reconcile_audio_demo(
             "This independent original development scenario supports a real human-governed "
             "Speaking result journey. No score, result, statement or release is seeded.\n"
         )
-    tasks = AUDIO_TASKS[:1] if human_speaking else AUDIO_TASKS
+    if transcription_execution:
+        from app.scripts.seed_transcription_execution_demo import (
+            TRANSCRIPTION_CANDIDATE_EMAIL,
+            TRANSCRIPTION_EXAM_NAME,
+            TRANSCRIPTION_POLICY_CONTENT,
+        )
+
+        namespace = "transcription-execution-"
+        version_label = "transcription-execution-b1-v1"
+        scenario_code = "PRUFAI_TRANSCRIPTION_EXECUTION_B1"
+        scenario_name = TRANSCRIPTION_EXAM_NAME
+        policy_content = TRANSCRIPTION_POLICY_CONTENT
+        candidate_email = TRANSCRIPTION_CANDIDATE_EMAIL
+        candidate_name = "Transcription Execution Practice Candidate"
+    tasks = AUDIO_TASKS[:1] if human_speaking or transcription_execution else AUDIO_TASKS
 
     def ensure(model: type[Model], key: str, **values: Any) -> Model:
         return _ensure(session, model, key, namespace=namespace, **values)
@@ -294,7 +309,9 @@ def reconcile_audio_demo(
         "pack",
         code=scenario_code,
         name=(
-            scenario_name if human_speaking else f"Original recorded audio practice — {AUDIO_LABEL}"
+            scenario_name
+            if human_speaking or transcription_execution
+            else f"Original recorded audio practice — {AUDIO_LABEL}"
         ),
         assessment_family=AssessmentFamily.LANGUAGE,
         language="de",
@@ -354,7 +371,9 @@ def reconcile_audio_demo(
     authority = ensure(
         KnowledgeAuthority,
         "policy-authority",
-        code="PRUFAI_SPEAKING_RESULTS_INTERNAL"
+        code="PRUFAI_TRANSCRIPTION_EXECUTION_INTERNAL"
+        if transcription_execution
+        else "PRUFAI_SPEAKING_RESULTS_INTERNAL"
         if speaking_results
         else "PRUFAI_HUMAN_SPEAKING_INTERNAL"
         if human_speaking
@@ -520,7 +539,11 @@ def reconcile_audio_demo(
                     "kind": "ORAL_RESPONSE",
                     "prompt": f"{AUDIO_LABEL}\n{name}\n{prompt}\n"
                     + (
-                        "Diese originale Übung wird von zwei berechtigten Menschen anhand einer "
+                        "TEST ONLY: Diese technische Übung prüft dauerhafte Verarbeitung. "
+                        "Die Test-Transkription erkennt keine Sprache und vergibt keine Bewertung. "
+                        if transcription_execution
+                        else "Diese originale Übung wird von zwei berechtigten Menschen "
+                        "anhand einer "
                         "zuvor veröffentlichten Rubrik geprüft. Keine KI oder Transkription. "
                         if human_speaking
                         else "Diese Übung speichert nur Ihre Aufnahme. "
@@ -633,6 +656,15 @@ def reconcile_audio_demo(
     if ExamStudioService.validate(session, author, exam_version).status != "PASS":
         raise RuntimeError("Audio demo failed real Exam Studio validation.")
     CandidateRuntimeService._safe_plan(session, exam_version)
+    if transcription_execution:
+        return {
+            "transcription_execution_candidate_user_id": str(candidate.id),
+            "transcription_execution_candidate_email": candidate.email,
+            "transcription_execution_exam_version_id": str(exam_version.id),
+            "transcription_execution_exam_name": scenario_name,
+            "transcription_execution_pack_version_id": str(version.id),
+            "transcription_execution_item_version_id": str(items[0].id),
+        }
     if human_speaking:
         assert rubric_version is not None
         prefix = "speaking_results" if speaking_results else "speaking_human"

@@ -174,6 +174,11 @@ class SpeechTranscriptionVersion(UUIDPrimaryKeyMixin, Base):
     supersedes_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("speech_transcription_versions.id", ondelete="SET NULL")
     )
+    execution_job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("speech_transcription_jobs.id", ondelete="RESTRICT"), unique=True
+    )
+    profile_version: Mapped[Optional[str]] = mapped_column(String(64))
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     transcription: Mapped[SpeechTranscription] = relationship(back_populates="versions")
 
 
@@ -212,6 +217,9 @@ def _prevent_completed_transcription_mutation(
         "configuration",
         "configuration_checksum",
         "language",
+        "execution_job_id",
+        "profile_version",
+        "provenance",
     }
     if any(state.attrs[name].history.has_changes() for name in protected if name in state.attrs):
         raise ValueError("completed transcription versions are immutable")

@@ -9,6 +9,7 @@ import {
   type AudioEvidenceAsset,
 } from "../review-api";
 import { AudioEvidenceView } from "../audio-evidence-view";
+import { TranscriptionEvidencePanel } from "../transcription-evidence";
 import {
   speakingFoundationApi,
   buildHumanAudioCriteria,
@@ -354,6 +355,10 @@ export default function SpeakingReviewWorkspace({
                 item={data.audio}
                 organisationId={organisationId}
                 assessmentContext={Boolean(human)}
+              />
+              <TranscriptionEvidencePanel
+                item={data.audio}
+                organisationId={organisationId}
               />
               <dl className={css.provenance}>
                 <dt>Assessment</dt>

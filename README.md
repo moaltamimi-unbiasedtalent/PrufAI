@@ -35,6 +35,11 @@ For candidate recorded-audio evidence, use the supported private MinIO and pinne
 media-runtime workflow in [Recorded audio primary evidence](docs/recorded-audio.md).
 That path preserves objects and avoids reliance on the older Compose MinIO image.
 
+The separate durable transcription worker and its closed-by-default provider
+approval boundary are documented in
+[Governed transcription execution](docs/transcription-execution.md). Technical
+TEST ONLY execution is separate from authentic speech-recognition acceptance.
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d
 ```

@@ -78,6 +78,8 @@ PLATFORM_PERMISSIONS = (
     "rubric.read",
 )
 TENANT_PERMISSIONS = (
+    "speech_transcription.request",
+    "speech_transcription.read",
     "organisation.read",
     "organisation.manage",
     "site.read",
@@ -181,6 +183,8 @@ ROLE_DEFINITIONS: Dict[str, Tuple[RoleScope, Tuple[str, ...]]] = {
     "EXAM_MANAGER": (
         RoleScope.TENANT,
         (
+            "speech_transcription.request",
+            "speech_transcription.read",
             "organisation.read",
             "site.read",
             "membership.read",

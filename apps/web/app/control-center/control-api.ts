@@ -22,6 +22,14 @@ export type PlatformSystem = {
   object_storage: { backend: string; health: string };
   redis: { health: string };
   ai_executor: { status: string; description: string };
+  writing_proposal_executor?: {
+    status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";
+    description: string;
+    provider?: string;
+    model_name?: string;
+    adapter_version?: string;
+    test_only: boolean;
+  };
   speech_transcription_executor?: {
     status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";
     description: string;

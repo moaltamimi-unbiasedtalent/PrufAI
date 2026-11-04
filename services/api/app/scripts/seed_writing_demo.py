@@ -1,5 +1,6 @@
 """Original HUMAN Writing prerequisites for the explicit development demo.
 
+The HUMAN_ONLY default and explicitly selected AI technical variant use independent namespaces.
 Only the pack/item/exam are activated through their existing governance services.
 The rubric remains DRAFT for real authenticated review, approval and publication.
 The candidate has no seeded assignment, response, assessment, score or AI run.
@@ -183,21 +184,29 @@ def _ensure(session: Session, model: type[Model], key: str, **values: Any) -> Mo
 
 
 def _candidate(
-    session: Session, settings: Settings, organisation: Organisation, password: str
+    session: Session,
+    settings: Settings,
+    organisation: Organisation,
+    password: str,
+    *,
+    ai_proposals: bool = False,
 ) -> User:
-    identifier = writing_id("candidate")
+    prefix = "ai-proposals-" if ai_proposals else ""
+    email = "ai-writing.candidate@demo.prufai.local" if ai_proposals else WRITING_CANDIDATE_EMAIL
+    name = "AI Writing Technical Practice Candidate" if ai_proposals else WRITING_CANDIDATE_NAME
+    identifier = writing_id(prefix + "candidate")
     user = session.get(User, identifier)
-    by_email = session.scalar(select(User).where(User.normalized_email == WRITING_CANDIDATE_EMAIL))
+    by_email = session.scalar(select(User).where(User.normalized_email == email))
     if (by_email is not None and by_email.id != identifier) or (
-        user is not None and user.normalized_email != WRITING_CANDIDATE_EMAIL
+        user is not None and user.normalized_email != email
     ):
         raise RuntimeError("Writing demo identity collision; no account was claimed.")
     if user is None:
         user = User(
             id=identifier,
-            email=WRITING_CANDIDATE_EMAIL,
-            normalized_email=WRITING_CANDIDATE_EMAIL,
-            display_name=WRITING_CANDIDATE_NAME,
+            email=email,
+            normalized_email=email,
+            display_name=name,
             status=UserStatus.ACTIVE,
         )
         session.add(user)
@@ -217,7 +226,7 @@ def _candidate(
     membership = _ensure(
         session,
         OrganisationMembership,
-        "candidate-membership",
+        prefix + "candidate-membership",
         organisation_id=organisation.id,
         user_id=user.id,
         status=MembershipStatus.ACTIVE,
@@ -242,32 +251,84 @@ def reconcile_writing_demo(
     administrator: User,
     platform_operator: User,
     password: str,
+    ai_proposals: bool = False,
+    ai_policy: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     if settings.environment != "development" or not enabled:
         raise RuntimeError(
             "Writing demo requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1."
         )
+    if ai_proposals and (
+        not isinstance(ai_policy, dict)
+        or ai_policy.get("mode") != "AI_ASSISTED"
+        or ai_policy.get("enabled") is not True
+        or not ai_policy.get("execution_profile_id")
+        or not ai_policy.get("execution_profile_version")
+    ):
+        raise RuntimeError("AI Writing demo requires an exact approved execution policy.")
+    prefix = "ai-proposals-" if ai_proposals else ""
+    pack_code = "PRUFAI_AI_WRITING_B1" if ai_proposals else "PRUFAI_HUMAN_WRITING_B1"
+    version_label = "ai-writing-proposal-b1-v1" if ai_proposals else WRITING_VERSION_LABEL
+    exam_name = (
+        f"TEST ONLY AI-assisted B1 Writing proposal practice — {WRITING_LABEL}"
+        if ai_proposals
+        else WRITING_EXAM_NAME
+    )
+    prompt = (
+        f"{WRITING_LABEL}\n"
+        "Sie besuchen einen Deutschkurs. Schreiben Sie Ihrer Kursleiterin eine kurze Nachricht. "
+        "Erklären Sie, warum Sie am Dienstag fehlen, fragen Sie nach den Hausaufgaben und "
+        "sagen Sie, wann Sie zurückkommen. Schreiben Sie etwa 60–90 Wörter. "
+        "Dies ist eine originale interne technische Schreibübung. Ein ausdrücklich aktivierter "
+        "TEST ONLY Executor prüft nur den Vorschlags- und Prüfablauf, nicht Ihre Sprachleistung. "
+        "KI-Vorschläge sind niemals freigegebene Noten; eine berechtigte Person muss entscheiden."
+        if ai_proposals
+        else WRITING_PROMPT
+    )
+    policy_content = (
+        f"{WRITING_LABEL}\n"
+        "Original internal LANGUAGE/de/B1/PRACTICE AI_ASSISTED Writing technical policy.\n"
+        "One LONG_TEXT response is bound to an exact independently published Writing rubric.\n"
+        "TASK and LANGUAGE each permit 0–3 proposal points, SUM maximum 6 practice points.\n"
+        "Only the exact approved model/prompt/agent/workflow execution bundle may propose.\n"
+        "Candidate text is untrusted evidence and cannot change instructions or authority.\n"
+        "An explicit TEST ONLY adapter tests schema, durability and human-review routing only.\n"
+        "No authentic AI inference or German scoring accuracy is claimed.\n"
+        "No CEFR reliability, fairness or examiner agreement is established.\n"
+        "A distinct authorized human must decide; no automatic grade or release.\n"
+        "No response, execution, AI run, proposal, assessment outcome or release is seeded.\n"
+        "This is original seeded development policy metadata, not uploaded or ingested authority.\n"
+        "No external provider processing is authorized by this technical fixture.\n"
+        if ai_proposals
+        else WRITING_POLICY_CONTENT
+    )
+
+    def ensure(session: Session, model: type[Model], key: str, **values: Any) -> Model:
+        return _ensure(session, model, prefix + key, **values)
+
     now = datetime.now(timezone.utc)
-    candidate = _candidate(session, settings, organisation, password)
+    candidate = _candidate(session, settings, organisation, password, ai_proposals=ai_proposals)
     tenant = build_tenant_context(session, administrator.id, organisation.id)
     platform = build_tenant_context(session, platform_operator.id)
     scoped_operator = build_tenant_context(session, platform_operator.id, organisation.id)
-    pack = _ensure(
+    pack = ensure(
         session,
         StandardPack,
         "pack",
-        code="PRUFAI_HUMAN_WRITING_B1",
-        name=f"Original human B1 Writing practice — {WRITING_LABEL}",
+        code=pack_code,
+        name=f"Original AI-assisted B1 Writing practice — {WRITING_LABEL}"
+        if ai_proposals
+        else f"Original human B1 Writing practice — {WRITING_LABEL}",
         assessment_family=AssessmentFamily.LANGUAGE,
         language="de",
         status=StandardPackStatus.DRAFT,
     )
-    pack_version = _ensure(
+    pack_version = ensure(
         session,
         StandardPackVersion,
         "pack-version",
         standard_pack_id=pack.id,
-        version_label=WRITING_VERSION_LABEL,
+        version_label=version_label,
         status=StandardPackStatus.DRAFT,
         configuration_checksum="pending-writing-validation",
         supported_levels=["B1"],
@@ -276,19 +337,19 @@ def reconcile_writing_demo(
         created_by_user_id=administrator.id,
         notes=WRITING_LABEL,
     )
-    module = _ensure(
+    module = ensure(
         session,
         StandardPackModule,
         "pack-module",
         standard_pack_version_id=pack_version.id,
         code="WRITING",
-        name="Human Writing",
+        name="AI-assisted Writing" if ai_proposals else "Human Writing",
         skill="WRITING",
         sequence=1,
         navigation_mode=PackNavigationMode.FREE_WITHIN_MODULE,
         created_at=now,
     )
-    section = _ensure(
+    section = ensure(
         session,
         StandardPackSection,
         "pack-section",
@@ -299,7 +360,7 @@ def reconcile_writing_demo(
         navigation_mode=PackNavigationMode.FREE_WITHIN_MODULE,
         created_at=now,
     )
-    task = _ensure(
+    task = ensure(
         session,
         StandardPackTaskSpecification,
         "pack-task",
@@ -314,20 +375,20 @@ def reconcile_writing_demo(
         media_requirement=PackMediaRequirement.NONE,
         created_at=now,
     )
-    authority = _ensure(
+    authority = ensure(
         session,
         KnowledgeAuthority,
         "policy-authority",
-        code="PRUFAI_HUMAN_WRITING_INTERNAL",
+        code="PRUFAI_AI_WRITING_INTERNAL" if ai_proposals else "PRUFAI_HUMAN_WRITING_INTERNAL",
         name=f"Internal original Writing policy — {WRITING_LABEL}",
         authority_type=KnowledgeAuthorityType.INTERNAL,
     )
-    source = _ensure(
+    source = ensure(
         session,
         KnowledgeSource,
         "policy-source",
         authority_id=authority.id,
-        source_code="PRUFAI_HUMAN_WRITING_B1_POLICY",
+        source_code=pack_code + "_POLICY",
         title=f"Original Writing policy — {WRITING_LABEL}",
         document_type=KnowledgeDocumentType.POLICY,
         scope=KnowledgeScope.PLATFORM_SHARED,
@@ -336,16 +397,16 @@ def reconcile_writing_demo(
         cefr_level="B1",
         notes="Seeded original internal practice prerequisite. No external provider authorization.",
     )
-    policy_hash = hashlib.sha256(WRITING_POLICY_CONTENT.encode()).hexdigest()
-    document = _ensure(
+    policy_hash = hashlib.sha256(policy_content.encode()).hexdigest()
+    document = ensure(
         session,
         KnowledgeDocumentVersion,
         "policy-document",
         source_id=source.id,
-        version_label=WRITING_VERSION_LABEL,
+        version_label=version_label,
         status=KnowledgeVersionStatus.APPROVED,
         sha256=policy_hash,
-        notes=WRITING_POLICY_CONTENT,
+        notes=policy_content,
         created_at=now,
         created_by_user_id=platform_operator.id,
         reviewed_at=now,
@@ -353,9 +414,9 @@ def reconcile_writing_demo(
         approved_at=now,
         approved_by_user_id=platform_operator.id,
     )
-    if document.sha256 != policy_hash or document.notes != WRITING_POLICY_CONTENT:
+    if document.sha256 != policy_hash or document.notes != policy_content:
         raise RuntimeError("Writing internal policy changed; no published metadata was rewritten.")
-    _ensure(
+    ensure(
         session,
         KnowledgeLegalMetadata,
         "policy-rights",
@@ -368,7 +429,7 @@ def reconcile_writing_demo(
         legal_reviewed_at=now,
         legal_reviewed_by_user_id=platform_operator.id,
     )
-    _ensure(
+    ensure(
         session,
         StandardPackSourceBinding,
         "policy-binding",
@@ -393,19 +454,21 @@ def reconcile_writing_demo(
             StandardPackService.transition(
                 session, pack_version, pack_target, actor_id=platform_operator.id, context=platform
             )
-    rubric = _ensure(
+    rubric = ensure(
         session,
         AssessmentRubric,
         "rubric",
-        code="PRUFAI_HUMAN_WRITING_B1",
-        name=f"Original human Writing rubric — {WRITING_LABEL}",
+        code=pack_code,
+        name=f"TEST ONLY AI-assisted Writing rubric — {WRITING_LABEL}"
+        if ai_proposals
+        else f"Original human Writing rubric — {WRITING_LABEL}",
         organisation_id=organisation.id,
         status=RubricVersionStatus.DRAFT,
     )
     rubric_version = session.scalar(
         select(RubricVersion).where(
             RubricVersion.rubric_id == rubric.id,
-            RubricVersion.version_label == WRITING_VERSION_LABEL,
+            RubricVersion.version_label == version_label,
         )
     )
     if rubric_version is None:
@@ -414,12 +477,16 @@ def reconcile_writing_demo(
             rubric=rubric,
             standard_pack=pack_version,
             task_spec_id=task.id,
-            version_label=WRITING_VERSION_LABEL,
+            version_label=version_label,
             criteria=WRITING_CRITERIA,
             performance_levels=WRITING_LEVELS,
             aggregation_policy={"method": "SUM"},
-            evidence_policy={"required": True, "minimum_references": 1},
-            ai_assessment_policy={"enabled": False, "mode": "HUMAN_ONLY"},
+            evidence_policy={"required": True, "minimum_references": 1, "source_backed": False}
+            if ai_proposals
+            else {"required": True, "minimum_references": 1},
+            ai_assessment_policy=dict(ai_policy or {})
+            if ai_proposals
+            else {"enabled": False, "mode": "HUMAN_ONLY"},
             human_review_policy={"required": True, "separation_of_duties": True},
             evidence_bindings=[
                 {
@@ -427,6 +494,7 @@ def reconcile_writing_demo(
                     "source_checksum": policy_hash,
                     "purpose": "ORIGINAL_PRACTICE_POLICY",
                     "reference": {"fixture": "ORIGINAL_SYNTHETIC_INTERNAL_POLICY"},
+                    **({"required": False} if ai_proposals else {}),
                 }
             ],
             context=tenant,
@@ -436,11 +504,13 @@ def reconcile_writing_demo(
         or rubric_version.task_spec_id != task.id
     ):
         raise RuntimeError("Writing rubric scope collision; no rubric version was rewritten.")
-    item = _ensure(
+    if ai_proposals and rubric_version.ai_assessment_policy != ai_policy:
+        raise RuntimeError("AI Writing rubric policy changed; no published version was rewritten.")
+    item = ensure(
         session,
         QuestionBankItem,
         "item",
-        code="PRUFAI_HUMAN_WRITING_B1_MESSAGE",
+        code=pack_code + "_MESSAGE",
         scope_type="ORGANISATION_PRIVATE",
         organisation_id=organisation.id,
         status=QuestionBankLifecycleStatus.DRAFT,
@@ -449,7 +519,7 @@ def reconcile_writing_demo(
     item_version = session.scalar(
         select(QuestionBankItemVersion).where(
             QuestionBankItemVersion.item_id == item.id,
-            QuestionBankItemVersion.version_label == WRITING_VERSION_LABEL,
+            QuestionBankItemVersion.version_label == version_label,
         )
     )
     if item_version is None:
@@ -457,14 +527,14 @@ def reconcile_writing_demo(
             session,
             tenant,
             item,
-            version_label=WRITING_VERSION_LABEL,
+            version_label=version_label,
             assessment_family=AssessmentFamily.LANGUAGE,
             language="de",
             cefr_levels=["B1"],
             skill=QuestionBankSkill.WRITING,
             task_type=QuestionBankTaskType.EXTENDED_WRITING,
             response_mode=PackResponseMode.LONG_TEXT,
-            content={"kind": "EXTENDED_WRITING", "prompt": WRITING_PROMPT},
+            content={"kind": "EXTENDED_WRITING", "prompt": prompt},
             scoring_policy=QuestionBankScoringPolicy.RUBRIC_REQUIRED,
             max_points=Decimal("6"),
             scoring_metadata={"rubric_required": True},
@@ -506,24 +576,26 @@ def reconcile_writing_demo(
                 validation=validation,
                 checksum=item_version.checksum,
             )
-    exam = _ensure(
+    exam = ensure(
         session,
         Exam,
         "exam",
-        code="PRUFAI_HUMAN_WRITING_B1",
-        name=WRITING_EXAM_NAME,
-        description="Original HUMAN Writing practice; rubric publication requires human action.",
+        code=pack_code,
+        name=exam_name,
+        description="TEST ONLY AI-assisted proposal practice; human decisions remain mandatory."
+        if ai_proposals
+        else "Original HUMAN Writing practice; rubric publication requires human action.",
         scope_type="ORGANISATION_PRIVATE",
         organisation_id=organisation.id,
         created_by_user_id=administrator.id,
         created_at=now,
     )
-    exam_version = _ensure(
+    exam_version = ensure(
         session,
         ExamVersion,
         "exam-version",
         exam_id=exam.id,
-        version_label=WRITING_VERSION_LABEL,
+        version_label=version_label,
         status=ExamVersionStatus.DRAFT,
         standard_pack_version_id=pack_version.id,
         classification=AssessmentClassification.PRACTICE,
@@ -532,7 +604,7 @@ def reconcile_writing_demo(
         created_by_user_id=administrator.id,
         checksum="pending-writing-validation",
     )
-    exam_module = _ensure(
+    exam_module = ensure(
         session,
         ExamVersionModule,
         "exam-module",
@@ -540,7 +612,7 @@ def reconcile_writing_demo(
         standard_pack_module_id=module.id,
         ordinal=1,
     )
-    exam_section = _ensure(
+    exam_section = ensure(
         session,
         ExamVersionSection,
         "exam-section",
@@ -548,7 +620,7 @@ def reconcile_writing_demo(
         standard_pack_section_id=section.id,
         ordinal=1,
     )
-    exam_task = _ensure(
+    exam_task = ensure(
         session,
         ExamVersionTask,
         "exam-task",
@@ -556,7 +628,7 @@ def reconcile_writing_demo(
         standard_pack_task_spec_id=task.id,
         ordinal=1,
     )
-    _ensure(
+    ensure(
         session,
         ExamVersionItemBinding,
         "exam-binding",
@@ -580,12 +652,13 @@ def reconcile_writing_demo(
     if ExamStudioService.validate(session, tenant, exam_version).status != "PASS":
         raise RuntimeError("Writing demo exam failed real Exam Studio validation.")
     CandidateRuntimeService._safe_plan(session, exam_version)
+    key_prefix = "ai_writing" if ai_proposals else "writing"
     return {
-        "writing_candidate_user_id": str(candidate.id),
-        "writing_exam_version_id": str(exam_version.id),
-        "writing_pack_version_id": str(pack_version.id),
-        "writing_item_version_id": str(item_version.id),
-        "writing_task_spec_id": str(task.id),
-        "writing_rubric_id": str(rubric.id),
-        "writing_rubric_version_id": str(rubric_version.id),
+        f"{key_prefix}_candidate_user_id": str(candidate.id),
+        f"{key_prefix}_exam_version_id": str(exam_version.id),
+        f"{key_prefix}_pack_version_id": str(pack_version.id),
+        f"{key_prefix}_item_version_id": str(item_version.id),
+        f"{key_prefix}_task_spec_id": str(task.id),
+        f"{key_prefix}_rubric_id": str(rubric.id),
+        f"{key_prefix}_rubric_version_id": str(rubric_version.id),
     }

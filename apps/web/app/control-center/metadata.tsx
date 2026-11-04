@@ -213,6 +213,28 @@ export const metadataSections: Record<string, Section> = {
     description:
       "Registry and execution metadata only. Registered workflow definitions and recorded runs do not prove a live executor is connected. Prompts, outputs and candidate evidence are excluded.",
     views: {
+      "writing-proposals": {
+        label: "Writing proposal jobs",
+        permission: "ai.read",
+        columns: [
+          ["id", "Execution job"],
+          ["organisation_id", "Organisation"],
+          ["status", "State"],
+          ["provider", "Provider"],
+          ["model_name", "Model"],
+          ["profile_version", "Pinned execution profile"],
+          ["workflow_version_id", "Workflow version"],
+          ["ai_run_id", "AI run"],
+          ["test_only", "TEST ONLY"],
+          ["attempt_count", "Execution attempts"],
+          ["created_at", "Requested"],
+          ["started_at", "Started"],
+          ["completed_at", "Completed"],
+          ["duration_ms", "Execution duration (ms)"],
+          ["failure_category", "Safe failure classification"],
+          ["human_review_status", "Human review"],
+        ],
+      },
       transcriptions: {
         label: "Transcription jobs",
         permission: "ai.read",
@@ -533,6 +555,11 @@ export function MetadataBrowser({ section }: { section: string }) {
             "NOT VERIFIED"}
           .{" "}
           {overview?.service_health?.speech_transcription_executor?.description}
+          <br />
+          Writing proposal executor:{" "}
+          {overview?.service_health?.writing_proposal_executor?.status ??
+            "NOT VERIFIED"}
+          . {overview?.service_health?.writing_proposal_executor?.description}
         </p>
       )}
     </>

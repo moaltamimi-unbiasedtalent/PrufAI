@@ -15,8 +15,10 @@ cd "$REPOSITORY_ROOT"
 export PYTHONPATH="$REPOSITORY_ROOT/services/api"
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
 # Explicit synthetic technical execution only. Production refuses this adapter;
-# neither an external provider nor authentic speech recognition is asserted.
+# neither an external provider, authentic speech recognition, nor authentic
+# Writing assessment quality is asserted.
 export SPEECH_TRANSCRIPTION_TEST_ADAPTER_ENABLED=1
+export WRITING_TEST_ADAPTER_ENABLED=1
 export AUTH_RATE_LIMIT_BACKEND=memory
 # Recorded evidence acceptance must use durable private storage. This preflight
 # never replaces a configured bucket or falls back to the standards memory mode.

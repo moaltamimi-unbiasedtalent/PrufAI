@@ -1,0 +1,10 @@
+{
+  "name": "prufai-observed-extraneous-package-audit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated audit of two exact optional package versions observed by npm ls; not application dependencies.",
+  "optionalDependencies": {
+    "@emnapi/runtime": "1.11.3",
+    "@img/sharp-wasm32": "0.35.5"
+  }
+}

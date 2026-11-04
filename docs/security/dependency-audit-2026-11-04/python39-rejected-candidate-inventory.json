@@ -1,0 +1,1177 @@
+{
+  "scope": "Supplementary actual Python3.9 candidate production dependency resolution and advisory audit; no repository source edits",
+  "candidate_path": "/private/tmp/prufai-security-regression-candidate",
+  "auditor": "pip-audit2.10.1 onPython3.11.15 using --path toPython3.9 targets",
+  "api": {
+    "interpreter": "Python3.9.6",
+    "target_environment": "/private/tmp/prufai-security-py39-api-prod",
+    "install_and_pip_check": "PASS",
+    "audit_exit": 1,
+    "distributions": 48,
+    "raw_vulnerability_records": 37,
+    "unique_advisories": 21,
+    "unique_severity_counts": {
+      "critical": 1,
+      "medium": 10,
+      "low": 2,
+      "high": 8
+    },
+    "runtime_unique_advisories": 15,
+    "runtime_unique_severity_counts": {
+      "critical": 1,
+      "medium": 5,
+      "high": 8,
+      "low": 1
+    },
+    "bootstrap_unique_advisories": 6,
+    "bootstrap_unique_severity_counts": {
+      "medium": 5,
+      "low": 1
+    },
+    "selected_versions": {
+      "pip": "26.0.1",
+      "setuptools": "82.0.1",
+      "fastapi": "0.128.8",
+      "starlette": "0.49.3",
+      "anyio": "4.12.1",
+      "python-dotenv": "1.2.1"
+    },
+    "constraints": {
+      "fastapi": [
+        "starlette<1.0.0,>=0.40.0"
+      ],
+      "botocore": [
+        "urllib3 (<1.27,>=1.25.4) ; python_version < \"3.10\"",
+        "urllib3 (!=2.2.0,<3,>=1.25.4) ; python_version >= \"3.10\""
+      ]
+    },
+    "findings": [
+      {
+        "package": "anyio",
+        "installed_version": "4.12.1",
+        "advisory": "GHSA-5p39-cfhj-2xmp",
+        "ids": [
+          "CVE-2026-64847",
+          "GHSA-5p39-cfhj-2xmp",
+          "PYSEC-2026-4024"
+        ],
+        "fixed_versions": [
+          "4.14.2"
+        ],
+        "severity": "medium",
+        "summary": "AnyIO process-pool workers can block indefinitely on undrained stderr",
+        "affected_ranges": [
+          "< 4.14.2"
+        ],
+        "primary_links": [
+          "https://github.com/agronholm/anyio/security/advisories/GHSA-5p39-cfhj-2xmp",
+          "https://github.com/agronholm/anyio/releases/tag/4.14.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-5p39-cfhj-2xmp",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette",
+          "anyio"
+        ]
+      },
+      {
+        "package": "anyio",
+        "installed_version": "4.12.1",
+        "advisory": "GHSA-82r6-8w77-94w6",
+        "ids": [
+          "CVE-2026-63374",
+          "GHSA-82r6-8w77-94w6",
+          "PYSEC-2026-4025"
+        ],
+        "fixed_versions": [
+          "4.14.2"
+        ],
+        "severity": "critical",
+        "summary": "AnyIO: TLSStream IDNA 2003 host name encoding enables potential TLS certificate spoofing",
+        "affected_ranges": [
+          "< 4.14.2"
+        ],
+        "primary_links": [
+          "https://github.com/agronholm/anyio/security/advisories/GHSA-82r6-8w77-94w6",
+          "https://github.com/agronholm/anyio/releases/tag/4.14.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-82r6-8w77-94w6",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette",
+          "anyio"
+        ]
+      },
+      {
+        "package": "python-dotenv",
+        "installed_version": "1.2.1",
+        "advisory": "GHSA-mf9w-mj56-hr94",
+        "ids": [
+          "CVE-2026-28684",
+          "GHSA-mf9w-mj56-hr94",
+          "PYSEC-2026-2270"
+        ],
+        "fixed_versions": [
+          "1.2.2"
+        ],
+        "severity": "medium",
+        "summary": "python-dotenv: Symlink following in set_key allows arbitrary file overwrite via cross-device rename fallback",
+        "affected_ranges": [
+          "< 1.2.2"
+        ],
+        "primary_links": [
+          "https://github.com/theskumar/python-dotenv/security/advisories/GHSA-mf9w-mj56-hr94",
+          "https://github.com/theskumar/python-dotenv/releases/tag/v1.2.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-mf9w-mj56-hr94",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "pydantic-settings",
+          "python-dotenv"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-82w8-qh3p-5jfq",
+        "ids": [
+          "CVE-2026-54283",
+          "GHSA-82w8-qh3p-5jfq",
+          "PYSEC-2026-249"
+        ],
+        "fixed_versions": [
+          "1.3.1"
+        ],
+        "severity": "high",
+        "summary": "Starlette: request.form() limits silently ignored for application/x-www-form-urlencoded enable DoS",
+        "affected_ranges": [
+          ">= 0.4.1, < 1.3.1"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-82w8-qh3p-5jfq"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-82w8-qh3p-5jfq",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-86qp-5c8j-p5mr",
+        "ids": [
+          "CVE-2026-48710",
+          "GHSA-86qp-5c8j-p5mr",
+          "PYSEC-2026-161",
+          "X41-2026-002"
+        ],
+        "fixed_versions": [
+          "1.0.1"
+        ],
+        "severity": "medium",
+        "summary": "Starlette has missing Host header validation that poisons request.url.path, bypassing path-based security checks",
+        "affected_ranges": [
+          "<= 1.0.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-86qp-5c8j-p5mr",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/starlette/PYSEC-2026-161.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-86qp-5c8j-p5mr",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-jp82-jpqv-5vv3",
+        "ids": [
+          "CVE-2026-54282",
+          "GHSA-jp82-jpqv-5vv3",
+          "PYSEC-2026-248"
+        ],
+        "fixed_versions": [
+          "1.3.0"
+        ],
+        "severity": "low",
+        "summary": "Starlette: Unvalidated request path concatenated into authority poisons request.url.hostname",
+        "affected_ranges": [
+          "< 1.3.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-jp82-jpqv-5vv3",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/starlette/PYSEC-2026-248.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-jp82-jpqv-5vv3",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-wqp7-x3pw-xc5r",
+        "ids": [
+          "CVE-2026-48818",
+          "GHSA-wqp7-x3pw-xc5r",
+          "PYSEC-2026-2281"
+        ],
+        "fixed_versions": [
+          "1.1.0"
+        ],
+        "severity": "high",
+        "summary": "Starlette: SSRF and NTLM credential theft via UNC paths in StaticFiles on Windows",
+        "affected_ranges": [
+          "< 1.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-wqp7-x3pw-xc5r"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-wqp7-x3pw-xc5r",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-x746-7m8f-x49c",
+        "ids": [
+          "CVE-2026-48817",
+          "GHSA-x746-7m8f-x49c",
+          "PYSEC-2026-2280"
+        ],
+        "fixed_versions": [
+          "1.1.0"
+        ],
+        "severity": "medium",
+        "summary": "Starlette: Arbitrary HTTP method dispatched to `HTTPEndpoint` attributes via `getattr`",
+        "affected_ranges": [
+          "< 1.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-x746-7m8f-x49c",
+          "https://github.com/Kludex/starlette/releases/tag/1.1.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-x746-7m8f-x49c",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-2xpw-w6gg-jr37",
+        "ids": [
+          "CVE-2025-66471",
+          "GHSA-2xpw-w6gg-jr37",
+          "PYSEC-2026-1994"
+        ],
+        "fixed_versions": [
+          "2.6.0"
+        ],
+        "severity": "high",
+        "summary": "urllib3 streaming API improperly handles highly compressed data",
+        "affected_ranges": [
+          ">= 1.0, < 2.6.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-2xpw-w6gg-jr37",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/urllib3/PYSEC-2026-1994.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-2xpw-w6gg-jr37",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-38jv-5279-wg99",
+        "ids": [
+          "CVE-2026-21441",
+          "GHSA-38jv-5279-wg99",
+          "PYSEC-2026-1996"
+        ],
+        "fixed_versions": [
+          "2.6.3"
+        ],
+        "severity": "high",
+        "summary": "Decompression-bomb safeguards bypassed when following HTTP redirects (streaming API)",
+        "affected_ranges": [
+          ">= 1.22, < 2.6.3"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-38jv-5279-wg99"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-38jv-5279-wg99",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-8988-9cw3-xx77",
+        "ids": [
+          "CVE-2026-97687",
+          "GHSA-8988-9cw3-xx77",
+          "PYSEC-2026-4175"
+        ],
+        "fixed_versions": [
+          "2.8.0"
+        ],
+        "severity": "high",
+        "summary": "urllib3: HTTPS proxy TLS configuration may be ignored or overridden",
+        "affected_ranges": [
+          ">= 1.26.0, < 2.8.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-8988-9cw3-xx77",
+          "https://github.com/urllib3/urllib3/releases/tag/2.8.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-8988-9cw3-xx77",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-gm62-xv2j-4w53",
+        "ids": [
+          "CVE-2025-66418",
+          "GHSA-gm62-xv2j-4w53",
+          "PYSEC-2026-1998"
+        ],
+        "fixed_versions": [
+          "2.6.0"
+        ],
+        "severity": "high",
+        "summary": "urllib3 allows an unbounded number of links in the decompression chain",
+        "affected_ranges": [
+          ">= 1.24, < 2.6.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-gm62-xv2j-4w53"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-gm62-xv2j-4w53",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-pq67-6m6q-mj2v",
+        "ids": [
+          "CVE-2025-50181",
+          "GHSA-pq67-6m6q-mj2v",
+          "PYSEC-2026-1999"
+        ],
+        "fixed_versions": [
+          "2.5.0"
+        ],
+        "severity": "medium",
+        "summary": "urllib3 redirects are not disabled when retries are disabled on PoolManager instantiation",
+        "affected_ranges": [
+          "< 2.5.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-pq67-6m6q-mj2v",
+          "https://github.com/urllib3/urllib3/releases/tag/2.5.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-pq67-6m6q-mj2v",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-qccp-gfcp-xxvc",
+        "ids": [
+          "CVE-2026-44431",
+          "GHSA-qccp-gfcp-xxvc",
+          "PYSEC-2026-141"
+        ],
+        "fixed_versions": [
+          "2.7.0"
+        ],
+        "severity": "high",
+        "summary": "urllib3: Sensitive headers forwarded across origins in proxied low-level redirects",
+        "affected_ranges": [
+          ">= 1.23, < 2.7.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-qccp-gfcp-xxvc"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-qccp-gfcp-xxvc",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "urllib3",
+        "installed_version": "1.26.20",
+        "advisory": "GHSA-vxq7-64xx-v4gw",
+        "ids": [
+          "CVE-2026-97689",
+          "GHSA-vxq7-64xx-v4gw",
+          "PYSEC-2026-4177"
+        ],
+        "fixed_versions": [
+          "2.8.0"
+        ],
+        "severity": "high",
+        "summary": "urllib3: HTTPResponse.stream()/read_chunked() buffers an unbounded chunk-size line into memory",
+        "affected_ranges": [
+          ">= 1.10.3, < 2.8.0"
+        ],
+        "primary_links": [
+          "https://github.com/urllib3/urllib3/security/advisories/GHSA-vxq7-64xx-v4gw",
+          "https://github.com/urllib3/urllib3/releases/tag/2.8.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-vxq7-64xx-v4gw",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "boto3",
+          "botocore",
+          "urllib3"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-58qw-9mgm-455v",
+        "ids": [
+          "CVE-2026-3219",
+          "GHSA-58qw-9mgm-455v",
+          "PYSEC-2026-2875"
+        ],
+        "fixed_versions": [
+          "26.1"
+        ],
+        "severity": "medium",
+        "summary": "pip has an interpretation conflict due to handling both concatenated tar and ZIP files as ZIP files",
+        "affected_ranges": [
+          "<= 26.0.1"
+        ],
+        "primary_links": [],
+        "advisory_url": "https://github.com/advisories/GHSA-58qw-9mgm-455v",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-jp4c-xjxw-mgf9",
+        "ids": [
+          "CVE-2026-6357",
+          "GHSA-jp4c-xjxw-mgf9",
+          "PYSEC-2026-2876"
+        ],
+        "fixed_versions": [
+          "26.1"
+        ],
+        "severity": "medium",
+        "summary": "pip Vulnerable to Inclusion of Functionality from Untrusted Control Sphere",
+        "affected_ranges": [
+          "< 26.1"
+        ],
+        "primary_links": [],
+        "advisory_url": "https://github.com/advisories/GHSA-jp4c-xjxw-mgf9",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-qwm4-qh6w-59xr",
+        "ids": [
+          "CVE-2026-13346",
+          "GHSA-qwm4-qh6w-59xr",
+          "PYSEC-2026-3721"
+        ],
+        "fixed_versions": [
+          "26.2",
+          "26.2.0"
+        ],
+        "severity": "medium",
+        "summary": "pip would incorrectly handle doubly-encoded package URLs from indexes",
+        "affected_ranges": [
+          "< 26.2.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-3721.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-qwm4-qh6w-59xr",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-wf93-45jw-7689",
+        "ids": [
+          "CVE-2026-8643",
+          "GHSA-wf93-45jw-7689",
+          "PYSEC-2026-196"
+        ],
+        "fixed_versions": [
+          "26.1.2"
+        ],
+        "severity": "medium",
+        "summary": " pip: Path traversal in console_scripts/gui_scripts\u00a0entry point names allows installing scripts outside of target directory",
+        "affected_ranges": [
+          "< 26.1.2"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-196.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-wf93-45jw-7689",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "setuptools",
+        "installed_version": "82.0.1",
+        "advisory": "GHSA-h35f-9h28-mq5c",
+        "ids": [
+          "BIT-setuptools-2026-59890",
+          "CVE-2026-59890",
+          "GHSA-h35f-9h28-mq5c",
+          "PYSEC-2026-3447"
+        ],
+        "fixed_versions": [
+          "83.0.0"
+        ],
+        "severity": "medium",
+        "summary": "setuptools: MANIFEST.in exclusion bypass in sdist via Unicode normalization collision (NFC/NFD) on macOS APFS/HFS+",
+        "affected_ranges": [
+          "< 83.0.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/setuptools/PYSEC-2026-3447.yaml",
+          "https://github.com/pypa/setuptools/releases/tag/v83.0.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-h35f-9h28-mq5c",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "setuptools"
+        ]
+      },
+      {
+        "package": "setuptools",
+        "installed_version": "82.0.1",
+        "advisory": "GHSA-xmj3-9gf7-h52w",
+        "ids": [
+          "GHSA-xmj3-9gf7-h52w"
+        ],
+        "fixed_versions": [
+          "84.1.0"
+        ],
+        "severity": "low",
+        "summary": "setuptools: Windows path escape via namespace_packages.txt during legacy wheel installation  Description",
+        "affected_ranges": [
+          ">= 38.2.2, < 84.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w",
+          "https://github.com/pypa/setuptools/releases/tag/v84.1.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-xmj3-9gf7-h52w",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "setuptools"
+        ]
+      }
+    ]
+  },
+  "ai": {
+    "interpreter": "Python3.9.6",
+    "target_environment": "/private/tmp/prufai-security-py39-ai-prod",
+    "install_and_pip_check": "PASS",
+    "audit_exit": 1,
+    "distributions": 23,
+    "raw_vulnerability_records": 25,
+    "unique_advisories": 14,
+    "unique_severity_counts": {
+      "critical": 1,
+      "medium": 9,
+      "low": 2,
+      "high": 2
+    },
+    "runtime_unique_advisories": 8,
+    "runtime_unique_severity_counts": {
+      "critical": 1,
+      "medium": 4,
+      "high": 2,
+      "low": 1
+    },
+    "bootstrap_unique_advisories": 6,
+    "bootstrap_unique_severity_counts": {
+      "medium": 5,
+      "low": 1
+    },
+    "selected_versions": {
+      "pip": "26.0.1",
+      "setuptools": "82.0.1",
+      "fastapi": "0.128.8",
+      "starlette": "0.49.3",
+      "anyio": "4.12.1",
+      "python-dotenv": "1.2.1"
+    },
+    "constraints": {
+      "fastapi": [
+        "starlette<1.0.0,>=0.40.0"
+      ]
+    },
+    "findings": [
+      {
+        "package": "anyio",
+        "installed_version": "4.12.1",
+        "advisory": "GHSA-5p39-cfhj-2xmp",
+        "ids": [
+          "CVE-2026-64847",
+          "GHSA-5p39-cfhj-2xmp",
+          "PYSEC-2026-4024"
+        ],
+        "fixed_versions": [
+          "4.14.2"
+        ],
+        "severity": "medium",
+        "summary": "AnyIO process-pool workers can block indefinitely on undrained stderr",
+        "affected_ranges": [
+          "< 4.14.2"
+        ],
+        "primary_links": [
+          "https://github.com/agronholm/anyio/security/advisories/GHSA-5p39-cfhj-2xmp",
+          "https://github.com/agronholm/anyio/releases/tag/4.14.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-5p39-cfhj-2xmp",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette",
+          "anyio"
+        ]
+      },
+      {
+        "package": "anyio",
+        "installed_version": "4.12.1",
+        "advisory": "GHSA-82r6-8w77-94w6",
+        "ids": [
+          "CVE-2026-63374",
+          "GHSA-82r6-8w77-94w6",
+          "PYSEC-2026-4025"
+        ],
+        "fixed_versions": [
+          "4.14.2"
+        ],
+        "severity": "critical",
+        "summary": "AnyIO: TLSStream IDNA 2003 host name encoding enables potential TLS certificate spoofing",
+        "affected_ranges": [
+          "< 4.14.2"
+        ],
+        "primary_links": [
+          "https://github.com/agronholm/anyio/security/advisories/GHSA-82r6-8w77-94w6",
+          "https://github.com/agronholm/anyio/releases/tag/4.14.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-82r6-8w77-94w6",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette",
+          "anyio"
+        ]
+      },
+      {
+        "package": "python-dotenv",
+        "installed_version": "1.2.1",
+        "advisory": "GHSA-mf9w-mj56-hr94",
+        "ids": [
+          "CVE-2026-28684",
+          "GHSA-mf9w-mj56-hr94",
+          "PYSEC-2026-2270"
+        ],
+        "fixed_versions": [
+          "1.2.2"
+        ],
+        "severity": "medium",
+        "summary": "python-dotenv: Symlink following in set_key allows arbitrary file overwrite via cross-device rename fallback",
+        "affected_ranges": [
+          "< 1.2.2"
+        ],
+        "primary_links": [
+          "https://github.com/theskumar/python-dotenv/security/advisories/GHSA-mf9w-mj56-hr94",
+          "https://github.com/theskumar/python-dotenv/releases/tag/v1.2.2"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-mf9w-mj56-hr94",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api",
+          "pydantic-settings",
+          "python-dotenv"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-82w8-qh3p-5jfq",
+        "ids": [
+          "CVE-2026-54283",
+          "GHSA-82w8-qh3p-5jfq",
+          "PYSEC-2026-249"
+        ],
+        "fixed_versions": [
+          "1.3.1"
+        ],
+        "severity": "high",
+        "summary": "Starlette: request.form() limits silently ignored for application/x-www-form-urlencoded enable DoS",
+        "affected_ranges": [
+          ">= 0.4.1, < 1.3.1"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-82w8-qh3p-5jfq"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-82w8-qh3p-5jfq",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-86qp-5c8j-p5mr",
+        "ids": [
+          "CVE-2026-48710",
+          "GHSA-86qp-5c8j-p5mr",
+          "PYSEC-2026-161",
+          "X41-2026-002"
+        ],
+        "fixed_versions": [
+          "1.0.1"
+        ],
+        "severity": "medium",
+        "summary": "Starlette has missing Host header validation that poisons request.url.path, bypassing path-based security checks",
+        "affected_ranges": [
+          "<= 1.0.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-86qp-5c8j-p5mr",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/starlette/PYSEC-2026-161.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-86qp-5c8j-p5mr",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-jp82-jpqv-5vv3",
+        "ids": [
+          "CVE-2026-54282",
+          "GHSA-jp82-jpqv-5vv3",
+          "PYSEC-2026-248"
+        ],
+        "fixed_versions": [
+          "1.3.0"
+        ],
+        "severity": "low",
+        "summary": "Starlette: Unvalidated request path concatenated into authority poisons request.url.hostname",
+        "affected_ranges": [
+          "< 1.3.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-jp82-jpqv-5vv3",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/starlette/PYSEC-2026-248.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-jp82-jpqv-5vv3",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-wqp7-x3pw-xc5r",
+        "ids": [
+          "CVE-2026-48818",
+          "GHSA-wqp7-x3pw-xc5r",
+          "PYSEC-2026-2281"
+        ],
+        "fixed_versions": [
+          "1.1.0"
+        ],
+        "severity": "high",
+        "summary": "Starlette: SSRF and NTLM credential theft via UNC paths in StaticFiles on Windows",
+        "affected_ranges": [
+          "< 1.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-wqp7-x3pw-xc5r"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-wqp7-x3pw-xc5r",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "starlette",
+        "installed_version": "0.49.3",
+        "advisory": "GHSA-x746-7m8f-x49c",
+        "ids": [
+          "CVE-2026-48817",
+          "GHSA-x746-7m8f-x49c",
+          "PYSEC-2026-2280"
+        ],
+        "fixed_versions": [
+          "1.1.0"
+        ],
+        "severity": "medium",
+        "summary": "Starlette: Arbitrary HTTP method dispatched to `HTTPEndpoint` attributes via `getattr`",
+        "affected_ranges": [
+          "< 1.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/Kludex/starlette/security/advisories/GHSA-x746-7m8f-x49c",
+          "https://github.com/Kludex/starlette/releases/tag/1.1.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-x746-7m8f-x49c",
+        "scope": "application runtime",
+        "dependency_path": [
+          "prufai-api or prufai-ai",
+          "fastapi",
+          "starlette"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-58qw-9mgm-455v",
+        "ids": [
+          "CVE-2026-3219",
+          "GHSA-58qw-9mgm-455v",
+          "PYSEC-2026-2875"
+        ],
+        "fixed_versions": [
+          "26.1"
+        ],
+        "severity": "medium",
+        "summary": "pip has an interpretation conflict due to handling both concatenated tar and ZIP files as ZIP files",
+        "affected_ranges": [
+          "<= 26.0.1"
+        ],
+        "primary_links": [],
+        "advisory_url": "https://github.com/advisories/GHSA-58qw-9mgm-455v",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-jp4c-xjxw-mgf9",
+        "ids": [
+          "CVE-2026-6357",
+          "GHSA-jp4c-xjxw-mgf9",
+          "PYSEC-2026-2876"
+        ],
+        "fixed_versions": [
+          "26.1"
+        ],
+        "severity": "medium",
+        "summary": "pip Vulnerable to Inclusion of Functionality from Untrusted Control Sphere",
+        "affected_ranges": [
+          "< 26.1"
+        ],
+        "primary_links": [],
+        "advisory_url": "https://github.com/advisories/GHSA-jp4c-xjxw-mgf9",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-qwm4-qh6w-59xr",
+        "ids": [
+          "CVE-2026-13346",
+          "GHSA-qwm4-qh6w-59xr",
+          "PYSEC-2026-3721"
+        ],
+        "fixed_versions": [
+          "26.2",
+          "26.2.0"
+        ],
+        "severity": "medium",
+        "summary": "pip would incorrectly handle doubly-encoded package URLs from indexes",
+        "affected_ranges": [
+          "< 26.2.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-3721.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-qwm4-qh6w-59xr",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "pip",
+        "installed_version": "26.0.1",
+        "advisory": "GHSA-wf93-45jw-7689",
+        "ids": [
+          "CVE-2026-8643",
+          "GHSA-wf93-45jw-7689",
+          "PYSEC-2026-196"
+        ],
+        "fixed_versions": [
+          "26.1.2"
+        ],
+        "severity": "medium",
+        "summary": " pip: Path traversal in console_scripts/gui_scripts\u00a0entry point names allows installing scripts outside of target directory",
+        "affected_ranges": [
+          "< 26.1.2"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-196.yaml"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-wf93-45jw-7689",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "pip"
+        ]
+      },
+      {
+        "package": "setuptools",
+        "installed_version": "82.0.1",
+        "advisory": "GHSA-h35f-9h28-mq5c",
+        "ids": [
+          "BIT-setuptools-2026-59890",
+          "CVE-2026-59890",
+          "GHSA-h35f-9h28-mq5c",
+          "PYSEC-2026-3447"
+        ],
+        "fixed_versions": [
+          "83.0.0"
+        ],
+        "severity": "medium",
+        "summary": "setuptools: MANIFEST.in exclusion bypass in sdist via Unicode normalization collision (NFC/NFD) on macOS APFS/HFS+",
+        "affected_ranges": [
+          "< 83.0.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/setuptools/security/advisories/GHSA-h35f-9h28-mq5c",
+          "https://github.com/pypa/advisory-database/tree/main/vulns/setuptools/PYSEC-2026-3447.yaml",
+          "https://github.com/pypa/setuptools/releases/tag/v83.0.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-h35f-9h28-mq5c",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "setuptools"
+        ]
+      },
+      {
+        "package": "setuptools",
+        "installed_version": "82.0.1",
+        "advisory": "GHSA-xmj3-9gf7-h52w",
+        "ids": [
+          "GHSA-xmj3-9gf7-h52w"
+        ],
+        "fixed_versions": [
+          "84.1.0"
+        ],
+        "severity": "low",
+        "summary": "setuptools: Windows path escape via namespace_packages.txt during legacy wheel installation  Description",
+        "affected_ranges": [
+          ">= 38.2.2, < 84.1.0"
+        ],
+        "primary_links": [
+          "https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w",
+          "https://github.com/pypa/setuptools/releases/tag/v84.1.0"
+        ],
+        "advisory_url": "https://github.com/advisories/GHSA-xmj3-9gf7-h52w",
+        "scope": "bootstrap tool",
+        "dependency_path": [
+          "venv bootstrap",
+          "setuptools"
+        ]
+      }
+    ]
+  },
+  "fixed_release_python_compatibility": [
+    {
+      "package": "anyio",
+      "version": "4.14.2",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/anyio/4.14.2/json"
+    },
+    {
+      "package": "python-dotenv",
+      "version": "1.2.2",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/python-dotenv/1.2.2/json"
+    },
+    {
+      "package": "starlette",
+      "version": "1.0.1",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/starlette/1.0.1/json"
+    },
+    {
+      "package": "starlette",
+      "version": "1.3.1",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/starlette/1.3.1/json"
+    },
+    {
+      "package": "urllib3",
+      "version": "2.8.0",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/urllib3/2.8.0/json"
+    },
+    {
+      "package": "fastapi",
+      "version": "0.129.0",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [
+        "starlette<1.0.0,>=0.40.0"
+      ],
+      "source": "https://pypi.org/pypi/fastapi/0.129.0/json"
+    },
+    {
+      "package": "botocore",
+      "version": "1.43.123",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [
+        "urllib3!=2.2.0,<3,>=1.25.4"
+      ],
+      "source": "https://pypi.org/pypi/botocore/1.43.123/json"
+    },
+    {
+      "package": "pip",
+      "version": "26.1",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/pip/26.1/json"
+    },
+    {
+      "package": "setuptools",
+      "version": "83.0.0",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/setuptools/83.0.0/json"
+    },
+    {
+      "package": "pytest",
+      "version": "9.0.3",
+      "requires_python": ">=3.10",
+      "relevant_requires_dist": [],
+      "source": "https://pypi.org/pypi/pytest/9.0.3/json"
+    }
+  ],
+  "recommendation": "Existing >=3.9 declaration cannot satisfy known patch releases. Explicitly raise API and AI Python minimum to a maintained, actually tested runtime (>=3.11 aligns existing CI/local full acceptance), document clean environment rebuild, re-audit and rerun all gates. Reconsider pytest>=9.0.3,<10 once floor change is explicit; do not keep a dev advisory solely to preserve unsafe3.9.",
+  "lifecycle_source": "https://devguide.python.org/versions/",
+  "lifecycle_as_of": "2026-11-04",
+  "python39_eol": "2025-10-31",
+  "python310_eol": "2026-10-01",
+  "python311_security_support_until": "2027-10",
+  "claims_not_made": [
+    "No exploit was executed.",
+    "Audit does not establish runtime exploitability for every advisory.",
+    "No source edits, migration, database reset or dependency override performed.",
+    "No full Python3.9 application regression executed."
+  ],
+  "capture_stage": "REJECTED SDK-removal-only candidate retaining>=3.9; not complete original-main baseline; superseded by final>=3.11/pytest9 candidate"
+}

@@ -1,0 +1,2375 @@
+{
+  "baseline_sha": "e7752acbecb47a1182f7c2d39a4f2f2822ad311f",
+  "source_byte_match_to_security_branch": true,
+  "changed_baseline_paths": [
+    ".github/workflows/ci.yml",
+    "README.md",
+    "apps/web/package-lock.json",
+    "apps/web/package.json",
+    "services/ai/app/orchestration.py",
+    "services/ai/pyproject.toml",
+    "services/api/pyproject.toml"
+  ],
+  "tracked_files": [
+    {
+      "path": ".env.example",
+      "sha256": "7f16d264c1f89393562d762194de9db319a4f90ff052dfd111a4741db14e8484"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "267c7867e42d808448599af4d158bcd01c41294afa3f94d64fc869e298702138"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "2f8ec825e2988f79d07faa7cab190aee69a48876c92db863b0522ad42e75f991"
+    },
+    {
+      "path": "Makefile",
+      "sha256": "4da621dfeac5068c1e74834ca31144e1420e389782ff8cdc0399baec0062cc92"
+    },
+    {
+      "path": "README.md",
+      "sha256": "97f2732b8054018261bba28b25c8efd0a09327715e8f3056d869be8cbf10ed38"
+    },
+    {
+      "path": "apps/web/.eslintignore",
+      "sha256": "c568e8a7a6b24f28fdb5546124b54c8330534b40a496ea6bdbde4e1aa2decc26"
+    },
+    {
+      "path": "apps/web/.eslintrc.json",
+      "sha256": "8d4a8d81dab1c22bcb28635249606f2e59fa816e8e58c56eecf6d2430949847a"
+    },
+    {
+      "path": "apps/web/.prettierignore",
+      "sha256": "3cbed832ff29756c44fe4983fa676b532e1d8f34a4a3a6765a1902b18b35c47e"
+    },
+    {
+      "path": "apps/web/.prettierrc.json",
+      "sha256": "79e96ffcf891cec9f48d56c528a0baa1c53110e5dd8eb8e9e54a5936c66f9218"
+    },
+    {
+      "path": "apps/web/ai-speaking-execution.test.tsx",
+      "sha256": "c337e0c25243b5560dc596ff4e5971ef1527c2451decba69409da298573e759d"
+    },
+    {
+      "path": "apps/web/ai-writing-execution.test.tsx",
+      "sha256": "1395f97e0149608cfa36406d7136f674a18b5aaa4b14185fc03e2c779d00d7d6"
+    },
+    {
+      "path": "apps/web/app/candidate/api.ts",
+      "sha256": "368c4834da14b0a6bd0dc7df50665304a0dda60440d36b04f540422976260a5c"
+    },
+    {
+      "path": "apps/web/app/candidate/audio-contract.ts",
+      "sha256": "4b3b1dc8e2a05464602ceda2db2a7a043cde279956d0e71f759e4cd55f64eb39"
+    },
+    {
+      "path": "apps/web/app/candidate/audio-timing.ts",
+      "sha256": "a7bc660563da03b2d2079fab69159d8b15d95220f7b9492edc33041e2a8c58c7"
+    },
+    {
+      "path": "apps/web/app/candidate/exams/[attemptId]/audio-response-control.tsx",
+      "sha256": "f3e72864e691c33071b37362573c18f26288fff53324a6bc5ec6eb1518ff1b1e"
+    },
+    {
+      "path": "apps/web/app/candidate/exams/[attemptId]/page.tsx",
+      "sha256": "7bca83b50739229972556e71abbd4f4abd11fea84b723fe44c839fdbb09993b7"
+    },
+    {
+      "path": "apps/web/app/candidate/exams/[attemptId]/runtime-ux.tsx",
+      "sha256": "88270b60f41878c98ee7e114b111e92b392de75e6cb77d1263178f87e19d5d97"
+    },
+    {
+      "path": "apps/web/app/candidate/outbox.ts",
+      "sha256": "e5300d220d1fcf80cbe0a1ecbc3128499d57b377593edb0f613df68621feaf6e"
+    },
+    {
+      "path": "apps/web/app/candidate/page.tsx",
+      "sha256": "faea6c9697eaed1feea1a9ffd470f19d6f21e5cd7b0b41b62e97ec5857aee90e"
+    },
+    {
+      "path": "apps/web/app/candidate/results/appeal/page.tsx",
+      "sha256": "c41a3de0207b2bb023c6bd2eedc68d2b1e840d147cdfbb53bc027348996eba8d"
+    },
+    {
+      "path": "apps/web/app/candidate/results/appeals/[appealId]/page.tsx",
+      "sha256": "d19ade27800433c15fcb45b1d46bc4a123ffa0ce67a59a78f92574c31fa4ec83"
+    },
+    {
+      "path": "apps/web/app/candidate/results/appeals/page.tsx",
+      "sha256": "f565939a83e1b9b8b0b0baf0c680e3094e1b565db076f98b4d66cc166152e25c"
+    },
+    {
+      "path": "apps/web/app/candidate/results/page.tsx",
+      "sha256": "9e9088d4f3ce489896dede351867a1b707961a17e229b3e73e9419cf60bf641d"
+    },
+    {
+      "path": "apps/web/app/candidate/results/releases/[releaseId]/page.tsx",
+      "sha256": "871102d8485c9496f14f6e708ceae9009e316fb451e5abdf080a1118d40dcf7b"
+    },
+    {
+      "path": "apps/web/app/control-center/ai-operations/page.tsx",
+      "sha256": "14be59c1d0bddcd88721fdc29d9e051e1dfae2d7fb40406e2834f4c19465fdf1"
+    },
+    {
+      "path": "apps/web/app/control-center/audit/page.tsx",
+      "sha256": "498b090d51a43b0ee02b7c371eb3d4e01e1466f9d3aeaeb9de0e77fe3e780e80"
+    },
+    {
+      "path": "apps/web/app/control-center/certification/page.tsx",
+      "sha256": "89c1162805c6d0fbb0b91ae0bd55b4ff6a2db8917dc6cd79975e462860b157b5"
+    },
+    {
+      "path": "apps/web/app/control-center/control-api.ts",
+      "sha256": "87389263af4603909f256d8d6026f36ffbf5e4f9e3a54c48e8e098e984ab861c"
+    },
+    {
+      "path": "apps/web/app/control-center/control-center.module.css",
+      "sha256": "55c7aa75a33119d1c2cbe5455ed57866e0b7a3a0f0bd294853c941701e3acb1d"
+    },
+    {
+      "path": "apps/web/app/control-center/exams/page.tsx",
+      "sha256": "f7465e013a2d8573dc65d5745849cbbdf23b3d82a9dce699f1c037806e8051ed"
+    },
+    {
+      "path": "apps/web/app/control-center/layout.tsx",
+      "sha256": "80c567b398533151bc51863b5aeb0180cc33df4c0fa09f33246089b252eb9341"
+    },
+    {
+      "path": "apps/web/app/control-center/metadata.tsx",
+      "sha256": "fbcc3dd6bb0279aff479af6f510650b4d03b6c6ffd97342c9f26cd3154f92e58"
+    },
+    {
+      "path": "apps/web/app/control-center/organisations/page.tsx",
+      "sha256": "f2f06dd6696efcd8b7eedd535e859758e57a78b253535b2834f3001e5dc03ce3"
+    },
+    {
+      "path": "apps/web/app/control-center/page.tsx",
+      "sha256": "37bfafa5bd8fbc9f224429428ef03c3bfce0994eb07906a6a976702a0e4fce44"
+    },
+    {
+      "path": "apps/web/app/control-center/question-bank/page.tsx",
+      "sha256": "e75389ae3fc52f9fea2f6268ecc14c94ace636fe63c67a1af4d3be2898ac0290"
+    },
+    {
+      "path": "apps/web/app/control-center/shell.tsx",
+      "sha256": "3ecbccdbf6a3cfff573a3bd328706a735e80f96a506eb068b68647aa1db8118f"
+    },
+    {
+      "path": "apps/web/app/control-center/source-registry/page.tsx",
+      "sha256": "38b72fd22e38b515ce297fa919f793ca7d96825399882e2e00ad409632d5c26e"
+    },
+    {
+      "path": "apps/web/app/control-center/standards/page.tsx",
+      "sha256": "d5d3297fca2cf40e8039d4b3087d70354781a4b17b93a844a253579f71d155fb"
+    },
+    {
+      "path": "apps/web/app/control-center/system/page.tsx",
+      "sha256": "00517f1b06cbae3b86382c353b37057c1d3965469be386613ae9080b13430992"
+    },
+    {
+      "path": "apps/web/app/docs/offline-check.tsx",
+      "sha256": "a72711fa548d94168534cc29c71e4783873a85745fecc13f65239d697f00e750"
+    },
+    {
+      "path": "apps/web/app/docs/page.tsx",
+      "sha256": "b9314d86c658eb41d6c18bf78256c98fca0584fe478fd9727eacb5f9cb86fd70"
+    },
+    {
+      "path": "apps/web/app/exam-studio/page.tsx",
+      "sha256": "26ba90dc5e134a8548b0cb50d2f03313246e5de2fbfeb94a58fbbef870a70317"
+    },
+    {
+      "path": "apps/web/app/institution/appeals/[appealId]/page.tsx",
+      "sha256": "581c110578e5eeed3c91b1bea1070782e6ea5d175c61e9effb6128817fe2619d"
+    },
+    {
+      "path": "apps/web/app/institution/appeals/appeal-api.ts",
+      "sha256": "328c8f01e7581af508224a2b8ebac82a6569dde5902392a54f7fbe1ad77a5988"
+    },
+    {
+      "path": "apps/web/app/institution/appeals/page.tsx",
+      "sha256": "a3bf11ca7dd40321ddd76a065bbcb5af7e44b1e30341fb160047bf6c5cce16cb"
+    },
+    {
+      "path": "apps/web/app/institution/assessment-api.ts",
+      "sha256": "ee312fdd2793253f8f84fc16a4eb4e32f1d7e8c283f2e32da01bad3131253dc0"
+    },
+    {
+      "path": "apps/web/app/institution/assessment-evidence.tsx",
+      "sha256": "19f627a2a030b1a0a71f94c7263053052ac7040050f3a196c5e0a7c71a6e782a"
+    },
+    {
+      "path": "apps/web/app/institution/assessment.module.css",
+      "sha256": "ac57f071408d7e9746a937957a5ab149ba27871efdf7251c1a4336a208a1d68c"
+    },
+    {
+      "path": "apps/web/app/institution/assignments/page.tsx",
+      "sha256": "0c7bd01f24e7bd8c3c4cbae1dea4c092702b536a71210662ba65f65f6bcb4db9"
+    },
+    {
+      "path": "apps/web/app/institution/overview/page.tsx",
+      "sha256": "d823c01b39124db0c7c499153e95e09378db7048d0fd50ac1273d6dd97367737"
+    },
+    {
+      "path": "apps/web/app/institution/releases/[releaseId]/page.tsx",
+      "sha256": "6c6e444da8b9c53b19a55da8fb40599498ce12e193dd281c4ff8813a170221fa"
+    },
+    {
+      "path": "apps/web/app/institution/releases/page.tsx",
+      "sha256": "e264be64a44bad167641a839b1c9359648300133594101d75f41d000b092514a"
+    },
+    {
+      "path": "apps/web/app/institution/releases/release-api.ts",
+      "sha256": "f1696a2c85080c18a98ff26efde4740ac0df2f52ed45dc000920e912b24806f7"
+    },
+    {
+      "path": "apps/web/app/institution/result-moderation/[caseId]/page.tsx",
+      "sha256": "02dd9c4b0109d928ca5425a5e2dc05201b5e826dd6549c8c5059dab836eb3f66"
+    },
+    {
+      "path": "apps/web/app/institution/result-moderation/page.tsx",
+      "sha256": "fa4327eaeaba0b29b39b1568117f2d4b2b9402f911477977e9bb9c1ce29f96b9"
+    },
+    {
+      "path": "apps/web/app/institution/results/[resultId]/page.tsx",
+      "sha256": "faa089005d8e5d0c149f31e9a474ada5af905021f5c39fca88337012542d260e"
+    },
+    {
+      "path": "apps/web/app/institution/rubrics/[rubricId]/versions/[versionId]/page.tsx",
+      "sha256": "6ed6ce70a5b2e45a195d3b5d4ed97623f0c2b9ec5e42cce63345bddcfeb382b9"
+    },
+    {
+      "path": "apps/web/app/institution/rubrics/page.tsx",
+      "sha256": "63c4250cc499f8531d903b293d616ba1f3ca377ca956b06fb9e4424e045da182"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/[assessmentId]/page.tsx",
+      "sha256": "2d5da67479a2aba68acfb2e7f5960e41e0642ba2c5657c74e00cfb95fa78bbb7"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/ai-review.tsx",
+      "sha256": "82e1f289cadfcea5057886b13a0a7ab11ab657bfa7c028af9e2b8a51e6c4b24c"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/audio-evidence-view.tsx",
+      "sha256": "83e36b8d786f26727f84604cee0dc29f5910f049b7671abc8fed05e8860998ee"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/audio/[assetId]/page.tsx",
+      "sha256": "9c42fff172b950dd855721130500977d739c54fc80b56a977c3a0e05e39c0396"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/execution-api.ts",
+      "sha256": "33db03486369f6b03af3d53ebc605fd83ac3d206bfc262b3b309132f190a9723"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/execution-panel.tsx",
+      "sha256": "e642ba5c523cdad93dbda6603252f3d4749dc28b008604c7f2961ed25860247a"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/foundation-api.ts",
+      "sha256": "73afd135ee3ff148c8032626f9a6228017defb5450df85100b3c0169e8187d80"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/human-criteria.tsx",
+      "sha256": "a6832ac29f730a48444db7977da9a1b9ee5d49abbc7a49d9de49331a518a4171"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/page.tsx",
+      "sha256": "9d0aea3ccdc507d20e45ddb71de57608e64529c1e147d7d093dbe452115b516c"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/review-api.ts",
+      "sha256": "dbcc09b9daca86ef8bc04fb65d68a4ac477660311871dffaf5c9e68a4d77b8dc"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/transcription-api.ts",
+      "sha256": "9139d2e1b254ac6d989db9d981d4759e31de8a5fd36b3b83ab11c063334d7a46"
+    },
+    {
+      "path": "apps/web/app/institution/speaking-reviews/transcription-evidence.tsx",
+      "sha256": "82331a59ceeee040225663ee3395bf6158eab7f4292f65b6fcc06f6542119133"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/[assessmentId]/page.tsx",
+      "sha256": "61b8978e9d9daab566716f4182b993ed251d7b7ef9f7790cf418a804d2179b66"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/ai-review.tsx",
+      "sha256": "a731f51ce34535bbd6148223f978c672d468ee8f180d43d40d868ef8c5d3ef87"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/execution-api.ts",
+      "sha256": "6e931f21f5606715eda467af26dcd3f9848166d33ddaa5e25e1496613035086e"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/execution-panel.tsx",
+      "sha256": "5ecd700b06f180f3dc2058bb0a5b00eaa07d0b5d22fb06f7b9ba2cef7f4f6491"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/foundation-api.ts",
+      "sha256": "43890225f50cf98276aef73ac8c2978ad59c655045fae0e6d81901da0f232284"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/governance-ui.tsx",
+      "sha256": "c607a3a5c4ef7471e98772c9d2bb74d2d185836fe7977217f858a7189cd74cdd"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/page.tsx",
+      "sha256": "b81923f641af223818d89171d82562824091368afd069afd0f8e2f6c115a0549"
+    },
+    {
+      "path": "apps/web/app/institution/writing-reviews/review-api.ts",
+      "sha256": "096618db656d23f0ed094c0b9ba1e2c7bdb19c8df38db4ff56de08f582010a03"
+    },
+    {
+      "path": "apps/web/app/layout.tsx",
+      "sha256": "605a290976aa57327f11207bd508184399aab49961c3dfd64b27aee726e8994c"
+    },
+    {
+      "path": "apps/web/app/login/page.tsx",
+      "sha256": "a2824fa4217c5cac586564eee51bcce055d12391d12d31c7926a428eed79df37"
+    },
+    {
+      "path": "apps/web/app/page.tsx",
+      "sha256": "f42cc9e773272033c1f79a290ee16ada505c71503f6de9f55003468a7536d825"
+    },
+    {
+      "path": "apps/web/app/private-audio-player.tsx",
+      "sha256": "e31acb903e639001ef46d26f7a5a103a3d507bc1e407ce9d5755bc871aedafc6"
+    },
+    {
+      "path": "apps/web/app/status/page.tsx",
+      "sha256": "2a6b4cc0cbde535cfe0f77b2b926ebdf5a047aef0266b8be1d6bf0f509554e02"
+    },
+    {
+      "path": "apps/web/appeal-evidence.test.tsx",
+      "sha256": "eb40c23cf3cdf3b82ed6a1e20f1a6517355a6c1e0bc61295f9317fc3e9b44434"
+    },
+    {
+      "path": "apps/web/audio-evidence.test.tsx",
+      "sha256": "1e09426f273f639979be969e2af095711ec9f944ebbc2a2ac5febd10737c0584"
+    },
+    {
+      "path": "apps/web/auth-contract.test.ts",
+      "sha256": "68c639b1abf6657ca9a5dd98a048213ab9fd00343bbd411deae0b3d55411130b"
+    },
+    {
+      "path": "apps/web/candidate-flow.test.ts",
+      "sha256": "3a4da8cfa99da14c75d43afef46c4e03964a7178c6462bb3da94e124e6c635b1"
+    },
+    {
+      "path": "apps/web/candidate-outbox.test.ts",
+      "sha256": "18f46b4d2c04bd7c704e3edbcd5b55fc83790d752253f12e4765aa92888afccc"
+    },
+    {
+      "path": "apps/web/candidate-runtime-contract.test.ts",
+      "sha256": "d2248872e39189321c285cee2d9511bdbf12d0741ec697fa6d2a07bf630df9d3"
+    },
+    {
+      "path": "apps/web/candidate-runtime-ux.test.tsx",
+      "sha256": "092d3bcffc6eb2e8c0eacd76fd74d612d823de4ba425577011cad976f98e00d0"
+    },
+    {
+      "path": "apps/web/control-center.test.tsx",
+      "sha256": "3c35a20335fcc785b6b7a49e70c9ff9c5a1730d2f78ccc723e59e43fda40bf12"
+    },
+    {
+      "path": "apps/web/integrated-assessment.test.tsx",
+      "sha256": "44a106e9b0e07a00ce1061dd4a21641712276eee5fb914f18ecaf442ea67fff3"
+    },
+    {
+      "path": "apps/web/lib/access.ts",
+      "sha256": "5cef348a4a69d709d400926b841406082acbe6478e94aebd7ce27f4c47f86109"
+    },
+    {
+      "path": "apps/web/lib/api.ts",
+      "sha256": "6276f07d02fb63f5a840db371645b83e26380901c3af17b8d314e3399eb37c67"
+    },
+    {
+      "path": "apps/web/lib/auth.tsx",
+      "sha256": "f5acc0132e257a750d99bc33974f8edd3f3acc7613d0221014915babf49b234a"
+    },
+    {
+      "path": "apps/web/lib/demo.ts",
+      "sha256": "ce6327a627745336d2cafad2c6e797776758e8e2bb2abe56b2ab6cd6a9edd1ad"
+    },
+    {
+      "path": "apps/web/lib/private-audio.ts",
+      "sha256": "2e342b670301c4518a056cca14d0c229ed41e4df90cd475b06ff5ef3ffe8df52"
+    },
+    {
+      "path": "apps/web/next-env.d.ts",
+      "sha256": "85ae5aee75f011967cf2d25cbc342f62d69314e9d925f7f4aa3456fc2cffcca6"
+    },
+    {
+      "path": "apps/web/next.config.ts",
+      "sha256": "1195d502c4f119d709cd7ce9d729faffaffcf4d5b110e41a04cf95e53f032b42"
+    },
+    {
+      "path": "apps/web/package-lock.json",
+      "sha256": "007c6fd1989e7fd2e18474bb74241c57288d29f09caf372f80a54be19e893334"
+    },
+    {
+      "path": "apps/web/package.json",
+      "sha256": "f9f86adc9ae4f250ec423a30be815da66cfe72cb500e314fd7fd2a7589484c89"
+    },
+    {
+      "path": "apps/web/result-release-contract.test.ts",
+      "sha256": "aa65956a01afdbce3bfba685fdfd3391f16327c13d8f2e9fea6f30991ca1db90"
+    },
+    {
+      "path": "apps/web/speaking-human.test.tsx",
+      "sha256": "3333e1d90e79b822cc46beac6122089d05232c132ba60771a243cb8a9da50b79"
+    },
+    {
+      "path": "apps/web/speaking-results.test.tsx",
+      "sha256": "35dabe05267d99623c49099b318791f7421fb6669054bdb35e318a1dd9a27e73"
+    },
+    {
+      "path": "apps/web/status.test.ts",
+      "sha256": "1063c97cb19a2bc4066137addeef935bea5ba5ac82d489d3b7112411ec0937fa"
+    },
+    {
+      "path": "apps/web/transcription-execution.test.tsx",
+      "sha256": "8ffdee0e87fff0d9491f214d83020e963715c989921bb781f9e3637ea86cc90d"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "sha256": "23542af7fb82577339b0e3c819594be8641a70a2b1fbd34b70bf992914d64cd3"
+    },
+    {
+      "path": "apps/web/vitest.config.ts",
+      "sha256": "2d4ac4b984c9b3891a9eabb63b9b5c9e6164b291453e8071055a56d68d67bfda"
+    },
+    {
+      "path": "apps/web/writing-foundation.test.tsx",
+      "sha256": "79d824f1720d26a23cffa0723a11bd7a5cd11080073fe81ebfd7ece75c551c78"
+    },
+    {
+      "path": "apps/web/writing-journey.test.tsx",
+      "sha256": "70903f89dbd30496a392dcaaf8af7ab23a4452e4e4b568a8f1697a88f4f9cd25"
+    },
+    {
+      "path": "docs/ai-speaking-proposals.md",
+      "sha256": "1449534befcd4fb46fa38ae6b8e1b5b19bbf36d10f527c6919ea951aa555d8d1"
+    },
+    {
+      "path": "docs/ai-writing-proposals.md",
+      "sha256": "4a3c9bcc08322f08e2890af214c1382ed54914592894bec06dfbea50a69e2d0b"
+    },
+    {
+      "path": "docs/architecture/ADR-042-rules-as-code-model.md",
+      "sha256": "424b3f9d7e07916b6c1ad7996077a887e2279e6780a61f622620995ac87986b6"
+    },
+    {
+      "path": "docs/architecture/ADR-043-safe-rule-dsl.md",
+      "sha256": "b842f614f4f278407a847c3ffa5a0ac20f7c76f52fd0de45ef5684a50e3d5683"
+    },
+    {
+      "path": "docs/architecture/ADR-044-rule-provenance.md",
+      "sha256": "74cc57ce36f16574592f1c2326090c2b81df9cc99401d7e927ba994f873af455"
+    },
+    {
+      "path": "docs/architecture/ADR-045-rule-evaluation-semantics.md",
+      "sha256": "7c29eb8c92198c6492744a8c9234456e6259e44691a9f55abaf22365bc5c2c4d"
+    },
+    {
+      "path": "docs/architecture/ADR-046-certification-authorization-guard.md",
+      "sha256": "77c118b9e9dd40adc8e5d913738d20f939ee622b2c884373b513ce236d35ffbb"
+    },
+    {
+      "path": "docs/architecture/ADR-047-ai-model-prompt-agent-registry.md",
+      "sha256": "8b8b68204eaf32deb34ee34c6c1c2c073f633ab9942b2f75c9f00e67e0f57e0b"
+    },
+    {
+      "path": "docs/architecture/ADR-048-langgraph-orchestration.md",
+      "sha256": "a6406d4cecc224781500e32c7843c5578e6f1dc6583bb9feea713030ea6e691c"
+    },
+    {
+      "path": "docs/architecture/ADR-049-ai-tool-boundaries.md",
+      "sha256": "48765ee122d16cce905e71c81451edc08a4c6c3dfbbc0ca5ae640a7422a5c18b"
+    },
+    {
+      "path": "docs/architecture/ADR-050-human-review-checkpoints.md",
+      "sha256": "f0e26b28135f63a4d0995b2701602eabba37e9b7d376cacf7cd8af23de313f15"
+    },
+    {
+      "path": "docs/architecture/ADR-051-ai-run-provenance.md",
+      "sha256": "8b3156cfab5d973a65745d36be1665645439023937a8bb9df90fee7b532c49fc"
+    },
+    {
+      "path": "docs/architecture/ADR-052-memory-precedence.md",
+      "sha256": "d404fdf02898b12d903b8b4c22d44aaf4d06e5fb2a99c6bc3ba365b691a7d859"
+    },
+    {
+      "path": "docs/architecture/ADR-053-short-term-memory.md",
+      "sha256": "d2a0ba7274a57ee8b07aec0201428623a7ebc382b30dd43b8378ca4c6e7ac9f6"
+    },
+    {
+      "path": "docs/architecture/ADR-054-governed-long-term-memory.md",
+      "sha256": "f2534b7cfb6ad0d74b28e366836693c91d8247248fa8158e3110b9fe177ff56b"
+    },
+    {
+      "path": "docs/architecture/ADR-055-memory-tenant-isolation.md",
+      "sha256": "8cda89699ef43cafca9ac91fe24a209451cb7197cb1eb2fae6442478e58aa882"
+    },
+    {
+      "path": "docs/architecture/ADR-056-memory-provenance-retention.md",
+      "sha256": "e912fdfa981444776be36e5510be3de1bbce2bc2343c4f225fa829e25361e6be"
+    },
+    {
+      "path": "docs/architecture/ADR-062-exam-versioning.md",
+      "sha256": "46d58766d2e6e8ab5aaa8a8bf8b8095b94446432652491b6f3ae3a973d3a3c8a"
+    },
+    {
+      "path": "docs/architecture/ADR-063-blueprint-first-exam-assembly.md",
+      "sha256": "ae7309ff8ea5e6a5dc95570dc995988b8956d5d59ff4d337f527dd66b0bde79e"
+    },
+    {
+      "path": "docs/architecture/ADR-064-exact-item-version-pinning.md",
+      "sha256": "c3fb17d9540b45d7a718088131cdde0ed1b7c3334993c0fc4b58889d94a30d28"
+    },
+    {
+      "path": "docs/architecture/ADR-065-exam-validation-publication.md",
+      "sha256": "4ea72eb5857a74d59df9632f0dac441f72fdc573f3c9d5c99f90ebf37d34c30a"
+    },
+    {
+      "path": "docs/architecture/ADR-066-exam-delivery-manifest-security.md",
+      "sha256": "c5f2a12e3d01c237ea7a096095426d3523297f7cd27ae060b1c782110795e724"
+    },
+    {
+      "path": "docs/architecture/ADR-067-candidate-attempt-session-model.md",
+      "sha256": "1d373fa55b430412146031b164a97b9519ad28e9a21795badc87c6d0715bc42e"
+    },
+    {
+      "path": "docs/architecture/ADR-068-server-authoritative-exam-timing.md",
+      "sha256": "37a35f85c1a0686680b0d03aa49358e573daba9a1afaf3cbc74ad7c0bd71503a"
+    },
+    {
+      "path": "docs/architecture/ADR-069-idempotent-response-sync.md",
+      "sha256": "852f96e615c3d3a01c997cc4f17434d0bac2d7e0ab00aa774a27d3f9ee55a5f6"
+    },
+    {
+      "path": "docs/architecture/ADR-070-candidate-delivery-security.md",
+      "sha256": "af1c28a8ef29b36d80e37224cffca195670e959ec9f10cdd0dc8f4d47b0d7c1e"
+    },
+    {
+      "path": "docs/architecture/ADR-071-runtime-offline-recovery.md",
+      "sha256": "2b0f0dfc250c160f02cf37b4e845823fb9b0b17e190945ba323d7c661237b174"
+    },
+    {
+      "path": "docs/architecture/ADR-072-deterministic-scoring-runs.md",
+      "sha256": "0ce4e4fdf8dff0b730d669ebf156edc213ec43b1504e0cf8fd27e1667fd41443"
+    },
+    {
+      "path": "docs/architecture/ADR-073-score-and-result-versioning.md",
+      "sha256": "913de178e9ca95346f857b0eab0911e7499e06ccae3b063343bd0fbf11aa05d0"
+    },
+    {
+      "path": "docs/architecture/ADR-074-objective-vs-subjective-assessment.md",
+      "sha256": "8234e7d704677cba757442d53ef0d6f85cad284128ebf42dff462e94c0edc45b"
+    },
+    {
+      "path": "docs/architecture/ADR-075-result-release-governance.md",
+      "sha256": "f869e53e03ec461dc0e6476b3d155ea1e144b11296deb6d18220f4076d62cd96"
+    },
+    {
+      "path": "docs/architecture/ADR-076-scoring-provenance-reproducibility.md",
+      "sha256": "d36c1ff113d549c7b4cc859d472c8f38a76b9f4f40c6b698656199af224ae766"
+    },
+    {
+      "path": "docs/architecture/ADR-077-versioned-subjective-rubrics.md",
+      "sha256": "db4cc1b221e0e3328de760796f4dc91773b33473b03e4560ff01129af8ecc895"
+    },
+    {
+      "path": "docs/architecture/ADR-078-governed-writing-assessment.md",
+      "sha256": "cf45c19829ccb9101697be791af454ebe85fdbb79b349c525b4f72c6e6e7534c"
+    },
+    {
+      "path": "docs/architecture/ADR-079-multi-agent-criterion-evaluation.md",
+      "sha256": "9c44061dac83c9d429539b4cb06ccf05e1e85a83284beccdb1628ee893216b2b"
+    },
+    {
+      "path": "docs/architecture/ADR-080-human-final-authority-subjective-scoring.md",
+      "sha256": "5698b8536cc8fe183b9a475e9dc22ec458351fb256c2fb1ba17a772e203fdd8b"
+    },
+    {
+      "path": "docs/architecture/ADR-081-subjective-assessment-evaluation.md",
+      "sha256": "384493b62a314df3a05c255ff8feec6dacd1f0c46ea59567128d6c36e45fbc94"
+    },
+    {
+      "path": "docs/architecture/ADR-082-candidate-audio-primary-evidence.md",
+      "sha256": "00afbac9f70a339c0cc9a5f352d0f5e7695580875cf0b201c7570b6fa5cb7041"
+    },
+    {
+      "path": "docs/architecture/ADR-083-private-audio-storage-and-streaming.md",
+      "sha256": "3770209a950ab6da725461a273151404f34dd64bcb5f233b5b109d3d4563ca03"
+    },
+    {
+      "path": "docs/architecture/ADR-084-versioned-speech-transcription.md",
+      "sha256": "4c17272b9ff3dc119bfebb94ad270f986dc1fad7075a988fea4b671db1c78d51"
+    },
+    {
+      "path": "docs/architecture/ADR-085-governed-speaking-assessment.md",
+      "sha256": "b02f9c843314601319c2330f9f5c0b87d57b49fb2c6f04fd722cb0e24a25d268"
+    },
+    {
+      "path": "docs/architecture/ADR-086-audio-transcript-evidence-precedence.md",
+      "sha256": "25784ba8fb52e6198749877c297f39c7e84612469b332f0dd13bf13c0282988f"
+    },
+    {
+      "path": "docs/architecture/ADR-087-speaking-assessment-privacy-and-fairness.md",
+      "sha256": "80399fd313d18a1c5964523ee2829bcb35971708b271346acc56b5db2e689b85"
+    },
+    {
+      "path": "docs/architecture/ADR-088-versioned-result-appeals.md",
+      "sha256": "0e601dc172ea7b00f91fcb214b83c46fa97328d07c419efe72bddf30be29a70a"
+    },
+    {
+      "path": "docs/architecture/ADR-089-evidence-bundle-for-result-review.md",
+      "sha256": "f6a849fbe2c07229bb2976bd2d06459f768bce46cb5b8d1e84bb5451dc6ae534"
+    },
+    {
+      "path": "docs/architecture/ADR-090-appeal-corrections-create-new-results.md",
+      "sha256": "aaaeba7de4bd38fc0f2da829f7152f08f2f427684294405aa6d512884361ac32"
+    },
+    {
+      "path": "docs/architecture/ADR-091-human-adjudication-authority.md",
+      "sha256": "9236377d524afb210da28759b0d9c4dd19a4263f60233fb90e198b4f99e24bda"
+    },
+    {
+      "path": "docs/architecture/ADR-092-adjudication-row-locks.md",
+      "sha256": "700d7fab252bd738e6c89028ed42eae014b1adddb896a76e40c093db0029be43"
+    },
+    {
+      "path": "docs/architecture/PHASE_0_ENGINEERING_BASELINE_REPORT.md",
+      "sha256": "5ff63adc9de9cdee7adf7c6b6052198c86d24b81e2a9f8eae126f28dab09c49f"
+    },
+    {
+      "path": "docs/architecture/PHASE_0_REPOSITORY_AUDIT.md",
+      "sha256": "334d0ee80d47d550a49079d6bebfe66aa1ef4337d1959d95ed87f3010fd149cc"
+    },
+    {
+      "path": "docs/architecture/PHASE_1_AUTHENTICATION_SESSIONS.md",
+      "sha256": "e3a073b41363afe60f411f1c5625f4dd61eeca85d16559cc4c92bf133af55a72"
+    },
+    {
+      "path": "docs/architecture/PHASE_1_IDENTITY_TENANCY_RBAC_AUDIT.md",
+      "sha256": "26b66ab2b46bcf166e760fa34227bfffe66bffd3cd5b4ab5670579692dc11190"
+    },
+    {
+      "path": "docs/architecture/PHASE_1_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "760873f554253b0eee61ea47ed9e2329229ab6b8b249409a713810fa15f1e462"
+    },
+    {
+      "path": "docs/architecture/PHASE_1_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "d818268f1cd9844d47a0311ed355c737558e66fff958eadac9d2aa0edbe16ee7"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_HYBRID_KNOWLEDGE_RETRIEVAL.md",
+      "sha256": "439b15bb3ebacdbcb3f254c1e87a3c498ba1f9ee2faecae435f6fe2ea2c2776a"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_RETRIEVAL_QUALITY_AND_CITATIONS.md",
+      "sha256": "95722ef036d394d9355227ee0535eef358b6436c06468c393ef37d845c34f13f"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_STANDARDS_KNOWLEDGE_FOUNDATION.md",
+      "sha256": "99880c0560e753d410f157d8e997167c9dcc408c570fd60ff63fe6c585bcea51"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "993d66b6b88e24f4596c3cc131875d2dfd738d96039ae6e72bb56f7cf38c0eb2"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "5a73410736ac64bd839f97f2defa5425d1a56c6a48f6384bc7ccc229e406a940"
+    },
+    {
+      "path": "docs/architecture/PHASE_2_STEP_3_IMPLEMENTATION_REPORT.md",
+      "sha256": "d0419864ec3f2a666d4906e4a58b5b5ba67ac8e19cee79d9377c1dc45a833410"
+    },
+    {
+      "path": "docs/architecture/PHASE_3_RULES_AS_CODE.md",
+      "sha256": "2719402a21a8a255b6f315db74683539600d5b8dcf0f127018089f75b3687fc7"
+    },
+    {
+      "path": "docs/architecture/PHASE_3_STANDARD_PACK_FRAMEWORK.md",
+      "sha256": "ed310db8b35d2a15109dafc15d562c1a8c018a2d351108b8e8fa651c45f4b95c"
+    },
+    {
+      "path": "docs/architecture/PHASE_3_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "fa8173ffb59d948c013698ea97b8738617d399cc9a773aa76ce316fc97fd2a46"
+    },
+    {
+      "path": "docs/architecture/PHASE_3_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "42c07dc9146e123ac1ebae5e59c072c834c6bd394f24fd5fb8af1f6afa147dec"
+    },
+    {
+      "path": "docs/architecture/PHASE_4_AI_ORCHESTRATION_AND_HITL.md",
+      "sha256": "89a8ad84e62588caa5df58506ac902570dc69485259ef50b63195532c5adbb4c"
+    },
+    {
+      "path": "docs/architecture/PHASE_4_GOVERNED_MEMORY.md",
+      "sha256": "5405541ec46187062378c3cacae5e302e3778dc154fd8580933dc28f54919eb2"
+    },
+    {
+      "path": "docs/architecture/PHASE_4_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "014ff28a2a460baebf3017f386732d745e629f5e855234d3ed9985adb6ad9fd3"
+    },
+    {
+      "path": "docs/architecture/PHASE_4_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "f40c7eb1295622c2ddea0576bd37c6c0e9b3ea156bbc0e61774b85a5094b3550"
+    },
+    {
+      "path": "docs/architecture/PHASE_5_EXAM_STUDIO.md",
+      "sha256": "e78981dd4d89722f450271efa71d15aee16c7c0d0541374d75f33bde677c8ac0"
+    },
+    {
+      "path": "docs/architecture/PHASE_5_QUESTION_BANK.md",
+      "sha256": "68b7c86eb95150cfc70f69acf5520dfab489bb738edd6db0acdc3a3669754421"
+    },
+    {
+      "path": "docs/architecture/PHASE_5_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "c989b91de92e32705726e6129618ff4c97f65dec4202274917d89c2223a0d598"
+    },
+    {
+      "path": "docs/architecture/PHASE_5_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "6c81735cb1898ef124d57f2c35f8249146dc358fe750e7653dffa967e17d908a"
+    },
+    {
+      "path": "docs/architecture/PHASE_6_CANDIDATE_RUNTIME.md",
+      "sha256": "512d7d8dfd1cf24c8fbf8b6a77e44c7ebcc0d03a15b75f41a3d4b9b0a5fe8ca4"
+    },
+    {
+      "path": "docs/architecture/PHASE_6_SCORING_RESULTS.md",
+      "sha256": "1e078ba5f035ebf7374c53fb2e4deae37c945ef5c8f02e55215068c4591d3638"
+    },
+    {
+      "path": "docs/architecture/PHASE_6_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "bf9649cb412e56de72b50a74b194be3fee164c37a4db93b5ba665dc1c99b57ce"
+    },
+    {
+      "path": "docs/architecture/PHASE_6_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "c8c4a054e3f49fb2163bbf1b4fc1517dd2a29562d00617965cd5f660969b43ab"
+    },
+    {
+      "path": "docs/architecture/PHASE_7_SPEAKING_AUDIO.md",
+      "sha256": "e3aaf5dc4b3eb25513aabf1d9da57e74aa1f4a8af7e33ad8c5d7e0eefa622f0b"
+    },
+    {
+      "path": "docs/architecture/PHASE_7_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "f01269c841f5583159a96fb56f2fc21cd5b9d2a415331b68acd93d9eaaa678d6"
+    },
+    {
+      "path": "docs/architecture/PHASE_7_STEP_2_IMPLEMENTATION_REPORT.md",
+      "sha256": "da6e5115f53fc514bff2fe5ba15cae52d7da74b602e3d343fcd035659165da03"
+    },
+    {
+      "path": "docs/architecture/PHASE_7_WRITING_ASSESSMENT.md",
+      "sha256": "3c0a694b2dbbcd0f99375e239bb1e3b2b79696a1e2ce63871fcb7ca441ea8cb6"
+    },
+    {
+      "path": "docs/architecture/PHASE_8_RESULT_GOVERNANCE.md",
+      "sha256": "a0bbaeea579889f18c709b64e21245292adb582bcaf673cce0d6df71794d19a1"
+    },
+    {
+      "path": "docs/architecture/PHASE_8_STEP_1_IMPLEMENTATION_REPORT.md",
+      "sha256": "5be1a4f22c79efba1fec0593c5726a6c157c34d2a30ccbfd451209a7cfb9f1a0"
+    },
+    {
+      "path": "docs/architecture/TARGET_ARCHITECTURE_V1.md",
+      "sha256": "ebc86eb23119f06dd1b5e956279fc7d57bea4cced0bdb1f8c59b716b04a2ceed"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-001-system-architecture.md",
+      "sha256": "6f945fdd3a48db467cfee6ce18901e1d466bd8488d7dcdd56db28111db05c18c"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-002-monorepo-structure.md",
+      "sha256": "6c69a56a0fb78ea4b3f1e442b65c4bd3bfbfd561e01d0c6b8a9224337884b298"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-003-backend-platform.md",
+      "sha256": "b325caee474e89e1f2c95f9d5fd4da837c0f4e6c3cd46d42abfae3982653aefe"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-004-database.md",
+      "sha256": "ecf7ef2bd32dd650dde4ff143b63b36f0f5d52c2a8a7c1860233ffd816c752aa"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-005-ai-service-boundary.md",
+      "sha256": "23b93946b805c6dea6d633177803da167a2bdcc2d50cb69f5d699889d78adf78"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-006-multi-tenancy-principles.md",
+      "sha256": "3343e6222ae39fb49f7ea39f704707070638faa45ed47d67a86e3c7acc521da9"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-007-standard-pack-concept.md",
+      "sha256": "b0585c217d7f61a767c58edbbf80292bf2adde7ae284e9efec2b4254d3ebdc71"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-008-rules-vs-rag.md",
+      "sha256": "f9172311b1ce8a00f9ded0d467ae441331fad6081c0f0e456bea66b306e06ed7"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-009-memory-model.md",
+      "sha256": "c9961f6b448d96ab18103b038962d178bf5db7474f71b7a060fa5fe563f85066"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-010-audit-and-provenance.md",
+      "sha256": "26021c2dccac89e594968dd695fd46d14ec274f67ab8f29019b99ecab7c1ee62"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-011-identity-model.md",
+      "sha256": "0b82b530aaba03410548e408e74995bb667a7159f64193a68413134e90df08f8"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-012-rbac-permission-model.md",
+      "sha256": "a592b7dd9a1221e73778a43f7b7666f4ea5657e484a45f8ae7566491dbcfd8e5"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-013-tenant-context-and-isolation.md",
+      "sha256": "87ea1a1ca290db666290dca1a42d3bf18a9cb29271d5fb084a97ade720822a3a"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-014-platform-vs-tenant-authority.md",
+      "sha256": "ecece871b5cbac53c65b5bf83c85dea4a31212a34843354321d70151ce2b480e"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-015-audit-event-model.md",
+      "sha256": "503371267db0b53246da8b571e70dec04ff258b180b1078ce24a9df352d6317d"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-016-authentication-architecture.md",
+      "sha256": "9fa53abf612556d4bfab79e34a6a510c3829771a43f04187073e69bf5a8a44f1"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-017-access-and-refresh-token-strategy.md",
+      "sha256": "43a9877ea719432fc0f208da3c6fc03417232f0f53632dd296977dc21f2bee3f"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-018-session-revocation.md",
+      "sha256": "83caa6ef62d7822fcbb1c2530e2226c7288901ce740ed58c422026ad5789c9cd"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-019-invitation-and-reset-tokens.md",
+      "sha256": "70cd821519598d7795b7b8a71f9b6b4470713eab0b30b23c23824de564e64a25"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-020-authentication-rate-limiting.md",
+      "sha256": "0c2f198c695439a0d5ef3d5373cb9f16b077f40c9c277264119f7237353e83b1"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-021-standards-authority-registry.md",
+      "sha256": "07272ecbca2b9635a96dd50677df6e362b90a5382f6f804a47ca3579a8b4364d"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-022-knowledge-source-and-versioning.md",
+      "sha256": "9084da8ef28beeaa034f002eda798170b20157a7d23666867996dc7dd181b763"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-023-knowledge-ingestion-and-provenance.md",
+      "sha256": "f752934b7db3f402d9b48f8382d87847bc95ddd0835ef6ee732d83ab5091f568"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-024-legal-rights-and-approval-boundary.md",
+      "sha256": "423e77f1b983a2f3a8409b2a895ce4663c83840927ebe49bb4d03140aa55222b"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-025-platform-standards-rbac.md",
+      "sha256": "06c9cdf1b623fe3a2aadad1fbf70126d0475bdda9a91dc95ce98966147c40f35"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-026-standards-object-storage.md",
+      "sha256": "0d58026171088754eb0e91f1aa02477ca42bde96cae27a92ae52e5eb23d2ae5d"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-027-knowledge-chunking.md",
+      "sha256": "d00ea2d875e9859578c65fc5f67f854e7e90a6b375a7b1a81dc7980f76737763"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-028-pgvector-embeddings.md",
+      "sha256": "e0d72c0aa7ce14fc12d0f9936062d7a0443348f695bd734ffbc4e005638bb6cb"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-029-hybrid-retrieval.md",
+      "sha256": "01328eb14a0cf36cf478e1d9858cd5bb38bee1715d57fc24f80521117e6c7b62"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-030-provider-isolation.md",
+      "sha256": "0806b11ecb367c01daf2e5962274889890766d81e85917c15b2e6c01dbefe334"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-031-retrieval-scope.md",
+      "sha256": "270311f2935c6b7b67d64afe9198472ea4cc997e4ed94d3edad3edff6dece60f"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-032-reranking.md",
+      "sha256": "4ed984369dac6654f1b3feb2f7aabe3a2a3b7612a317f980a0da6b7e537da710"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-033-citation-evidence-contract.md",
+      "sha256": "05e572b0f53a6693429ab72845bf23cea3d7e12832ce253c309aa3576c810d63"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-034-retrieval-golden-dataset.md",
+      "sha256": "c9c14ee304c6f77545fe45c9067e530e8142018adcf0213df8f7ced9d1e7bc0e"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-035-retrieval-evaluation.md",
+      "sha256": "ae3bc15c2552c0da2cbf4eac51cf4a3f5cbcda35888147d51857723d01a463ee"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-036-retrieval-quality-gates.md",
+      "sha256": "4892197ef923be0d5255c72a1a14c8a65832c40d8bb7fc4ddd0127a1b6f4c67c"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-037-standard-pack-model.md",
+      "sha256": "065ab96515ce95671ebebb5403e39048145b4bde77eb8aa0e7b6f7b2a968267c"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-038-standard-pack-versioning.md",
+      "sha256": "ce4f7de6361d044f4f23e4adeec2b1b95e93183867898e1f02f33627cac2a6be"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-039-standard-pack-source-binding.md",
+      "sha256": "e47a7faed631efd062047cb7ce055b726fc57e2941aa5f442859540d5f5da077"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-040-assessment-classification.md",
+      "sha256": "34221474b1203c0e6787d2ad3f0b90122a44683e5be732d36aee5bc0253044b3"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-041-standard-pack-validation.md",
+      "sha256": "2947668f9e2fa9fceb0c473a1e356d5763f1d155593d4598bbbee0159d0c4891"
+    },
+    {
+      "path": "docs/evaluation/RETRIEVAL_BASELINE_V1.md",
+      "sha256": "4fe46146d66e6766fb6bcc03f8f2cbca8f7b10de840f6271c63ee63f28c15ca0"
+    },
+    {
+      "path": "docs/integrated-mvp.md",
+      "sha256": "cdd150fb113b70607d901b586cf807ae8ffe9fc7b0b49a4338087c439526e614"
+    },
+    {
+      "path": "docs/integrated-speaking-results.md",
+      "sha256": "a70b6111c748a778b4a2cb5715d3e09ffb6bf3e17ad36910cc9de52362d3258d"
+    },
+    {
+      "path": "docs/integrated-writing.md",
+      "sha256": "e0c29cb28bbc21c3ccf41355958f0bd674594ea1853845b238f08c1fd375745c"
+    },
+    {
+      "path": "docs/local-demo.md",
+      "sha256": "43ce4931b1c60126b914d7e80d5dbb7f1ecf820ce8d3af4a8d1abde4e37a0d8a"
+    },
+    {
+      "path": "docs/recorded-audio.md",
+      "sha256": "9ed7603374aacfa3903d016335f1728875c96c63b03676c5a8dc8c5ca65a11dc"
+    },
+    {
+      "path": "docs/speaking-human-foundation.md",
+      "sha256": "7d142d8ec451ca7c5fc23bef3ddfea4e12303365489404478db2baf952c79056"
+    },
+    {
+      "path": "docs/transcription-execution.md",
+      "sha256": "a73fdb52669a517d52fbbe97bdc4a977210ed2c3028b5dda293d722c035b98d7"
+    },
+    {
+      "path": "docs/writing-human-foundation.md",
+      "sha256": "713391c88dec14d4617d5c18c754545ab580c1e646abbc77569aa756e691bfb4"
+    },
+    {
+      "path": "infra/docker-compose.yml",
+      "sha256": "380cab330c36e59862e3baa055afbfc0423ca93393afc60371c2376919d5996f"
+    },
+    {
+      "path": "infra/media-probe.Dockerfile",
+      "sha256": "a58c892e6364f48ab083b9c41e5bb1f61d168e04612946b2d2b5aa7a51459d8d"
+    },
+    {
+      "path": "infra/minio-source.Dockerfile",
+      "sha256": "77a1290f845c35160d20e63570b05b6866b16502d977f83d008219031a9115c5"
+    },
+    {
+      "path": "packages/shared-contracts/README.md",
+      "sha256": "8a4aac7551b7a06e1f48d18af712e5f98fb821d73fd15c48ded5430beafdc8fe"
+    },
+    {
+      "path": "scripts/browser_api.py",
+      "sha256": "15fc8d56985fe98b3b1ea9ec7e59b4394e800d7bfb4a187a212e0054f021e494"
+    },
+    {
+      "path": "scripts/initialize-audio-storage.py",
+      "sha256": "e64409d99f242c36560dbda37a52e6bb82b460b094b74ecb319d291984925edb"
+    },
+    {
+      "path": "scripts/local-audio-storage.sh",
+      "sha256": "324c674fe4a91c775ac282e67047db6ed11566c89373e46d0b3c40516ff2422a"
+    },
+    {
+      "path": "scripts/run-integrated-browser.sh",
+      "sha256": "6ffc41b99c925e2e73f2e24b99293bbb23c90185a6f51818811c1151ce58709d"
+    },
+    {
+      "path": "scripts/setup-media-runtime.sh",
+      "sha256": "bd052c608af8a664a54da1d7d32b60084d11c94837c6d49ee11892e02e9940c1"
+    },
+    {
+      "path": "services/ai/app/__init__.py",
+      "sha256": "0384f2752892db864da844ce8f3c5304659bc82b808eb93aa52a1d260beab4bc"
+    },
+    {
+      "path": "services/ai/app/main.py",
+      "sha256": "44fb241047b7d8300c1443bb24df4ca229011d30c612ea7a1bb563c8490ec844"
+    },
+    {
+      "path": "services/ai/app/memory.py",
+      "sha256": "a5a35bcd55399ca47ba0cb8df8ff583da69a327b6652efce4732e8820c55d79b"
+    },
+    {
+      "path": "services/ai/app/orchestration.py",
+      "sha256": "f8062f0df5544e5ad09e3c93f29db786350e238abd94aa8cc3b3f5d9ebbb3962"
+    },
+    {
+      "path": "services/ai/pyproject.toml",
+      "sha256": "4d96c6a37169140b18985bed57de8c83b182ae8f91dbfafad873362c97cc0ece"
+    },
+    {
+      "path": "services/ai/tests/__init__.py",
+      "sha256": "1e226b200a400d0731a7c0c3a3fdce17d748e3c13e7f5f66ab9cfd494db1683a"
+    },
+    {
+      "path": "services/ai/tests/test_health.py",
+      "sha256": "9df8a75e97b4229956381fddb095c6a3cf25ae2d3634b18217fea95fa6fac43d"
+    },
+    {
+      "path": "services/ai/tests/test_memory.py",
+      "sha256": "6b8d15f04bcc0756e9a5887b84757f94c978a7238d96a3647bb9dddfabe71e9c"
+    },
+    {
+      "path": "services/ai/tests/test_orchestration.py",
+      "sha256": "072fdc8bb2baa5116e81fab99ec6cf06f7c7890e8b12e84fcea8715770e33c6f"
+    },
+    {
+      "path": "services/api/alembic.ini",
+      "sha256": "a6c044dcde2cc8ec1512323c61815193c5d2d045711a85482214eab84a2edaaf"
+    },
+    {
+      "path": "services/api/alembic/env.py",
+      "sha256": "4bec129bfc9ce5aab2f118b25a467cd4368f426225c339805f07d2c5fde7316b"
+    },
+    {
+      "path": "services/api/alembic/script.py.mako",
+      "sha256": "bd09b90f1b9dc0f607e18f9d4aa386dc4017d64047316229b7933685f60465c4"
+    },
+    {
+      "path": "services/api/alembic/versions/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "services/api/alembic/versions/0001_baseline.py",
+      "sha256": "0905f96f644f2dfff52511f225611a403efd169c12a6cbef1cc61e31dc191c74"
+    },
+    {
+      "path": "services/api/alembic/versions/0002_identity_tenancy_rbac_audit.py",
+      "sha256": "35dcce5995548dedc2997e3c9f3fc68ba95a6679029ee6ecd49169b73d35a560"
+    },
+    {
+      "path": "services/api/alembic/versions/0003_authentication_sessions.py",
+      "sha256": "5321fa1ae9fd788e1b17c1f8c9ebb0cf173ad2350037a4480443a038fbc8e6fc"
+    },
+    {
+      "path": "services/api/alembic/versions/0004_standards_knowledge.py",
+      "sha256": "7b200d639df6500fa090818bd533fe514248596e46cd6009ceeed94b7746b831"
+    },
+    {
+      "path": "services/api/alembic/versions/0005_knowledge_retrieval.py",
+      "sha256": "80241a593d2558655594775b19ff3275848d9078a6d202a82bdc8d89a3846261"
+    },
+    {
+      "path": "services/api/alembic/versions/0006_retrieval_evaluation.py",
+      "sha256": "d97b2305692c324adef5ea7b7e9bcf26328197d0e360acd063e80c10902ea8cf"
+    },
+    {
+      "path": "services/api/alembic/versions/0007_standard_packs.py",
+      "sha256": "7c80ddf2b64daeadd4869ba97b4c87ac70aa805b0d67a59e0244cc25ffb8bcd6"
+    },
+    {
+      "path": "services/api/alembic/versions/0008_rules_engine.py",
+      "sha256": "24dc7b3e36bc2e2aa6c9d7ff632c9f0a6cb0f9a38387e1299fcfea7905823e99"
+    },
+    {
+      "path": "services/api/alembic/versions/0009_ai_orchestration.py",
+      "sha256": "f2f12541a39ac6166a2ba88eeb78e5d211d81203a478f51ca0ac3429efc75fb4"
+    },
+    {
+      "path": "services/api/alembic/versions/0010_ai_checkpoints.py",
+      "sha256": "a1f86f00bde8ff1aa74effcb753676055fb6926a9bad5cd59fd890784c78001f"
+    },
+    {
+      "path": "services/api/alembic/versions/0011_governed_memory.py",
+      "sha256": "e9f826fbc9170005f89de3f98ce661c68e9a4d188cf0ddc5bf9390108bf0340e"
+    },
+    {
+      "path": "services/api/alembic/versions/0012_question_bank.py",
+      "sha256": "23721d8c982c4932487cf4eaa336639ab0fd469c4ce552f6bda070c0e3ba066a"
+    },
+    {
+      "path": "services/api/alembic/versions/0013_exam_studio.py",
+      "sha256": "5a2b2cd696e421e936f7546af1e462afe2d8cab47642e86a2bfd3e6951420da7"
+    },
+    {
+      "path": "services/api/alembic/versions/0014_candidate_runtime.py",
+      "sha256": "2f3c52b6e4e255da35151c938f7b681543e778e4db3341de02df20f27f91e764"
+    },
+    {
+      "path": "services/api/alembic/versions/0015_scoring_results.py",
+      "sha256": "eca0cb7e6da4044b143b7aecaaf2025f454a60e112f0aad549deb2f1b00eb154"
+    },
+    {
+      "path": "services/api/alembic/versions/0016_writing_assessment.py",
+      "sha256": "589d7dd002ef40994c7f73688a806a3a9880111247743960e4b5111898044463"
+    },
+    {
+      "path": "services/api/alembic/versions/0017_speaking_audio.py",
+      "sha256": "c0a2706905040555e65942248cfd5ff16a424e767753a91a8bb43078c2f67288"
+    },
+    {
+      "path": "services/api/alembic/versions/0018_audio_response_binding.py",
+      "sha256": "21a824c31ee6dfd6f8c9489f776a56ff6918fdc7d0d69333ebd2eda0e07043f8"
+    },
+    {
+      "path": "services/api/alembic/versions/0019_transcription_governance.py",
+      "sha256": "2d6efae7ee02fb17a9b93e2ef3ac2891ea185bc5c6eb7c133dd97003685bb59b"
+    },
+    {
+      "path": "services/api/alembic/versions/0020_speaking_assessment_provenance.py",
+      "sha256": "c43ff759ce426404510b717ee6d0a5df39dfdf30a92df424e4172270eadf03c1"
+    },
+    {
+      "path": "services/api/alembic/versions/0021_result_governance.py",
+      "sha256": "cf99eceb13814e37b9bf4e1004266d85b5235161e3b5ae51fe30a2d2e62638df"
+    },
+    {
+      "path": "services/api/alembic/versions/0022_result_correction.py",
+      "sha256": "255631dbabbcf22b786e5259241a497dc35a19f9da00500fde4da39f49b64b9c"
+    },
+    {
+      "path": "services/api/alembic/versions/0023_objective_correction.py",
+      "sha256": "845e96ae5078b0221824fffd8cb1738120f9040c4e11ffe6922455c8dea17282"
+    },
+    {
+      "path": "services/api/alembic/versions/0024_result_release.py",
+      "sha256": "9ed92b06d9908350283d0a2caacea1df73f63ae1835c09c26d80fe20a9e3baaf"
+    },
+    {
+      "path": "services/api/alembic/versions/0025_writing_human_review.py",
+      "sha256": "de58130593a4d3fbe156d524afd94786582bfc157825d024d23bf1f57004df9b"
+    },
+    {
+      "path": "services/api/alembic/versions/0026_audio_sha_scope.py",
+      "sha256": "1b22b445e80a4bd8a375be3f608846aea7a880bf0f2c22bf6ea19758019bb1fe"
+    },
+    {
+      "path": "services/api/alembic/versions/0027_transcription_jobs.py",
+      "sha256": "2181093eae8174a9b8360406c8020168bb27699c0914aec3a4be749a5be51154"
+    },
+    {
+      "path": "services/api/alembic/versions/0028_writing_execution.py",
+      "sha256": "717e68794ae00d9c1ebad14d30573a9f63148f9eb2da70bfe3ea90b832c00a24"
+    },
+    {
+      "path": "services/api/alembic/versions/0029_speaking_execution.py",
+      "sha256": "32aea349d02652cc7e5e009b234129a0b89d1effae0d73f0508126826869f2c7"
+    },
+    {
+      "path": "services/api/app/__init__.py",
+      "sha256": "0b611247545120615f333caa81e49b01bdb3288984f26e20f04b0bd1290ac809"
+    },
+    {
+      "path": "services/api/app/ai_orchestration/__init__.py",
+      "sha256": "1e02dfeadebad423a20c9457803e361e22bc1d58c2aba579e6933a3d037d832a"
+    },
+    {
+      "path": "services/api/app/ai_orchestration/api.py",
+      "sha256": "e78ab30222e17be99b8eb4dfdeb6513ec6906aa8f4e30f2d6e1119e93396a1dd"
+    },
+    {
+      "path": "services/api/app/ai_orchestration/execution_profiles.py",
+      "sha256": "6eb132794655cdaa958dbf002d74c7ba16c84bb3c45f78f23a14be3d60d07a3b"
+    },
+    {
+      "path": "services/api/app/ai_orchestration/service.py",
+      "sha256": "52b3ae2edb4d7c95ddf6819fece1646944a5995c149f70881aec36dee805809b"
+    },
+    {
+      "path": "services/api/app/audit/__init__.py",
+      "sha256": "27447b19ffec34455f27ebdf81e001024f4fc7fd31e0c26072a753e33b873bd1"
+    },
+    {
+      "path": "services/api/app/audit/service.py",
+      "sha256": "98cf941c4371d3e1acb4caf7a2ff92759df1c9e0555d7867d71a934f1e3f57d9"
+    },
+    {
+      "path": "services/api/app/auth/__init__.py",
+      "sha256": "0b0cbbe8b7fbb2a662f753d6624a393040aece7c3e1a584521736f41cb9b0d82"
+    },
+    {
+      "path": "services/api/app/auth/api.py",
+      "sha256": "6a7a16af3a162399bb052e03a5773e4b1005396fb6993583f6d8788a5393c0b7"
+    },
+    {
+      "path": "services/api/app/auth/flows.py",
+      "sha256": "1cf7c9b8bad9708fa2c013906b9a9f80bc35236c8b64c593f0f6d5d664affe55"
+    },
+    {
+      "path": "services/api/app/auth/passwords.py",
+      "sha256": "f59b2fcd47282a9d3dbdc1540506211aa6a56874532bd19f4c7f214be5495b15"
+    },
+    {
+      "path": "services/api/app/auth/security.py",
+      "sha256": "68766cf6004d954f8e29e0484b9f1f1fddaaa7f10412630885ade70cf485871b"
+    },
+    {
+      "path": "services/api/app/auth/service.py",
+      "sha256": "c70396d121ede2f124838aaea9f12554e33f99641079b82ace5d41b611d71a71"
+    },
+    {
+      "path": "services/api/app/authorization/__init__.py",
+      "sha256": "8c6f252da0fe41b8684eec5a503eeb61a83d06896c3c0d1e28f504ed7495eb80"
+    },
+    {
+      "path": "services/api/app/authorization/context.py",
+      "sha256": "291aa505dbdc1683b42f92d51f28c8280cf2a0ac968acb7eca41e66993b85fe6"
+    },
+    {
+      "path": "services/api/app/authorization/errors.py",
+      "sha256": "57d89e7fe312333c038c9acf4ddffe974c33d8822d6a9bf6824beb88a937e7be"
+    },
+    {
+      "path": "services/api/app/authorization/membership.py",
+      "sha256": "5953765d5c7640547e3fb31a7c4c26f6edced12e8757ce21a6f17fec611b9064"
+    },
+    {
+      "path": "services/api/app/authorization/policy.py",
+      "sha256": "a07a2e9f13d8f38350398ac0b899293e814c0b2cbb1ec19830e7d9a190b2d6e6"
+    },
+    {
+      "path": "services/api/app/authorization/seed.py",
+      "sha256": "8bdeff0b766bc62648381f48035f69bb567a411fbe413f044034505ea54acbb1"
+    },
+    {
+      "path": "services/api/app/config.py",
+      "sha256": "ed4a2a7b9840978e64d41d5f06a35a5360fc128f100070af4d12276a03fe65b7"
+    },
+    {
+      "path": "services/api/app/control_center/__init__.py",
+      "sha256": "969d16c36966be10dfa74cba83b85f3b4955975551cdae1ead9f669306c0c1f2"
+    },
+    {
+      "path": "services/api/app/control_center/api.py",
+      "sha256": "15e5f4aa4084523cc6819feefe44e7ae250e889a7f2e382956197371f20c109d"
+    },
+    {
+      "path": "services/api/app/control_center/repository.py",
+      "sha256": "2939da48397b81e3e3dc7943b58cb671e2362c01b6537f6210847177e00fa610"
+    },
+    {
+      "path": "services/api/app/control_center/service.py",
+      "sha256": "23192c0dbba98b309195dd3a3d6bffadd90e414d9f5bf26c3a54dc912345a2b6"
+    },
+    {
+      "path": "services/api/app/db.py",
+      "sha256": "adcbf5ee54e6e6075c03fae374d26432a11d10f8672fb71c55c5eed37ea8444a"
+    },
+    {
+      "path": "services/api/app/dependencies.py",
+      "sha256": "122f59c60cb6d38fdef8767e41d0059b42f119f4443746178a1e1712420aed8b"
+    },
+    {
+      "path": "services/api/app/domain/approvals/__init__.py",
+      "sha256": "8ece9d2cb0227a08749d40832c1979771cf602b0c8cac30bd8b1fdecfa31544d"
+    },
+    {
+      "path": "services/api/app/domain/assessment/__init__.py",
+      "sha256": "86eef1d8917752627de45e50c4416b5d951787e1dd4715aae9c84b6bb71a4065"
+    },
+    {
+      "path": "services/api/app/domain/audit/__init__.py",
+      "sha256": "b0d85c966fd1da9bdc99976721fe45aa1bb33aa83e4d2c6263301b8df3e33846"
+    },
+    {
+      "path": "services/api/app/domain/candidates/__init__.py",
+      "sha256": "00ecbdb3efcbcf19c3c759621a770e9a56151f690eb1c1058493b5355ce2da7b"
+    },
+    {
+      "path": "services/api/app/domain/evaluation/__init__.py",
+      "sha256": "cc0d7072fd79d881056e829c88829f908f50446e9bd0a6a25fc7104686668aab"
+    },
+    {
+      "path": "services/api/app/domain/exams/__init__.py",
+      "sha256": "f92a8d9f6698d03a9e5447f2c4894c3279c18d41a930a20282cf19afa853e1bf"
+    },
+    {
+      "path": "services/api/app/domain/feedback/__init__.py",
+      "sha256": "ffa8f7bfa97549ed67acdef02afb0e6c5362c303254cfd2b3ade6b941e9d8250"
+    },
+    {
+      "path": "services/api/app/domain/identity/__init__.py",
+      "sha256": "90fbe1b75cb38a02c5d8dade89f77538e1bce6f9e0af8d7a4a15c512373d7bef"
+    },
+    {
+      "path": "services/api/app/domain/items/__init__.py",
+      "sha256": "b888203bb37f4b8d25de6e460994f150e22a45171bf0279695f4caee581ab65e"
+    },
+    {
+      "path": "services/api/app/domain/knowledge/__init__.py",
+      "sha256": "3a20d32d89eb0f4fe2814487ea3681c4e8f6abf3ffbfc60b51a867d124dcb5c7"
+    },
+    {
+      "path": "services/api/app/domain/learning/__init__.py",
+      "sha256": "23bb7dd9dc0ecb958fb6c116d18f6ef067be43a19458aa90c69204870f9d67b0"
+    },
+    {
+      "path": "services/api/app/domain/memory/__init__.py",
+      "sha256": "9e74233de66a30b20d12fe2ad91d4df7f1c95c47b6d35c519bb9976834aa0ac6"
+    },
+    {
+      "path": "services/api/app/domain/organizations/__init__.py",
+      "sha256": "5cdbd1d136830df21f7aa8127b67968c2791aa6f0bf1c4855fc57d75ae20527a"
+    },
+    {
+      "path": "services/api/app/domain/responses/__init__.py",
+      "sha256": "3d67b4513272ad1d29dcb8fd80d397b3308c244b2221a45276777a9deb392596"
+    },
+    {
+      "path": "services/api/app/domain/results/__init__.py",
+      "sha256": "fe7e8a3152c8ccb322c0cbb4ccba8ad85d812e92070af187c7f44dab03d59aaf"
+    },
+    {
+      "path": "services/api/app/domain/rules/__init__.py",
+      "sha256": "aa20a0df2cd38bd4a1dda2257139e45465fe9e598872b76013d109dcf9fd7be4"
+    },
+    {
+      "path": "services/api/app/domain/sessions/__init__.py",
+      "sha256": "1ca76a8416f164bcce4844079f778e3948fe1152b33de19cd12327b2e8f403ee"
+    },
+    {
+      "path": "services/api/app/domain/standards/__init__.py",
+      "sha256": "b98653345ce4acf5941d90a0d248a642b69684422ade9ac9064e990bd0e9c0d1"
+    },
+    {
+      "path": "services/api/app/evaluation/__init__.py",
+      "sha256": "db2b7395de4b525038ee1194a23d03e5a6554fd9784cc73fa94aee15d1dd9541"
+    },
+    {
+      "path": "services/api/app/evaluation/ragas.py",
+      "sha256": "cd875744d2b0d200a560747c09a641bf86368a063df929ba0777eb27bb412696"
+    },
+    {
+      "path": "services/api/app/evaluation/retrieval.py",
+      "sha256": "cf163ea71909e64e9f3eaca87c187031c751da397604b89ef6a46cbd9f9f64b6"
+    },
+    {
+      "path": "services/api/app/evaluation/runner.py",
+      "sha256": "2cc2108fd08bc4f48fc081e20cef84b092ed5f5fcfd083f48f53aa5e2fd5d1c2"
+    },
+    {
+      "path": "services/api/app/exams/__init__.py",
+      "sha256": "fd658d7de1e3cbdc5a0308ad4148b1388dba3b8f7617ee3383f5533ac63548d7"
+    },
+    {
+      "path": "services/api/app/exams/api.py",
+      "sha256": "fe9d79bec85f56c616c963edb8a5bc6e0f0ffa9d265b74e26d17d6bc7058ade9"
+    },
+    {
+      "path": "services/api/app/exams/service.py",
+      "sha256": "fd6ccf9ab55ff7f04d0544dd0d68d773613317546afff2fe995ad4e56b506f10"
+    },
+    {
+      "path": "services/api/app/knowledge/__init__.py",
+      "sha256": "48265ac8c3cd336890b5879d6e42f78a680a8e28d63ffaaeece02da47963ba65"
+    },
+    {
+      "path": "services/api/app/knowledge/api.py",
+      "sha256": "aceaecbcfaf80ac719537451e6a2e2d842f9a50052d81a6e4e51d235f3b0f396"
+    },
+    {
+      "path": "services/api/app/knowledge/chunking.py",
+      "sha256": "47a73e89a6a8278d69d8ef2467035107fe74f240a044db7a49fccb6e79b86356"
+    },
+    {
+      "path": "services/api/app/knowledge/citations.py",
+      "sha256": "79685ce7b9ebf7619e005dd4db9aef4543c89b8c385b57466afb144aebdb9046"
+    },
+    {
+      "path": "services/api/app/knowledge/embeddings.py",
+      "sha256": "62bed5c26e9332c89850438d4789fdc66e947af2c1355da590605ae2b5ae1f39"
+    },
+    {
+      "path": "services/api/app/knowledge/parsers.py",
+      "sha256": "a05b676be8f3289fd387117ca4ea3215290dfe25b2c350cee92f268248486195"
+    },
+    {
+      "path": "services/api/app/knowledge/reranking.py",
+      "sha256": "446d857607be244580ac859eb1a3d34380605658d702d3084bba85c9186deeff"
+    },
+    {
+      "path": "services/api/app/knowledge/retrieval_api.py",
+      "sha256": "fcc813dd539b9ed5d4821e9a73f8205bd333765d3ecb2996063c5f7cf5611849"
+    },
+    {
+      "path": "services/api/app/knowledge/storage.py",
+      "sha256": "8a49b56142fc9813c6ca76c87efd84e999d357a6e0699f17d37b5c29067e0657"
+    },
+    {
+      "path": "services/api/app/main.py",
+      "sha256": "e74b6a0fbfe2d6add4c098f125a47c5f85a8b5204bcc82f1559e263424a74be5"
+    },
+    {
+      "path": "services/api/app/memory/__init__.py",
+      "sha256": "c194a4d1f87c3c9fc092fd6faa4ef126fed2a75a164e784d790b1cbd0b06df37"
+    },
+    {
+      "path": "services/api/app/memory/api.py",
+      "sha256": "df80e80e8acea220d0ae1bbbde44dbbc678143f6085ed8ef012c4b852696cf12"
+    },
+    {
+      "path": "services/api/app/memory/governance.py",
+      "sha256": "5ac16e4139b50da007899b547ad51d09ecdda834fb2f7a06594db36c637d9d45"
+    },
+    {
+      "path": "services/api/app/memory/service.py",
+      "sha256": "f96a03c0dc66f47bddd70b89e537610a16c775e77cc5f7b1d93ef2a49e54a395"
+    },
+    {
+      "path": "services/api/app/models/__init__.py",
+      "sha256": "1d033d44798adde85c95e901573c304df9a4f6427f4dcaeb2f525fbe0c5626e0"
+    },
+    {
+      "path": "services/api/app/models/ai_orchestration.py",
+      "sha256": "5557b626847ff906e57dfdd3e84e5f9201057d518be254b7e5fcf4bdcea1f704"
+    },
+    {
+      "path": "services/api/app/models/audit.py",
+      "sha256": "aa739d00968bfa6f7263bbb23fc35692e59f273c414d19abdd9f68d8f38e8764"
+    },
+    {
+      "path": "services/api/app/models/base.py",
+      "sha256": "b6496431328404ae7cc55ed8d4c48a768dfb3d908479c5d78138ab3b099edfe3"
+    },
+    {
+      "path": "services/api/app/models/enums.py",
+      "sha256": "7092d2cdd1ee55cf911fe59bfc05fee3b752fabe21dbfd99a2621f586a3c04db"
+    },
+    {
+      "path": "services/api/app/models/exam.py",
+      "sha256": "1fe0be49913f0fff7a25841f85c733ff9bec7d8071c2b46c9ef4c1b60566a87d"
+    },
+    {
+      "path": "services/api/app/models/identity.py",
+      "sha256": "c64af998717f00e1299decde803c0154a831f74ba38ecc93d793a09cefa2f630"
+    },
+    {
+      "path": "services/api/app/models/knowledge.py",
+      "sha256": "b410bdcec6e60a868565d16705ddd001ec16b212c49e7441a3a0d7fecb7e5311"
+    },
+    {
+      "path": "services/api/app/models/memory.py",
+      "sha256": "4f002019e142309966649d1c1f60568f7f964c943d91695cfc8a63db4ad0c3e9"
+    },
+    {
+      "path": "services/api/app/models/question_bank.py",
+      "sha256": "fa5508b0e0aca28cde010638c2420cbaa2948c3082816d1a0065a23085d544ba"
+    },
+    {
+      "path": "services/api/app/models/result_governance.py",
+      "sha256": "c4bf041e1b27d0c500245d477cbc718f5ae5f8c43e7c99dbe359c0fadf74b538"
+    },
+    {
+      "path": "services/api/app/models/result_release.py",
+      "sha256": "2763df7e616f41a7fb88b2ef878ea97723b13afccb5731267008ff7df58182fa"
+    },
+    {
+      "path": "services/api/app/models/retrieval.py",
+      "sha256": "46c93c4894c03ff76e3fd6065c75a085211dbfadeefebf87150234b6303c705c"
+    },
+    {
+      "path": "services/api/app/models/rules.py",
+      "sha256": "d990d5ecaa60c88947786441dc9287bd5adcf2d356e79f1472bac55949814095"
+    },
+    {
+      "path": "services/api/app/models/runtime.py",
+      "sha256": "03f968215b357466000d86ee6062ffaf25b72bcbfc74f98153268cea250799ea"
+    },
+    {
+      "path": "services/api/app/models/scoring.py",
+      "sha256": "233e2d1a1791748448b88876e440676b49c1c6c680c07f4958fb7fe4ed2a8242"
+    },
+    {
+      "path": "services/api/app/models/speaking_audio.py",
+      "sha256": "0b022b7c758c1b86f218a4fc1293ace8e2c6043b6c8fe4bbbd7ea5a8f27a24e5"
+    },
+    {
+      "path": "services/api/app/models/speaking_execution.py",
+      "sha256": "34d5e9f542a5a7c0c121f2d3a6b61971b9e6cdc6f04b75d32d3d9df3f62035e3"
+    },
+    {
+      "path": "services/api/app/models/standard_pack.py",
+      "sha256": "2cbaeae97bb5ab389d17f6194340311eff0ceb478655039eac87bb2e0a5f37cb"
+    },
+    {
+      "path": "services/api/app/models/transcription_execution.py",
+      "sha256": "1c6d6418d72785825d610f5ade7dc5a632c35aa262e717cdbfe7b562a4868ae7"
+    },
+    {
+      "path": "services/api/app/models/writing_assessment.py",
+      "sha256": "937a4563c938a02818c3da6b8dc24952d3c26880dbcd6be7adc090a9b09cf0dc"
+    },
+    {
+      "path": "services/api/app/models/writing_execution.py",
+      "sha256": "7af4fdca4f628936a21aa9a15c93d9a0397eb19cbbd4016ea9781547c39032b0"
+    },
+    {
+      "path": "services/api/app/question_bank/__init__.py",
+      "sha256": "8b60bf1042f8c7760ab3fdc84e45f0a368e6da9bad9bf0a02a977d37a81340e1"
+    },
+    {
+      "path": "services/api/app/question_bank/api.py",
+      "sha256": "f3c17370f8cc05e029fdc18edb7377772eeeb335f9894ab555a8c9de78134b96"
+    },
+    {
+      "path": "services/api/app/question_bank/schemas.py",
+      "sha256": "a087c24d4370c3322f83f56c714e978f8450472f42a0640eb117f2b999e1a4ee"
+    },
+    {
+      "path": "services/api/app/question_bank/service.py",
+      "sha256": "3fc0f5404ce536a50336e47cb070a802c18025dec4b7fa51b35c4aadb637c8ed"
+    },
+    {
+      "path": "services/api/app/result_governance/__init__.py",
+      "sha256": "6edce9933d4501156c590f1dab21ae4b9c67abdfbe73c83be4e80c4c21e0ab1e"
+    },
+    {
+      "path": "services/api/app/result_governance/api.py",
+      "sha256": "970764c3472512ace1abc04f2afda73f83d1b6b036e657af08324c2c19dcb892"
+    },
+    {
+      "path": "services/api/app/result_governance/service.py",
+      "sha256": "807124be65056069f3d3d112b53697e45e0601c91daae3d2d6648d10eb80c70b"
+    },
+    {
+      "path": "services/api/app/result_governance/transcription_factory.py",
+      "sha256": "0ac67db5a227a8160751b77b6dd4fdac17031462afc3c375ec27b1cb553bf76e"
+    },
+    {
+      "path": "services/api/app/result_release/__init__.py",
+      "sha256": "0f5b6957885ffc96906de0d777b3147d0fa3f908793532b3c1ff75de8145e05d"
+    },
+    {
+      "path": "services/api/app/result_release/api.py",
+      "sha256": "476d8d5ea2a03c0eb323e14607aaeedd7d168e29e56379bd5df53a0bd4ca4d59"
+    },
+    {
+      "path": "services/api/app/result_release/service.py",
+      "sha256": "0283ffacbbe9e11a06818cdf38c5d06196aff8f86d1510c8fc7ac944bbfd9780"
+    },
+    {
+      "path": "services/api/app/rules/__init__.py",
+      "sha256": "7e154ff92cd33399213adf91f5249007e6f65d44845e0fab9342f53fe5033802"
+    },
+    {
+      "path": "services/api/app/rules/api.py",
+      "sha256": "5b08bbcc5af2da82546eb12b3ee5fc43a29fc19088a7ab3a746b5e71ffd1d921"
+    },
+    {
+      "path": "services/api/app/rules/engine.py",
+      "sha256": "2165c2c65cd4bc01b2d61dd98cfcfc8a59737624282a406b65908d6a85fab7a3"
+    },
+    {
+      "path": "services/api/app/rules/facts.py",
+      "sha256": "6ad3df41dd9d41fa6f3f685c96593b5870c4f38fd9bd689b8da0baeb0fd509f3"
+    },
+    {
+      "path": "services/api/app/rules/service.py",
+      "sha256": "db142aeb33a290b86dd187a363a016c2a7c1f7a255de17a001582764d0bd6632"
+    },
+    {
+      "path": "services/api/app/runtime/__init__.py",
+      "sha256": "60cc8c50a147ca40f49f1a293d2d05e11dcdc8755ce3baa3b751ca20ea2af90d"
+    },
+    {
+      "path": "services/api/app/runtime/api.py",
+      "sha256": "c2d4c494dc795307cc66e29d44ca981d99bbaf1d5e3f3ed843f0a172381e1697"
+    },
+    {
+      "path": "services/api/app/runtime/service.py",
+      "sha256": "bb0e67c448fe17325368fb6a81e93155cf6b45ee424ea91223b1c94efc5bb89f"
+    },
+    {
+      "path": "services/api/app/scoring/__init__.py",
+      "sha256": "76045418f19fdf0bc15a8299daa91b71b0649a05e9d6bd5d1204ab09f65f1264"
+    },
+    {
+      "path": "services/api/app/scoring/api.py",
+      "sha256": "a57afd87d20c7bdf1b02fcaf1f07498c43ef364ee78cbb8dbbdfd0576beb10df"
+    },
+    {
+      "path": "services/api/app/scoring/service.py",
+      "sha256": "746cc007ef3750d67c56a1b675b00368811c05725575f0a1bb1fc759a34bb563"
+    },
+    {
+      "path": "services/api/app/scripts/__init__.py",
+      "sha256": "5eaae298d6c1a740cf17182647510f239284e73c69b30f09cecdf4246d5c06d8"
+    },
+    {
+      "path": "services/api/app/scripts/seed_ai_speaking_demo.py",
+      "sha256": "26dede175e115f643e9afdf3cfde7e2c216d1a0a3c307c91c2234e36aea70073"
+    },
+    {
+      "path": "services/api/app/scripts/seed_ai_writing_demo.py",
+      "sha256": "899f0d8157063ab5d5cebb63b9244c6d5401cf9e287cb542c33fc1bc1b2aa6a4"
+    },
+    {
+      "path": "services/api/app/scripts/seed_audio_demo.py",
+      "sha256": "22127070258e03207c0126bea0f06637fa95ec92daba9a8f69bda4985a53c743"
+    },
+    {
+      "path": "services/api/app/scripts/seed_demo.py",
+      "sha256": "a1aa416fd44c4555325985c50a7f99e7db81c1737ebebdb326682639d0e3da93"
+    },
+    {
+      "path": "services/api/app/scripts/seed_speaking_human_demo.py",
+      "sha256": "df64bcaf438006ea37a512ad97724c51cbe4a32bedc3784bf934893c1ff97853"
+    },
+    {
+      "path": "services/api/app/scripts/seed_speaking_results_demo.py",
+      "sha256": "f7a4d0abb483a33f6f16c9c7623f1d1cde2a7efaa0c666ba1b9395495af30581"
+    },
+    {
+      "path": "services/api/app/scripts/seed_transcription_execution_demo.py",
+      "sha256": "f80b9228180fbfc6ad2f8cae7fe46b427f386955c2b5032bc52e1d3b293ba98f"
+    },
+    {
+      "path": "services/api/app/scripts/seed_writing_demo.py",
+      "sha256": "b6a82475397978fdf2ff9254fa26cfbd2a71ef5dc032e53f980a89410a45bc9a"
+    },
+    {
+      "path": "services/api/app/services/__init__.py",
+      "sha256": "05db0020a10058e208e0b54ade44c4db82fda6a235cac197cf7618234d8fad7f"
+    },
+    {
+      "path": "services/api/app/services/evidence.py",
+      "sha256": "ec1e1b77512e71c39ebb44ae599438413949a59668a767c9c23c132252f0a452"
+    },
+    {
+      "path": "services/api/app/services/identity.py",
+      "sha256": "f673f194d52535bcc0ef3cb3c59781e1053fd57bd4a46e9472561b8a0c3a2cfa"
+    },
+    {
+      "path": "services/api/app/services/knowledge.py",
+      "sha256": "0b32080cdc89332eb444e45d0c7a8ece16d526f3abec7b206bd3f39f6721e95a"
+    },
+    {
+      "path": "services/api/app/services/organisations.py",
+      "sha256": "2ce302d760e9859ab6a33ef5b6bf75bd18a2cd1107b3573011722b5168fc8ab2"
+    },
+    {
+      "path": "services/api/app/services/retrieval.py",
+      "sha256": "8670722e36d4464b30aa80c36148b039e4e28e6974d1f525413c3b70157722fa"
+    },
+    {
+      "path": "services/api/app/speaking_assessment/__init__.py",
+      "sha256": "2f56fcc2feb79ffc34d734e4ce36f66689b01af13fb293609bc8072f634536c9"
+    },
+    {
+      "path": "services/api/app/speaking_assessment/api.py",
+      "sha256": "44b314a003d8f2b8cb31788b366986ccb30b6d70c4ee5a7e4908996cb2577485"
+    },
+    {
+      "path": "services/api/app/speaking_assessment/governance.py",
+      "sha256": "2ef0c2ee144315adea4c8ae3773eed5cbbc4088d45ee097fcf8ae14d099f8092"
+    },
+    {
+      "path": "services/api/app/speaking_assessment/governance_api.py",
+      "sha256": "265a3a4091d075966d4ec3b493096fa48f21f4f07c324dc5e335b725c77b8f1c"
+    },
+    {
+      "path": "services/api/app/speaking_assessment/service.py",
+      "sha256": "def9e1eaf6e453f55ef5344c4c161ba747599aaef550da440f34936db8c1e0aa"
+    },
+    {
+      "path": "services/api/app/speaking_audio/__init__.py",
+      "sha256": "1f18b05b9e3840cca0f1c916ae7383629446136cf9e08fcea4324d238784d2fc"
+    },
+    {
+      "path": "services/api/app/speaking_audio/api.py",
+      "sha256": "136d9d3431c97fcb4759ae76c4496852f2052d60190732fe2b169d455e145935"
+    },
+    {
+      "path": "services/api/app/speaking_audio/evidence.py",
+      "sha256": "2fbcdd7ef7db2333b8c060782ed5a1d2244d88ff19c8ff62b4229585320c3c4f"
+    },
+    {
+      "path": "services/api/app/speaking_audio/media.py",
+      "sha256": "0141f6cb58f20ed2ca25bd170841d35bae9590817ceced6690e130dbc3e7c494"
+    },
+    {
+      "path": "services/api/app/speaking_audio/service.py",
+      "sha256": "fee38c864db90aee75f4e0b9e227c065e5742e0b3894cb2481a7bdff385bfb43"
+    },
+    {
+      "path": "services/api/app/speaking_execution/__init__.py",
+      "sha256": "a034aa220088224d12c6b89653757e6684025c09a1af030bd705e959bc074929"
+    },
+    {
+      "path": "services/api/app/speaking_execution/api.py",
+      "sha256": "700e712e771864e90a0f83f8d2ba940eeb51751571897a2be2664bbb6e0b0ac2"
+    },
+    {
+      "path": "services/api/app/speaking_execution/audio_transport.py",
+      "sha256": "ac1b8b72d9a47126bfd12d062493d4e3626536d760c740b9a138751e1ed8862c"
+    },
+    {
+      "path": "services/api/app/speaking_execution/execution.py",
+      "sha256": "b396db0607e051da08a305064582ef1514aba9b551ba4482e16c58ca8df2c9fe"
+    },
+    {
+      "path": "services/api/app/speaking_execution/provider.py",
+      "sha256": "2385ba6c81015747a4bfa297f90d14e22ce10f0546d6499fdbf391d31c4be52b"
+    },
+    {
+      "path": "services/api/app/speaking_execution/registry.py",
+      "sha256": "f5b82d1540a0210a1af7ccb782f95c24d077245bd36a00abac7092649a35dd06"
+    },
+    {
+      "path": "services/api/app/speaking_execution/review.py",
+      "sha256": "bb1eb417e5bb0ac431dada2e2f9a84b6d9daf2ec621a6465f8f9318a3bf1ed14"
+    },
+    {
+      "path": "services/api/app/speaking_execution/runtime.py",
+      "sha256": "518c72ceda5d6e408d3cd6e785dff3057de0950e62aa0d93423c92319fc1fb5e"
+    },
+    {
+      "path": "services/api/app/speaking_execution/worker.py",
+      "sha256": "f71f7f43dc354ec55540cc83150e0614b57264949d3e4d113c4f43fb639e24e1"
+    },
+    {
+      "path": "services/api/app/speech_transcription/__init__.py",
+      "sha256": "47ea462592c42ca61d64b751a1be4ddf912b2cd3089cc7e07630fd48084b6293"
+    },
+    {
+      "path": "services/api/app/speech_transcription/api.py",
+      "sha256": "81a282e7e23c00b5154425f253c546af66d9339507c328ac00878bd67660090f"
+    },
+    {
+      "path": "services/api/app/speech_transcription/execution.py",
+      "sha256": "09c5e0fc0856686721ac8c4d0e5ed6dcbea4151133aece2114f72ff74de088fe"
+    },
+    {
+      "path": "services/api/app/speech_transcription/profiles.py",
+      "sha256": "bb1bf04184aadbc755164d131813377ae1921750a485614ebf84b39d8fd8c2a6"
+    },
+    {
+      "path": "services/api/app/speech_transcription/provider.py",
+      "sha256": "1b0ab5b3ec219022b5d16beef3726b02d9a101748a5677d8b0e56a9d017d9072"
+    },
+    {
+      "path": "services/api/app/speech_transcription/runtime.py",
+      "sha256": "a6a1d33af55d281921f21ee9337cb248e1f89f5416d69d5a1ebb2b566cf54833"
+    },
+    {
+      "path": "services/api/app/speech_transcription/service.py",
+      "sha256": "a1c9c69e6135a150425b33807b0b3ebb5f38472458e5ca422bb38878c8d1f90f"
+    },
+    {
+      "path": "services/api/app/speech_transcription/worker.py",
+      "sha256": "4bf482a38e7d2617950124b53b5cba7b40c463b259b1f3f4c31dd8e3c3f7dccb"
+    },
+    {
+      "path": "services/api/app/standard_packs/__init__.py",
+      "sha256": "fe3b83daad90029d2aac6075189f9bfc40c8f099266e8e16e4b12ed3dd40d43e"
+    },
+    {
+      "path": "services/api/app/standard_packs/api.py",
+      "sha256": "92a630cbb3c1a5e384accf9a86edf1bdf82839d1a779b383f34d85b0c64c2f69"
+    },
+    {
+      "path": "services/api/app/standard_packs/service.py",
+      "sha256": "2d552339a72ab17098e0bc73c78c66c0ccf7727617595f43cc53e7d74cd2038f"
+    },
+    {
+      "path": "services/api/app/writing_assessment/__init__.py",
+      "sha256": "cfc192d6f5a856fecb43ca5d2341f4467efd347ce1c862e369dcba15aeb408a9"
+    },
+    {
+      "path": "services/api/app/writing_assessment/api.py",
+      "sha256": "ef379c1ab30b42b966bcf812fcd70734e73a9e8fc443902957deafd995e4fda6"
+    },
+    {
+      "path": "services/api/app/writing_assessment/evaluation.py",
+      "sha256": "41790a02522e85482eb71627d2cdea8334206ca3f73422a55bd0ca8be58cc0b0"
+    },
+    {
+      "path": "services/api/app/writing_assessment/governance.py",
+      "sha256": "e7207426a49e413438608257bad5a1a43233591913a3146ba75a1bb55e6028ce"
+    },
+    {
+      "path": "services/api/app/writing_assessment/governance_api.py",
+      "sha256": "bdc817d2f0a5fa88521842b5d75b281082144a03bd1ae3bb2ee2c0dcb22185b6"
+    },
+    {
+      "path": "services/api/app/writing_assessment/service.py",
+      "sha256": "60b0fad5d509be800c342745afb62644af74648297eb0aa4c9c8dd09194d4b54"
+    },
+    {
+      "path": "services/api/app/writing_execution/__init__.py",
+      "sha256": "41db2fed6f61825dac8174c36c99b323ee2729cd065f6d4ce26d917234200316"
+    },
+    {
+      "path": "services/api/app/writing_execution/api.py",
+      "sha256": "5552bec7540dcd32c45093eeb32a8b31d741b9fe812643959463c6b405c22061"
+    },
+    {
+      "path": "services/api/app/writing_execution/execution.py",
+      "sha256": "e2f3c111b22a05fd1a34d3827352995796bfad514fb18d3b9a1274f88d0b6782"
+    },
+    {
+      "path": "services/api/app/writing_execution/provider.py",
+      "sha256": "db865926ebb505ec05935fe45eb2eedd1fc86deec4408edbf525c27f7b77347a"
+    },
+    {
+      "path": "services/api/app/writing_execution/registry.py",
+      "sha256": "2ae1ff00e10bc11663d1e799001d1872aa96d49a7f1507005c5f3fef9ed25d74"
+    },
+    {
+      "path": "services/api/app/writing_execution/review.py",
+      "sha256": "a0be5922fbdb286d283db6ee6916c6cf9eafccb9504a6b24c938a20cf3bec34d"
+    },
+    {
+      "path": "services/api/app/writing_execution/runtime.py",
+      "sha256": "94b7d120364cc0156269320a3c145595a79fae93f2924c2ca8f04280678603bb"
+    },
+    {
+      "path": "services/api/app/writing_execution/worker.py",
+      "sha256": "c752801e86c32b750b7c9a890ceb3e8c20cc0ff02ec43a8f4555091930a28531"
+    },
+    {
+      "path": "services/api/evaluation/golden_v1.json",
+      "sha256": "6abcb71f6872691406caef6c8ea14c03c7675921a3bff07f365677363bbde3d6"
+    },
+    {
+      "path": "services/api/pyproject.toml",
+      "sha256": "42366896bc1aac9607e3656d3619e40c6ee16ef35c389a508ca3fb087d4d2eae"
+    },
+    {
+      "path": "services/api/pytest.ini",
+      "sha256": "ca4b82760538130959a0fbe25c21fc5d28cd46fb7a63b1209def6d19e2b40a62"
+    },
+    {
+      "path": "services/api/tests/__init__.py",
+      "sha256": "ceed73c5d56cb02ca30fde91798990090013318d224b6b3cb76226da53c7afc1"
+    },
+    {
+      "path": "services/api/tests/alembic_helpers.py",
+      "sha256": "3b057184353e0e923ef06c04b80df5ccdeefe520290f530c36f86c818b803cb1"
+    },
+    {
+      "path": "services/api/tests/conftest.py",
+      "sha256": "c8277cb522d34c71d2601809a0ee8b16bca58a43a02f4a629e7e5c980392f64f"
+    },
+    {
+      "path": "services/api/tests/fixtures/speaking_execution_safety.json",
+      "sha256": "810901e545e2e73e04563a44f99ca5b59e9e183f03b9053d6e9819825667f300"
+    },
+    {
+      "path": "services/api/tests/fixtures/writing_execution_safety.json",
+      "sha256": "20f67548b6865c5c94581bfe08deaf5a6ec69f4f3fce83da62bcb7132f145a40"
+    },
+    {
+      "path": "services/api/tests/integration_support/__init__.py",
+      "sha256": "ed5403c1264c91f07c379ca8fcd300a88aa914ec322d5750d2bbf65a4f97e2a9"
+    },
+    {
+      "path": "services/api/tests/integration_support/audio_evidence.py",
+      "sha256": "5df671aeae76b46bf011d00b4806d57155c808017c53b0c4f4d4f28b65645021"
+    },
+    {
+      "path": "services/api/tests/integration_support/result_correction_scenario.py",
+      "sha256": "1992484065ac09e57ac644a299732e86f18531c6de31215bbdcd654896df5018"
+    },
+    {
+      "path": "services/api/tests/integration_support/result_release_scenario.py",
+      "sha256": "b421774f16af0f357769509c587ec696a1ffd9ebea1d56a0f8652462cd897746"
+    },
+    {
+      "path": "services/api/tests/test_ai_orchestration.py",
+      "sha256": "a45ac47d351d2eca8bc740a0e0075e490555fd7786709154f7c4007a2cdab6bb"
+    },
+    {
+      "path": "services/api/tests/test_ai_orchestration_postgresql_integration.py",
+      "sha256": "69c2f620982d523d095e8d7f8e59cee2ed648bb5d366594f25456c9c2ef2ac4f"
+    },
+    {
+      "path": "services/api/tests/test_ai_speaking_demo_seed.py",
+      "sha256": "0803b0a251dd09ca03391ffd291f102f74d24841e95b8322bca3ed0a48f1dda4"
+    },
+    {
+      "path": "services/api/tests/test_ai_writing_demo_seed.py",
+      "sha256": "22d8ade6b952592beb8a87e5f8f8b458951c8597f24b9180156028f2225a8e1c"
+    },
+    {
+      "path": "services/api/tests/test_audio_demo_seed.py",
+      "sha256": "254a14c6638748e8fedf60d72c287668bb17938eb57f5ae0fd94427bd428deb4"
+    },
+    {
+      "path": "services/api/tests/test_audio_evidence_contract.py",
+      "sha256": "49d1991d2ae4261bb4596233361bf759e530eb0217507b424fe93f9790a77270"
+    },
+    {
+      "path": "services/api/tests/test_audio_full_inspection.py",
+      "sha256": "595e43416dd42a34cfbf460b7cba86c7504cd906d81f81e0b4b68225f3571e2e"
+    },
+    {
+      "path": "services/api/tests/test_audio_media_bounds.py",
+      "sha256": "3353da2e3b30df28bae7f34ab2ca040e0d1684db696ef2fdd97c29fffdcf7a33"
+    },
+    {
+      "path": "services/api/tests/test_authentication_api.py",
+      "sha256": "972bb32778d747968eddbbce650b03e80c641e722a8326bf453cf3761485f81a"
+    },
+    {
+      "path": "services/api/tests/test_authentication_security.py",
+      "sha256": "3001661a761d6fc9bad20635559fb72721505724800ccd41088c25667bf24054"
+    },
+    {
+      "path": "services/api/tests/test_candidate_audio_postgresql_integration.py",
+      "sha256": "801fb41fd16fe8d558d9daee11e0ada804bf59c00aae8d3126a874068385fb2d"
+    },
+    {
+      "path": "services/api/tests/test_candidate_runtime.py",
+      "sha256": "58261ca8f82214fd619b16fb3586fcbc4b88a62a6accdbb9b6c9e3496440096d"
+    },
+    {
+      "path": "services/api/tests/test_candidate_runtime_postgresql_integration.py",
+      "sha256": "9419c73c1c9d8d87ece208e2517451054d05247070752b063a8fb6f3b9316a4d"
+    },
+    {
+      "path": "services/api/tests/test_control_center.py",
+      "sha256": "9aeb15ad8a9d5176dd91914cd520c367f67e86b92ba71901fc774135c825aaf0"
+    },
+    {
+      "path": "services/api/tests/test_control_centre_postgresql_integration.py",
+      "sha256": "25bf37efaba547d74cca5d8da3c5e592df72e530a98db442c8296c0bd137f68a"
+    },
+    {
+      "path": "services/api/tests/test_control_centre_seed.py",
+      "sha256": "3e64da0968bd7929c02630334167cf4b7063f24ca73009e1b4df560beb2b0320"
+    },
+    {
+      "path": "services/api/tests/test_demo_seed.py",
+      "sha256": "4be166e4c1e11db1f9f450ec842bc4f1163420eac4598890abcb3c820f1b39f0"
+    },
+    {
+      "path": "services/api/tests/test_demo_seed_postgresql_integration.py",
+      "sha256": "a2b73fd65c8c11f3dcd18bb4975fe0d24bec453d950164649805198b6a46c829"
+    },
+    {
+      "path": "services/api/tests/test_exam_studio.py",
+      "sha256": "9f2b20d813cf1dea262ee3c060bc22a17ca0ffda0930970f6648ccf6b567a2f0"
+    },
+    {
+      "path": "services/api/tests/test_exam_studio_governance.py",
+      "sha256": "0c2331460cd548a3cbfa004caa00632b4763ce67350a55fc1b9c04f4b9986eeb"
+    },
+    {
+      "path": "services/api/tests/test_exam_studio_postgresql_integration.py",
+      "sha256": "25b7b3f7409ec42c0cbcdd2b868cafe3013bac0ebf3cc646954a78e8b5583f27"
+    },
+    {
+      "path": "services/api/tests/test_health.py",
+      "sha256": "4e0e6502f3081bccd80a95a5b5f7bcf1340c02e5e695f92889e4e005c50014ba"
+    },
+    {
+      "path": "services/api/tests/test_human_speaking_governance.py",
+      "sha256": "91b7f1c5a74f0361810d0d0cabad385a9cf6d113a5831c05352c7edb0f0cbdd0"
+    },
+    {
+      "path": "services/api/tests/test_human_speaking_postgresql_minio_integration.py",
+      "sha256": "37b2d7cfed2ef419850426fb1a551aa0e7de9a7804cfc59334a1791aedf803c3"
+    },
+    {
+      "path": "services/api/tests/test_human_writing_governance.py",
+      "sha256": "57e6fe251341674304ca88f1d13a48cf96a9ab6c65d6ab44ac8ecfb9343fd7cd"
+    },
+    {
+      "path": "services/api/tests/test_hybrid_retrieval.py",
+      "sha256": "b191e15faa9dc039f3212d45d21e08a8ec1e7b9cc0d6fca15be32a67392e2fb5"
+    },
+    {
+      "path": "services/api/tests/test_identity_tenancy_rbac_audit.py",
+      "sha256": "8829ae6c1cbbd8c35c5dc125292b87664e847c5748ffb9e5e9d6d933af9b8139"
+    },
+    {
+      "path": "services/api/tests/test_institution_inspection.py",
+      "sha256": "613647437eb7558182f4c64f91a40c49b9f1db313f2a21efff95a627cfd72c33"
+    },
+    {
+      "path": "services/api/tests/test_integrated_demo_seed.py",
+      "sha256": "7e9083eef2b127b7a0bded27d8abd3cd225a98931d70a1f9d82d692b08f18f96"
+    },
+    {
+      "path": "services/api/tests/test_integrated_practice_postgresql_integration.py",
+      "sha256": "2ad5d759d7f3f97c44a6ecbbb066bbf9de07caa51a2a85aee3bfc62783348e22"
+    },
+    {
+      "path": "services/api/tests/test_integrated_writing_postgresql_integration.py",
+      "sha256": "af70f1197221d13d7478db5e31e78050201d41754ddbe642f788d1330271b9cf"
+    },
+    {
+      "path": "services/api/tests/test_memory_governance.py",
+      "sha256": "7f6f379b5cff7534dc4735182528c806fead1a0c8d8f179164b6cb70d2377760"
+    },
+    {
+      "path": "services/api/tests/test_memory_postgresql_integration.py",
+      "sha256": "38d05abd0d6c3eccf64149fd76891d99f6c04e4008bbe2d7ce3778d88aea1ab9"
+    },
+    {
+      "path": "services/api/tests/test_memory_redis_integration.py",
+      "sha256": "d1a9a4eeeb3f44697ccc96f8b4d1edb44de2808bff74c8a972c588ef235fd599"
+    },
+    {
+      "path": "services/api/tests/test_migration_revision_safety.py",
+      "sha256": "612667eea6f588016a26fd82bd1b65f828b9b237e376575361676301c1c51413"
+    },
+    {
+      "path": "services/api/tests/test_object_storage_integration.py",
+      "sha256": "4e1cdc910aa388fa2d0d3a6e1d73b82dc9b8ab6423ce74bad81f8b3ff9ed3caf"
+    },
+    {
+      "path": "services/api/tests/test_postgresql_integration.py",
+      "sha256": "c614667922256b1d96f3eb62505a86a183881773491ccb76aa41d14986d786ab"
+    },
+    {
+      "path": "services/api/tests/test_postgresql_retrieval_integration.py",
+      "sha256": "4674806c33dd814260bd203487e5ef5441d32ab3d01dbd6d61e2d8ae6aefab81"
+    },
+    {
+      "path": "services/api/tests/test_question_bank.py",
+      "sha256": "3e8aa6755f23f717d39f94ee050ac5c16c6b2d1430f7fa0d273f7379191d2037"
+    },
+    {
+      "path": "services/api/tests/test_question_bank_postgresql_integration.py",
+      "sha256": "dda76fd1a0a01a89a83ff1f0516eb31cae50eaffed77cf3ecd78a1bcc6d06065"
+    },
+    {
+      "path": "services/api/tests/test_recorded_audio_postgresql_minio_integration.py",
+      "sha256": "ef551b38ab231c5be2e0364d879834829ba0a2349615b6217855a82de659b320"
+    },
+    {
+      "path": "services/api/tests/test_redis_integration.py",
+      "sha256": "c8ac7497ee3bd38ebd9dd66dc82bdcaf8d69782e8fab96c5115afe4c18418244"
+    },
+    {
+      "path": "services/api/tests/test_result_correction_fixture_guard.py",
+      "sha256": "063394f9b76b7bc429dfc0cb7d949356ef75b71c858573116e49ec9d2b5b0c0d"
+    },
+    {
+      "path": "services/api/tests/test_result_correction_postgresql_integration.py",
+      "sha256": "ec8d29be18ac1267d3d5747e60052bdb744416f9fc37b3fbb1177604447911b6"
+    },
+    {
+      "path": "services/api/tests/test_result_correction_scenario_postgresql_integration.py",
+      "sha256": "018f9fcb62b40807eb8d606d6e9a1bc7f0704d428c99968ce8f54c359287fbee"
+    },
+    {
+      "path": "services/api/tests/test_result_correction_services.py",
+      "sha256": "1c71e4e22fb4d065944c86ede95a469c7f71362c376cc9def779a41058d52cae"
+    },
+    {
+      "path": "services/api/tests/test_result_governance.py",
+      "sha256": "eb654306c46c2f7638d6bb47796cc013859f927830477970e6d2b54b91a63462"
+    },
+    {
+      "path": "services/api/tests/test_result_governance_concurrency_postgresql_integration.py",
+      "sha256": "25a135318fcdba921cd8442e43902ea956ac4b3e79280a35d76c3a2698f9595d"
+    },
+    {
+      "path": "services/api/tests/test_result_governance_postgresql_integration.py",
+      "sha256": "70de7a5a3d7178fe7f0a6639294241607d94186182c843fe99a7842b30076160"
+    },
+    {
+      "path": "services/api/tests/test_result_release.py",
+      "sha256": "ad5e536d322fae069809d7b9f4b093cd1b4390b007836f9a42af9286ef6d1954"
+    },
+    {
+      "path": "services/api/tests/test_result_release_api.py",
+      "sha256": "e63f1e308abac1a5c58b3bccb3ba2dbcc9b9d149b0860f0ae07ff7f793195936"
+    },
+    {
+      "path": "services/api/tests/test_result_release_concurrency_postgresql_integration.py",
+      "sha256": "4eb88dffbea9ffc5307873fe05159cf1a0ba1cd584830a45cd13e367c10e230e"
+    },
+    {
+      "path": "services/api/tests/test_result_release_postgresql_integration.py",
+      "sha256": "74214d6a4a7f4298e304ba803a759e0c96761b33cc65ce5d004e503a83c41bfb"
+    },
+    {
+      "path": "services/api/tests/test_retrieval_quality.py",
+      "sha256": "595f382af6b6d7e6b199df6a71c0171ba54008ba538c2bbc9d8246082d0e1a09"
+    },
+    {
+      "path": "services/api/tests/test_rules_engine.py",
+      "sha256": "083bbf7d9be365afc6def0b38f9adb006e1c880a187776e27a5df911af0687d4"
+    },
+    {
+      "path": "services/api/tests/test_rules_postgresql_integration.py",
+      "sha256": "0b925e6e226bed2793a713bc3866e303c007eb97c4a521f7ba003222ff9714b2"
+    },
+    {
+      "path": "services/api/tests/test_scoring.py",
+      "sha256": "a7aa8cee94936debbc405c1847ece89a310858cb2f29196fc4bab7af183511c7"
+    },
+    {
+      "path": "services/api/tests/test_scoring_postgresql_integration.py",
+      "sha256": "d62f8cf30da8ba1f246e9bef953857edc1c79357263dfa91716bfce4264c1c0d"
+    },
+    {
+      "path": "services/api/tests/test_speaking_assessment.py",
+      "sha256": "98b5a8c61273a71005f666d292afe66cdaa2ba42ad56873ecfbfd4ec5de6841f"
+    },
+    {
+      "path": "services/api/tests/test_speaking_assessment_object_storage_integration.py",
+      "sha256": "17393924027338dbe81342b5a6125e6a7ff1a5839847962381f0470b97e3aa30"
+    },
+    {
+      "path": "services/api/tests/test_speaking_assessment_postgresql_integration.py",
+      "sha256": "1d980ad49e67d9b8b1b414411b6629bd3fe2268f6e17b104bf1bc564c0a2c384"
+    },
+    {
+      "path": "services/api/tests/test_speaking_audio.py",
+      "sha256": "1593726c97e944e3e2afb43c314380239a78afe9a0a0c0c3015db97259ad26d6"
+    },
+    {
+      "path": "services/api/tests/test_speaking_execution_postgresql_minio_integration.py",
+      "sha256": "4cb5e2b37d52a173f612646e363e4d103c7056080a39087cf82c2981a50e7654"
+    },
+    {
+      "path": "services/api/tests/test_speaking_execution_profile_api.py",
+      "sha256": "40b3d04d465d93794c1eecc719b19c37d51bdda7d4b324e5e4104c9f81e8e757"
+    },
+    {
+      "path": "services/api/tests/test_speaking_human_demo_seed.py",
+      "sha256": "1d04ff9199585c283576db8f847f2df4192c550b9f023843a7ac08f848eaffcb"
+    },
+    {
+      "path": "services/api/tests/test_speaking_provider_runtime.py",
+      "sha256": "6e9d8d5d17e797af4906d6467fb71e43f4a6c5fafb8ee79072caf10475fec3df"
+    },
+    {
+      "path": "services/api/tests/test_speaking_results_demo_seed.py",
+      "sha256": "b4f934316e0b7c2493509b5f8049d2f69bc509217519daf68a652a53019b1ef0"
+    },
+    {
+      "path": "services/api/tests/test_speaking_results_postgresql_minio_integration.py",
+      "sha256": "66500850d97666b89aa3ef61f4dbf2f664ee5417412249916404508d09bbccdd"
+    },
+    {
+      "path": "services/api/tests/test_speaking_scoring.py",
+      "sha256": "bf0cbbdbee7e870550bb9a59ddb16d60f00aba1ed39f18588f9ffdd835e0fbf1"
+    },
+    {
+      "path": "services/api/tests/test_speaking_validator_regressions.py",
+      "sha256": "de1f2802ecf2074117bbda9c1d28d4259bab5493ae2f3bf88300cd74e21fed0e"
+    },
+    {
+      "path": "services/api/tests/test_speech_transcription.py",
+      "sha256": "2cb478b600e42fc3eb5d4f57b778fefcbd2d83a697b82c55381380771792e959"
+    },
+    {
+      "path": "services/api/tests/test_speech_transcription_object_storage_integration.py",
+      "sha256": "62a481bf27f96c5cc4e54e72aed123c25c23c4216edaecc4ccb7af2086254723"
+    },
+    {
+      "path": "services/api/tests/test_speech_transcription_postgresql_integration.py",
+      "sha256": "90bd8c6dd377f0a7c97ec9d04a3d2ccffc5fe332937f764c01b6ad852d0c73c8"
+    },
+    {
+      "path": "services/api/tests/test_standard_packs.py",
+      "sha256": "2d37272ddb11593636e2ca1cc1b427f181e7c6f29e14b3b477304b0916025d23"
+    },
+    {
+      "path": "services/api/tests/test_standards_knowledge.py",
+      "sha256": "ad0afa46c3bac1dd3ee6a3babcdcdeb4c17a1bf8967d063266c7e55d0aa7d08d"
+    },
+    {
+      "path": "services/api/tests/test_transcription_bounded_storage.py",
+      "sha256": "29fff90ed522103c8e8b24e941def64eee2d958048145469996adfaa680f18d5"
+    },
+    {
+      "path": "services/api/tests/test_transcription_execution_demo_seed.py",
+      "sha256": "76368a6fe1ac033043d8c409a6c4ae837d2d6c1547b01b4596ca7b09b962247e"
+    },
+    {
+      "path": "services/api/tests/test_transcription_execution_postgresql_minio_integration.py",
+      "sha256": "f04909e0a55009786d65c6e2099f3d77c4372869c3400491c1983de052ccfaab"
+    },
+    {
+      "path": "services/api/tests/test_transcription_profile_approval.py",
+      "sha256": "d40c943aa43790d5f0bacb3dffc053654c6b89e2afe80fb10eef2cff4c40c9f9"
+    },
+    {
+      "path": "services/api/tests/test_transcription_runtime.py",
+      "sha256": "2a29864b795806abb79c760e91f8fac26d2fbb91ba81059d09cdcd9a61883bee"
+    },
+    {
+      "path": "services/api/tests/test_writing_assessment.py",
+      "sha256": "5ee2683c4928991910975cbfa3aafeb85f3439330f75da06d4ad4a69fe7a115d"
+    },
+    {
+      "path": "services/api/tests/test_writing_assessment_evaluation.py",
+      "sha256": "0cf5a357bec270d429353859facf0dd2fc4e371780b96a26975b42c43f51b26f"
+    },
+    {
+      "path": "services/api/tests/test_writing_assessment_postgresql_integration.py",
+      "sha256": "cf67cf015d372f6fec85cf44633b9f3ecf156b711f71beb35c29e1e328e66642"
+    },
+    {
+      "path": "services/api/tests/test_writing_demo_seed.py",
+      "sha256": "98c7870f7eb6938611a9ee96ac994d02e11f3aea67dda7f5bcc53e715b2544d7"
+    },
+    {
+      "path": "services/api/tests/test_writing_execution_postgresql_integration.py",
+      "sha256": "33a314a1da454bdc7c7c011435aafd7f275f6fb024458e92e11da63a94d0bbd1"
+    },
+    {
+      "path": "services/api/tests/test_writing_execution_profile_api.py",
+      "sha256": "9de2152e4821d5ba8fe0f8a1805caf84a8fbf3bfd84d767d98cc9bdb47433d26"
+    },
+    {
+      "path": "services/api/tests/test_writing_execution_registry.py",
+      "sha256": "9b26054bc7ec1c5ff0b1bdb73704540a75bd3ec4e0c791041e51bdd0322309bc"
+    },
+    {
+      "path": "services/api/tests/test_writing_foundation_postgresql_integration.py",
+      "sha256": "7911e22659f080044c78bcbd6abea8303ba77a50593ba12c10d4a7656330e518"
+    },
+    {
+      "path": "services/api/tests/test_writing_provider_runtime.py",
+      "sha256": "8af105a8f1e1f94c620ceb55e8527c70a8f978ddd0932da177ddcc828d9ed48c"
+    },
+    {
+      "path": "standard-packs/README.md",
+      "sha256": "64ee85d330907c0f43219411d22973fc75cd711ccb45907356b4f938e73be645"
+    },
+    {
+      "path": "standard-packs/cefr/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "standard-packs/dtz/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "standard-packs/fixtures/invalid-lid-cefr.json",
+      "sha256": "7adad2ecd1816ef96e9a0b41b5092105525ad24a1961e8eb58bad9c139c24847"
+    },
+    {
+      "path": "standard-packs/fixtures/invalid-missing-source.json",
+      "sha256": "e5fe8214b64881882e64025c2fe59c68dfed720be0ba09d2b579697572cb3dea"
+    },
+    {
+      "path": "standard-packs/fixtures/invalid-official-certification.json",
+      "sha256": "e8a9c41d600c406aab576b1301ebb3dc942b228e159a343c65b6993390090bfb"
+    },
+    {
+      "path": "standard-packs/fixtures/rules/README.md",
+      "sha256": "540af385ce9c9899b112a7333a33dddaae46c2bf9a4b58d205d05699ca6adbf1"
+    },
+    {
+      "path": "standard-packs/fixtures/rules/synthetic-rules.json",
+      "sha256": "c128b9bd5a9b5cf552d8c2aa57daca76ef6f2a01fd6ddb4be3aad9df8649cb47"
+    },
+    {
+      "path": "standard-packs/fixtures/synthetic-a2-b1.json",
+      "sha256": "581850b5948a7283bbf7c17828cbb5787b69c10eceec79c8cf93619e36f05e43"
+    },
+    {
+      "path": "standard-packs/fixtures/synthetic-german-b1.json",
+      "sha256": "8d5e9be1cd23e6c2f4074097c6b46e707e93644c52b7108e01e39b8473726e78"
+    },
+    {
+      "path": "standard-packs/fixtures/synthetic-lid.json",
+      "sha256": "b741012401ea9b357febe209f41f8717d861fc0a363ea3e993c6286e53735ae4"
+    },
+    {
+      "path": "standard-packs/goethe/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "standard-packs/lid/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "standard-packs/prufai/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "standard-packs/telc/.gitkeep",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "tests/README.md",
+      "sha256": "a79994a868cbd0744cb502e9c8240ab0054a208f7bc35a0483c3b9b078bf06e6"
+    },
+    {
+      "path": "tests/browser/ai-speaking-execution.spec.cjs",
+      "sha256": "061ac521093965f5647cff650de743dddbd51fa84d6e432792eb07bb0162de33"
+    },
+    {
+      "path": "tests/browser/ai-writing-execution.spec.cjs",
+      "sha256": "7535e2a8e93e861dcf9abcfdf728a4fde7150abd32a905e372321c5cc7a2c08e"
+    },
+    {
+      "path": "tests/browser/integrated-mvp.spec.cjs",
+      "sha256": "43ab04262075a33bdf0488e8c93c44d2a147c855c17d88f711f1696009ae4448"
+    },
+    {
+      "path": "tests/browser/playwright.config.cjs",
+      "sha256": "667859ffeb6607801addfcd6b9a62922b5cc328aab5b02e2efcf08bc9dd22cf0"
+    },
+    {
+      "path": "tests/browser/recorded-audio-corrective.spec.cjs",
+      "sha256": "d15d882b949da04760bb83dfc1d5119f311006cb0e2de16dfd121b516c20ebd8"
+    },
+    {
+      "path": "tests/browser/recorded-audio.spec.cjs",
+      "sha256": "83ee4a819381ff1f74573eb8670475462bf573135938a555a6bce51842df9d19"
+    },
+    {
+      "path": "tests/browser/speaking-human.spec.cjs",
+      "sha256": "d268c2651f13837402dd2d06dc2f8c64d8e3ffc82214cfa23d3c08d2a33a4062"
+    },
+    {
+      "path": "tests/browser/speaking-results.spec.cjs",
+      "sha256": "6f6dcaa677080ab92c8361dafc6e0366188480a717b381abe0a7ffb0589eb7d9"
+    },
+    {
+      "path": "tests/browser/support.cjs",
+      "sha256": "2028a3842a182dcc55f3abb22a41da6423340e1917e2d915879529aa3982ca9e"
+    },
+    {
+      "path": "tests/browser/transcription-execution.spec.cjs",
+      "sha256": "30f2747599dda43deb5e644f37bf1f2f12513fcd95ca078b1be9e178593b3a1f"
+    },
+    {
+      "path": "tests/browser/writing-human.spec.cjs",
+      "sha256": "66e2dc1b45dd735278e92714cad7938140aae7a81e4134229a60a0a8b9c257ca"
+    }
+  ]
+}

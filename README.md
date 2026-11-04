@@ -23,8 +23,8 @@ tests/                  Cross-project test placeholder
 
 ## Prerequisites
 
-- Node.js 20+ and npm
-- Python 3.9+
+- Node.js 24 LTS and npm (the verified CI/local security baseline)
+- Python 3.11+ (Python 3.9 and 3.10 are unsupported)
 - Docker Desktop with Compose v2
 
 Copy `.env.example` to a local `.env` only when needed. The example values are local-development placeholders, not production credentials.
@@ -59,6 +59,12 @@ docker compose -f infra/docker-compose.yml down
 ```
 
 ## Install and run
+
+Use a fresh virtual environment created with Python 3.11 or newer before running
+the existing Makefile commands. An existing Python 3.9 environment must be rebuilt;
+this does not require resetting PostgreSQL, Redis or object storage. The security
+minimums, audited versions and compatibility decisions are recorded in
+[Dependency security audit](docs/security/dependency-audit-2026-11-04/README.md).
 
 ```bash
 make install

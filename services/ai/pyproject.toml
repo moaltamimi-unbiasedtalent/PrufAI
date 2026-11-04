@@ -1,22 +1,23 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.1,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "prufai-ai"
 version = "0.1.0"
 description = "PrüfAI future AI service boundary"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
+    "anyio>=4.14.2,<5",
+    "starlette>=1.3.1,<2",
+    "python-dotenv>=1.2.2,<2",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.32,<1",
-    "langchain-core==0.3.79",
-    "langgraph==0.6.7",
     "pydantic>=2.9,<3",
 ]
 
 [project.optional-dependencies]
-dev = ["httpx>=0.27,<1", "mypy>=1.13,<2", "pytest>=8.3,<9", "ruff>=0.8,<1"]
+dev = ["httpx>=0.27,<1", "mypy>=1.13,<2", "pytest>=9.0.3,<9.1", "ruff>=0.8,<1"]
 
 [tool.setuptools.packages.find]
 where = ["."]

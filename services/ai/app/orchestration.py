@@ -1,8 +1,8 @@
 """Provider-neutral, deterministic AI orchestration boundary for Phase 4 Step 1.
 
-This module deliberately keeps domain approval in the API database. LangGraph is an
-execution dependency for deployed workers; the small runtime protocol below keeps
-CI network-free and makes the state/interrupt contract testable without credentials.
+This module keeps domain approval in the API database. Its bounded runtime uses
+local Python and Pydantic implementations rather than an upstream LangGraph SDK.
+The state/interrupt contract remains testable without provider credentials.
 """
 
 from __future__ import annotations

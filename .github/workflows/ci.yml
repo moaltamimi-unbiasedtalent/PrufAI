@@ -284,6 +284,16 @@ jobs:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Governed AI Writing proposal execution (required PostgreSQL)
+        run: |
+          python -m pytest tests/test_writing_execution_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/writing-execution-required.xml"
+          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/writing-execution-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_writing_execution_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required governed Writing execution tests must execute without skips'"
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          WRITING_TEST_ADAPTER_ENABLED: "1"
       - name: Install pinned MinIO
         run: |
           set -euo pipefail

@@ -555,10 +555,32 @@ jobs:
         working-directory: services/api
         env:
           REDIS_INTEGRATION_URL: redis://localhost:6379/0
-      - run: >-
-          python -c "from app.evaluation.runner import deterministic_synthetic_baseline;
-          baseline=deterministic_synthetic_baseline();
-          assert baseline.before.gate == 'PASS' and baseline.after.gate == 'PASS'"
+      - name: Validate ranking-only fixture without invented safety outcomes
+        run: |
+          python - <<'PY'
+          from app.evaluation.runner import deterministic_synthetic_baseline
+
+          baseline = deterministic_synthetic_baseline()
+          safety_fields = (
+              "provider_contamination_rate",
+              "assessment_contamination_rate",
+              "scope_compliance_rate",
+              "citation_validity_rate",
+              "historical_version_accuracy",
+          )
+          for summary in (baseline.before, baseline.after):
+              assert summary.gate == "NOT_AVAILABLE"
+              assert all(getattr(summary, field) is None for field in safety_fields)
+          assert baseline.after.mrr > baseline.before.mrr
+          assert baseline.after.ndcg_at_5 > baseline.before.ndcg_at_5
+          print({
+              "ranking_fixture_mrr_before": baseline.before.mrr,
+              "ranking_fixture_mrr_after": baseline.after.mrr,
+              "ranking_fixture_ndcg_before": baseline.before.ndcg_at_5,
+              "ranking_fixture_ndcg_after": baseline.after.ndcg_at_5,
+              "unmeasured_safety_gate": baseline.after.gate,
+          })
+          PY
         working-directory: services/api
       - run: python -m pytest tests
         working-directory: services/ai

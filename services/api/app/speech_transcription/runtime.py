@@ -209,7 +209,7 @@ def _multipart(audio: bytes, *, language: str, content_type: str) -> tuple[bytes
     if extension is None:
         raise InvalidProviderResult("UNSUPPORTED_AUDIO_FORMAT")
     boundary = "prufai-" + uuid.uuid4().hex
-    fields = {"model": "gpt-transcribe", "language": language, "response_format": "json"}
+    fields = {"model": "gpt-transcribe", "languages[]": language, "response_format": "json"}
     parts = [
         f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
         for k, v in fields.items()

@@ -6,6 +6,8 @@ import json
 import socket
 import threading
 from copy import deepcopy
+from email import policy
+from email.parser import BytesParser
 
 import pytest
 from pydantic import ValidationError
@@ -262,8 +264,19 @@ def test_genuine_adapter_http_contract_with_mocked_transport_is_not_provider_acc
     args, kwargs = connection.requests[0]
     assert args == ("POST", "/v1/audio/transcriptions")
     assert kwargs["headers"]["OpenAI-Project"] == "proj_approved-test"
-    assert b"verified-audio-unit-contract" in kwargs["body"]
-    assert b'filename="audio.webm"' in kwargs["body"]
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {kwargs['headers']['Content-Type']}\r\n\r\n".encode() + kwargs["body"]
+    )
+    parts = list(message.iter_parts())
+    fields = {part.get_param("name", header="content-disposition"): part for part in parts}
+    assert len(parts) == len(fields) == 4
+    assert set(fields) == {"model", "languages[]", "response_format", "file"}
+    assert fields["model"].get_payload(decode=True) == b"gpt-transcribe"
+    assert fields["languages[]"].get_payload(decode=True) == b"de"
+    assert fields["response_format"].get_payload(decode=True) == b"json"
+    assert fields["file"].get_payload(decode=True) == b"verified-audio-unit-contract"
+    assert fields["file"].get_filename() == "audio.webm"
+    assert fields["file"].get_content_type() == "audio/webm"
     assert result.transcript == "Guten Tag." and result.segments == ()
     assert result.metadata["test_only"] is False
     assert connection.closed

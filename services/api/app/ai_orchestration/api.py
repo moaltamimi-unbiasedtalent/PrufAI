@@ -21,6 +21,8 @@ from app.models import (
     HumanReviewRequest,
 )
 from app.models.enums import HumanReviewStatus
+from app.speaking_execution import registry as speaking_registry
+from app.speaking_execution import runtime as speaking_runtime
 from app.speech_transcription.execution import snapshot_profile
 from app.speech_transcription.profiles import approve_profile, profile_descriptor
 from app.writing_execution.registry import (
@@ -81,6 +83,101 @@ class WritingProfileApproval(BaseModel):
     agent_version_id: uuid.UUID
     workflow_version_id: uuid.UUID
     expected_profile_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SpeakingProfileCreate(WritingProfileCreate):
+    """AUDIO-only contract, never a caller-selected workflow or purpose."""
+
+
+class SpeakingProfileApproval(WritingProfileApproval):
+    """Independent approval of the exact audio-capable deployment bundle."""
+
+
+def _speaking_profile_payload(
+    session: Session, snapshot: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
+    keys = (
+        "execution_profile_id",
+        "profile_version",
+        "model_profile_id",
+        "model_version",
+        "prompt_version_id",
+        "prompt_checksum",
+        "agent_version_id",
+        "agent_checksum",
+        "workflow_version_id",
+        "workflow_checksum",
+        "provider",
+        "model_name",
+        "adapter_version",
+    )
+    return {
+        **{key: snapshot[key] for key in keys},
+        **speaking_runtime.validate_execution_configuration(snapshot, settings),
+        "registry_approved": speaking_registry.approved_profile_record(session, snapshot)
+        is not None,
+        "model_revision": snapshot["configuration"].get("model_revision"),
+        "native_structured_outputs": False,
+        "output_contract": speaking_runtime.OUTPUT_CONTRACT,
+        "external_processing_authorized": False,
+    }
+
+
+@router.post("/speaking-execution-profiles", status_code=status.HTTP_201_CREATED)
+def create_speaking_execution_profile(
+    payload: SpeakingProfileCreate,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = _require(principal, "ai.manage")
+    if context.organisation_id is not None:
+        raise HTTPException(status_code=403, detail="platform configuration context required")
+    try:
+        snapshot = speaking_registry.create_execution_profile(
+            session, context=context, **payload.model_dump()
+        )
+        session.commit()
+    except AuthorizationError as exc:
+        session.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="SPEAKING_PROFILE_NAMESPACE_CONFLICT") from exc
+    return _speaking_profile_payload(session, snapshot, settings)
+
+
+@router.post("/speaking-execution-profiles/approve")
+def approve_speaking_execution_profile(
+    payload: SpeakingProfileApproval,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    context = _require(principal, "ai.manage")
+    if context.organisation_id is not None:
+        raise HTTPException(status_code=403, detail="platform configuration context required")
+    try:
+        ids = payload.model_dump(exclude={"expected_profile_version"})
+        snapshot = speaking_registry.snapshot_execution_profile(session, **ids)
+        approved = speaking_registry.approve_execution_profile(
+            session,
+            snapshot=snapshot,
+            context=context,
+            settings=settings,
+            expected_profile_version=payload.expected_profile_version,
+        )
+        session.commit()
+    except AuthorizationError as exc:
+        session.rollback()
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _speaking_profile_payload(session, approved, settings)
 
 
 def _writing_profile_payload(

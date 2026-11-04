@@ -1,0 +1,76 @@
+[
+  {
+    "package": "anyio",
+    "version": "4.14.2",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/anyio/4.14.2/json"
+  },
+  {
+    "package": "python-dotenv",
+    "version": "1.2.2",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/python-dotenv/1.2.2/json"
+  },
+  {
+    "package": "starlette",
+    "version": "1.0.1",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/starlette/1.0.1/json"
+  },
+  {
+    "package": "starlette",
+    "version": "1.3.1",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/starlette/1.3.1/json"
+  },
+  {
+    "package": "urllib3",
+    "version": "2.8.0",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/urllib3/2.8.0/json"
+  },
+  {
+    "package": "fastapi",
+    "version": "0.129.0",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [
+      "starlette<1.0.0,>=0.40.0"
+    ],
+    "source": "https://pypi.org/pypi/fastapi/0.129.0/json"
+  },
+  {
+    "package": "botocore",
+    "version": "1.43.123",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [
+      "urllib3!=2.2.0,<3,>=1.25.4"
+    ],
+    "source": "https://pypi.org/pypi/botocore/1.43.123/json"
+  },
+  {
+    "package": "pip",
+    "version": "26.1",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/pip/26.1/json"
+  },
+  {
+    "package": "setuptools",
+    "version": "83.0.0",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/setuptools/83.0.0/json"
+  },
+  {
+    "package": "pytest",
+    "version": "9.0.3",
+    "requires_python": ">=3.10",
+    "relevant_requires_dist": [],
+    "source": "https://pypi.org/pypi/pytest/9.0.3/json"
+  }
+]

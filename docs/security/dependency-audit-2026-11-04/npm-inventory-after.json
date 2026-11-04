@@ -1,0 +1,3694 @@
+{
+  "metadata": {
+    "schema_version": 1,
+    "generated_at_utc": "2026-11-04T17:18:51.521028+00:00",
+    "repository": "moaltamimi-unbiasedtalent/PrufAI",
+    "branch": "security/dependency-hardening",
+    "baseline_main_sha": "e7752acbecb47a1182f7c2d39a4f2f2822ad311f",
+    "head_at_capture": "43a8be5688a798bcbec9001ee5ca70891050ca0d",
+    "capture_state": "ACTUAL_SECURITY_BRANCH_INSTALL; all recorded package/lock/workflow/Python source hashes match committed branch code at source_commit_verified. Documentation may advance separately. Final exact-head remote CI is a separate claim.",
+    "source_files": {
+      "prufai-security-branch-npm-audit-all.json": {
+        "sha256": "d5c1d36bf4007512b8b2fe3c8ae3b53d8ca22415d8f910ef706c263a84b1eba0",
+        "bundled_as": "prufai-npm-audit-after-all.json"
+      },
+      "prufai-security-branch-npm-audit-production.json": {
+        "sha256": "8f8b9eb35af61b2dfc3488b8af299477b78c81c896ee316f26e1eafb2b8f6d64",
+        "bundled_as": "prufai-npm-audit-after-production.json"
+      },
+      "prufai-security-branch-npm-chains.json": {
+        "sha256": "5cab12be559c286d3a564e31b50d43f609e856b56338c7e6c1b70c8092f23765",
+        "bundled": false,
+        "archive_disposition": "Raw capture retained locally; relevant installed versions, full root/peer paths and tree observations normalized in this file."
+      },
+      "prufai-security-branch-npm-tree.json": {
+        "sha256": "39b8dad45a0bd9f0228ba58f2a4faa9b281e849905d75948c77448bc3ec632a7",
+        "bundled": false,
+        "archive_disposition": "Raw capture retained locally; relevant installed versions, full root/peer paths and tree observations normalized in this file."
+      }
+    },
+    "source_file_sha256": {
+      "apps/web/package.json": "f9f86adc9ae4f250ec423a30be815da66cfe72cb500e314fd7fd2a7589484c89",
+      "apps/web/package-lock.json": "007c6fd1989e7fd2e18474bb74241c57288d29f09caf372f80a54be19e893334",
+      ".github/workflows/ci.yml": "267c7867e42d808448599af4d158bcd01c41294afa3f94d64fc869e298702138",
+      "services/api/pyproject.toml": "42366896bc1aac9607e3656d3619e40c6ee16ef35c389a508ca3fb087d4d2eae",
+      "services/ai/pyproject.toml": "4d96c6a37169140b18985bed57de8c83b182ae8f91dbfafad873362c97cc0ece"
+    },
+    "before_counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 19,
+      "high": 2,
+      "critical": 3,
+      "total": 24
+    },
+    "after_all_counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 18,
+      "high": 0,
+      "critical": 0,
+      "total": 18
+    },
+    "after_production_counts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "count_semantics": "18 npm affected development package records = minimatch plus 17 inherited/meta-vulnerabilities; 1 GHSA. Not 18 independent advisories.",
+    "unique_advisories_before": 16,
+    "unique_advisories_after": 1,
+    "resolved_advisory_ids": [
+      "GHSA-2464-fhr4-w9xw",
+      "GHSA-587h-7wmj-h5pm",
+      "GHSA-5gmw-xhrv-c9v3",
+      "GHSA-698v-4r3x-3vcv",
+      "GHSA-6g55-p6wh-862q",
+      "GHSA-82fw-gwwq-j7x9",
+      "GHSA-85c8-ppgw-ccpr",
+      "GHSA-9jrq-w75r-8gcw",
+      "GHSA-fxqj-rqcc-2cmp",
+      "GHSA-p3m5-59mp-jv5r",
+      "GHSA-qx2v-qp2m-jg93",
+      "GHSA-qxg6-89mg-rqv8",
+      "GHSA-r28c-9q8g-f849",
+      "GHSA-r825-w8mm-5pxw",
+      "GHSA-rq7h-c2jc-7f22"
+    ],
+    "remaining_advisory_ids": [
+      "GHSA-g3hv-75wg-m249"
+    ],
+    "resolved_package_findings": [
+      "@vitest/mocker",
+      "next",
+      "postcss",
+      "tinypool",
+      "vite",
+      "vitest"
+    ],
+    "remaining_production_critical_packages": 0,
+    "remaining_production_high_packages": 0,
+    "npm_explain_and_lock_match_all_affected_nodes": true,
+    "version_changes": [
+      {
+        "package": "next",
+        "before": "15.5.27",
+        "after": "15.5.29",
+        "node": "node_modules/next",
+        "version_evidence": "npm explain and committed-candidate lock agree"
+      },
+      {
+        "package": "eslint-config-next",
+        "before": "15.5.27",
+        "after": "15.5.29",
+        "node": "node_modules/eslint-config-next",
+        "version_evidence": "npm explain and committed-candidate lock agree"
+      },
+      {
+        "package": "postcss",
+        "before": "8.4.31",
+        "after": "8.5.23",
+        "node": "node_modules/postcss",
+        "version_evidence": "npm explain and committed-candidate lock agree"
+      },
+      {
+        "package": "vitest",
+        "before": "3.2.7",
+        "after": "4.1.12",
+        "node": "node_modules/vitest",
+        "version_evidence": "npm explain and committed-candidate lock agree"
+      },
+      {
+        "package": "vite",
+        "before": "7.3.6",
+        "after": "7.3.7",
+        "node": "node_modules/vite",
+        "version_evidence": "npm explain and committed-candidate lock agree"
+      }
+    ],
+    "removed_package": "tinypool",
+    "mocker_version_after": "4.1.12",
+    "override_scope": {
+      "next": {
+        "postcss": "8.5.23"
+      },
+      "vite": "7.3.7"
+    },
+    "installed_tree_observations": [
+      "extraneous: @emnapi/runtime@1.11.3 <security-branch>/apps/web/node_modules/@emnapi/runtime",
+      "extraneous: @img/sharp-wasm32@0.35.5 <security-branch>/apps/web/node_modules/@img/sharp-wasm32"
+    ],
+    "installed_tree_observation_disposition": "Two optional platform package records were reported extraneous by the saved npm-tree capture. No reason for their presence is inferred. Their exact versions were independently audited through a disposable optional-dependency manifest/lock with scripts disabled: zero known advisories. This independent result is separate from application audit totals and does not inspect wasm/native binaries or OS packages.",
+    "security_readiness": "Dependency audit snapshot only; no PILOT SECURITY READY or complete application security claim.",
+    "no_repository_changes_by_inventory_writer": true,
+    "source_commit_verified": "43a8be5688a798bcbec9001ee5ca70891050ca0d",
+    "extraneous_packages_separate_audit": {
+      "packages": {
+        "@emnapi/runtime": "1.11.3",
+        "@img/sharp-wasm32": "0.35.5"
+      },
+      "method": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund, then npm audit --json in a disposable manifest directory; no application manifest changes",
+      "result": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "locked_dependency_nodes": 3,
+      "files": {
+        "extraneous-package-audit-manifest.json": {
+          "sha256": "1c0917abc402269b2a1948fc8b383013cc02409d3d66bb9eefa379d40b9e1a3c"
+        },
+        "extraneous-package-audit-lock.json": {
+          "sha256": "343c661d7d14512b04a75382b42810d970270aa587a972ed35ee880baf2e89c2"
+        },
+        "extraneous-package-npm-audit.json": {
+          "sha256": "14da734f13aa3e46a72df9c5c13164010babf36e9ed2a029df2d7c89f41dd85f"
+        }
+      },
+      "binary_os_scan": "NOT VERIFIED"
+    }
+  },
+  "advisories": {
+    "GHSA-g3hv-75wg-m249": {
+      "ghsa_id": "GHSA-g3hv-75wg-m249",
+      "npm_entries": [
+        {
+          "package": "minimatch",
+          "affected_dependency": "minimatch",
+          "range": "<11.0.1",
+          "severity": "moderate",
+          "title": "minimatch has potential denial of service via globparts amplification",
+          "source": 1244012
+        }
+      ],
+      "cve_id": "CVE-2026-118764",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-10-30T23:09:55Z",
+      "updated_at": "2026-10-30T23:09:56Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-g3hv-75wg-m249",
+      "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "minimatch"
+          },
+          "vulnerable_version_range": "< 11.0.1",
+          "first_patched_version": "11.0.1",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249",
+        "https://github.com/isaacs/minimatch/releases/tag/v11.0.1"
+      ]
+    }
+  },
+  "resolved_advisories": {
+    "GHSA-2464-fhr4-w9xw": {
+      "ghsa_id": "GHSA-2464-fhr4-w9xw",
+      "npm_entries": [
+        {
+          "package": "next",
+          "affected_dependency": "next",
+          "range": ">=10.0.0 <=15.5.27",
+          "severity": "critical",
+          "title": "Next.js: Unauthenticated Remote Code Execution in Image Optimization API when SVG files are used",
+          "source": 1242817
+        }
+      ],
+      "cve_id": null,
+      "github_severity": "critical",
+      "github_reviewed": true,
+      "published_at": "2026-10-22T15:52:53Z",
+      "updated_at": "2026-10-22T15:52:56Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-2464-fhr4-w9xw",
+      "url": "https://github.com/advisories/GHSA-2464-fhr4-w9xw",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "next"
+          },
+          "vulnerable_version_range": ">= 10.0.0, <= 15.5.27",
+          "first_patched_version": "15.5.28",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "next"
+          },
+          "vulnerable_version_range": ">= 16.0.0, <= 16.4.0",
+          "first_patched_version": "16.4.1",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vercel/next.js/security/advisories/GHSA-2464-fhr4-w9xw",
+        "https://github.com/vercel/next.js/releases/tag/v15.5.28",
+        "https://github.com/vercel/next.js/releases/tag/v16.4.1"
+      ]
+    },
+    "GHSA-587h-7wmj-h5pm": {
+      "ghsa_id": "GHSA-587h-7wmj-h5pm",
+      "npm_entries": [
+        {
+          "package": "vite",
+          "affected_dependency": "vite",
+          "range": ">=7.0.0 <=7.3.6",
+          "severity": "high",
+          "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows",
+          "source": 1242659
+        }
+      ],
+      "cve_id": "CVE-2026-112942",
+      "github_severity": "high",
+      "github_reviewed": true,
+      "published_at": "2026-10-20T19:48:25Z",
+      "updated_at": "2026-10-20T19:48:26Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-587h-7wmj-h5pm",
+      "url": "https://github.com/advisories/GHSA-587h-7wmj-h5pm",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "launch-editor"
+          },
+          "vulnerable_version_range": "<= 2.14.1",
+          "first_patched_version": "2.14.2",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.3.0, <= 8.3.2",
+          "first_patched_version": "8.3.3",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.2.0, <= 8.2.3",
+          "first_patched_version": "8.2.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.0.0, <= 8.1.5",
+          "first_patched_version": "8.1.6",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 7.0.0, <= 7.3.6",
+          "first_patched_version": "7.3.7",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": "<= 6.4.3",
+          "first_patched_version": "6.4.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite-plus"
+          },
+          "vulnerable_version_range": "<= 1.0.0",
+          "first_patched_version": "1.1.0",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitejs/launch-editor/security/advisories/GHSA-587h-7wmj-h5pm",
+        "https://github.com/vitejs/launch-editor/releases/tag/v2.14.2"
+      ]
+    },
+    "GHSA-5gmw-xhrv-c9v3": {
+      "ghsa_id": "GHSA-5gmw-xhrv-c9v3",
+      "npm_entries": [
+        {
+          "package": "tinypool",
+          "affected_dependency": "tinypool",
+          "range": "<=2.1.0",
+          "severity": "critical",
+          "title": "Tinypool: Prototype Pollution gadget in worker options leads to Remote Code Execution",
+          "source": 1241260
+        }
+      ],
+      "cve_id": "CVE-2026-104848",
+      "github_severity": "critical",
+      "github_reviewed": true,
+      "published_at": "2026-10-05T22:50:01Z",
+      "updated_at": "2026-10-05T22:50:02Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-5gmw-xhrv-c9v3",
+      "url": "https://github.com/advisories/GHSA-5gmw-xhrv-c9v3",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "tinypool"
+          },
+          "vulnerable_version_range": "<= 2.1.0",
+          "first_patched_version": "2.1.1",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/tinylibs/tinypool/security/advisories/GHSA-5gmw-xhrv-c9v3",
+        "https://github.com/tinylibs/tinypool/releases/tag/v2.1.1"
+      ]
+    },
+    "GHSA-698v-4r3x-3vcv": {
+      "ghsa_id": "GHSA-698v-4r3x-3vcv",
+      "npm_entries": [
+        {
+          "package": "vite",
+          "affected_dependency": "vite",
+          "range": ">=7.0.0 <=7.3.6",
+          "severity": "moderate",
+          "title": "launch-editor: escapeCmdArgs() omits % escaping on Windows",
+          "source": 1242623
+        }
+      ],
+      "cve_id": "CVE-2026-112943",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-10-20T18:30:24Z",
+      "updated_at": "2026-10-20T18:30:25Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-698v-4r3x-3vcv",
+      "url": "https://github.com/advisories/GHSA-698v-4r3x-3vcv",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "launch-editor"
+          },
+          "vulnerable_version_range": "<= 2.14.1",
+          "first_patched_version": "2.14.2",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.3.0, <= 8.3.2",
+          "first_patched_version": "8.3.3",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.2.0, <= 8.2.3",
+          "first_patched_version": "8.2.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.0.0, <= 8.1.5",
+          "first_patched_version": "8.1.6",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 7.0.0, <= 7.3.6",
+          "first_patched_version": "7.3.7",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": "<= 6.4.3",
+          "first_patched_version": "6.4.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite-plus"
+          },
+          "vulnerable_version_range": "<= 1.0.0",
+          "first_patched_version": "1.1.0",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitejs/launch-editor/security/advisories/GHSA-698v-4r3x-3vcv",
+        "https://github.com/vitejs/launch-editor/releases/tag/v2.14.2"
+      ]
+    },
+    "GHSA-6g55-p6wh-862q": {
+      "ghsa_id": "GHSA-6g55-p6wh-862q",
+      "npm_entries": [
+        {
+          "package": "postcss",
+          "affected_dependency": "postcss",
+          "range": "<=8.5.11",
+          "severity": "high",
+          "title": "PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments",
+          "source": 1124252
+        }
+      ],
+      "cve_id": "CVE-2026-45623",
+      "github_severity": "high",
+      "github_reviewed": true,
+      "published_at": "2026-07-23T15:06:16Z",
+      "updated_at": "2026-07-23T15:06:17Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-6g55-p6wh-862q",
+      "url": "https://github.com/advisories/GHSA-6g55-p6wh-862q",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "postcss"
+          },
+          "vulnerable_version_range": "<= 8.5.11",
+          "first_patched_version": "8.5.12",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/postcss/postcss/security/advisories/GHSA-6g55-p6wh-862q",
+        "https://github.com/postcss/postcss/releases/tag/8.5.12"
+      ]
+    },
+    "GHSA-82fw-gwwq-j7x9": {
+      "ghsa_id": "GHSA-82fw-gwwq-j7x9",
+      "npm_entries": [
+        {
+          "package": "@vitest/mocker",
+          "affected_dependency": "@vitest/mocker",
+          "range": ">=2.1.0 <4.1.11",
+          "severity": "moderate",
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "source": 1193684
+        },
+        {
+          "package": "vitest",
+          "affected_dependency": "vitest",
+          "range": ">=2.1.0 <4.1.11",
+          "severity": "moderate",
+          "title": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock",
+          "source": 1193683
+        }
+      ],
+      "cve_id": "CVE-2026-84373",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-09-08T20:46:45Z",
+      "updated_at": "2026-09-08T20:46:47Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-82fw-gwwq-j7x9",
+      "url": "https://github.com/advisories/GHSA-82fw-gwwq-j7x9",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "@vitest/mocker"
+          },
+          "vulnerable_version_range": ">= 2.1.0, < 4.1.11",
+          "first_patched_version": "4.1.11",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vitest"
+          },
+          "vulnerable_version_range": ">= 2.1.0, < 4.1.11",
+          "first_patched_version": "4.1.11",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vitest"
+          },
+          "vulnerable_version_range": ">= 5.0.0-beta.1, < 5.0.0-rc.2",
+          "first_patched_version": "5.0.0-rc.2",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "@vitest/mocker"
+          },
+          "vulnerable_version_range": ">= 5.0.0-beta.1, < 5.0.0-rc.2",
+          "first_patched_version": "5.0.0-rc.2",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9",
+        "https://github.com/vitest-dev/vitest/releases/tag/v4.1.11",
+        "https://github.com/vitest-dev/vitest/releases/tag/v5.0.0-rc.2"
+      ]
+    },
+    "GHSA-85c8-ppgw-ccpr": {
+      "ghsa_id": "GHSA-85c8-ppgw-ccpr",
+      "npm_entries": [
+        {
+          "package": "tinypool",
+          "affected_dependency": "tinypool",
+          "range": "<2.1.2",
+          "severity": "critical",
+          "title": "Tinypool: Prototype Pollution Gadget to RCE in run() options",
+          "source": 1241261
+        }
+      ],
+      "cve_id": "CVE-2026-104849",
+      "github_severity": "critical",
+      "github_reviewed": true,
+      "published_at": "2026-10-05T22:49:52Z",
+      "updated_at": "2026-10-05T22:49:53Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-85c8-ppgw-ccpr",
+      "url": "https://github.com/advisories/GHSA-85c8-ppgw-ccpr",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "tinypool"
+          },
+          "vulnerable_version_range": "< 2.1.2",
+          "first_patched_version": "2.1.2",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/tinylibs/tinypool/security/advisories/GHSA-85c8-ppgw-ccpr",
+        "https://github.com/tinylibs/tinypool/releases/tag/v2.1.2"
+      ]
+    },
+    "GHSA-9jrq-w75r-8gcw": {
+      "ghsa_id": "GHSA-9jrq-w75r-8gcw",
+      "npm_entries": [
+        {
+          "package": "vite",
+          "affected_dependency": "vite",
+          "range": ">=7.0.0 <=7.3.6",
+          "severity": "low",
+          "title": "Vite: Cross origin script execution through Vite custom middleware",
+          "source": 1242725
+        }
+      ],
+      "cve_id": "CVE-2026-112945",
+      "github_severity": "low",
+      "github_reviewed": true,
+      "published_at": "2026-10-21T16:48:14Z",
+      "updated_at": "2026-10-21T16:48:15Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-9jrq-w75r-8gcw",
+      "url": "https://github.com/advisories/GHSA-9jrq-w75r-8gcw",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.3.0, <= 8.3.2",
+          "first_patched_version": "8.3.3",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.2.0, <= 8.2.3",
+          "first_patched_version": "8.2.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.0.0, <= 8.1.5",
+          "first_patched_version": "8.1.6",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 7.0.0, <= 7.3.6",
+          "first_patched_version": "7.3.7",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": "<= 6.4.3",
+          "first_patched_version": "6.4.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite-plus"
+          },
+          "vulnerable_version_range": "<= 1.0.0",
+          "first_patched_version": "1.1.0",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitejs/vite/security/advisories/GHSA-9jrq-w75r-8gcw"
+      ]
+    },
+    "GHSA-fxqj-rqcc-2cmp": {
+      "ghsa_id": "GHSA-fxqj-rqcc-2cmp",
+      "npm_entries": [
+        {
+          "package": "postcss",
+          "affected_dependency": "postcss",
+          "range": "<=8.5.22",
+          "severity": "moderate",
+          "title": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q \u2014 attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset",
+          "source": 1130709
+        }
+      ],
+      "cve_id": "CVE-2026-69153",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-08-03T17:11:39Z",
+      "updated_at": "2026-08-03T17:11:40Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-fxqj-rqcc-2cmp",
+      "url": "https://github.com/advisories/GHSA-fxqj-rqcc-2cmp",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "postcss"
+          },
+          "vulnerable_version_range": "<= 8.5.22",
+          "first_patched_version": "8.5.23",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/postcss/postcss/security/advisories/GHSA-fxqj-rqcc-2cmp",
+        "https://github.com/postcss/postcss/releases/tag/8.5.19"
+      ]
+    },
+    "GHSA-p3m5-59mp-jv5r": {
+      "ghsa_id": "GHSA-p3m5-59mp-jv5r",
+      "npm_entries": [
+        {
+          "package": "next",
+          "affected_dependency": "next",
+          "range": ">=13.0.0 <=15.5.27",
+          "severity": "high",
+          "title": "Next.js: Denial of Service in App Router using Server Actions",
+          "source": 1242819
+        }
+      ],
+      "cve_id": "CVE-2026-94482",
+      "github_severity": "high",
+      "github_reviewed": true,
+      "published_at": "2026-10-22T15:50:34Z",
+      "updated_at": "2026-10-22T15:50:35Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-p3m5-59mp-jv5r",
+      "url": "https://github.com/advisories/GHSA-p3m5-59mp-jv5r",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "next"
+          },
+          "vulnerable_version_range": ">= 13.0.0, <= 15.5.27",
+          "first_patched_version": "15.5.28",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "next"
+          },
+          "vulnerable_version_range": ">= 16.0.0, <= 16.4.0",
+          "first_patched_version": "16.4.1",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vercel/next.js/security/advisories/GHSA-p3m5-59mp-jv5r",
+        "https://github.com/vercel/next.js/releases/tag/v15.5.28",
+        "https://github.com/vercel/next.js/releases/tag/v16.4.1"
+      ]
+    },
+    "GHSA-qx2v-qp2m-jg93": {
+      "ghsa_id": "GHSA-qx2v-qp2m-jg93",
+      "npm_entries": [
+        {
+          "package": "postcss",
+          "affected_dependency": "postcss",
+          "range": "<8.5.10",
+          "severity": "moderate",
+          "title": "PostCSS has XSS via Unescaped </style> in its CSS Stringify Output",
+          "source": 1117015
+        }
+      ],
+      "cve_id": "CVE-2026-41305",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-04-24T15:31:42Z",
+      "updated_at": "2026-04-24T15:31:44Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-qx2v-qp2m-jg93",
+      "url": "https://github.com/advisories/GHSA-qx2v-qp2m-jg93",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "postcss"
+          },
+          "vulnerable_version_range": "< 8.5.10",
+          "first_patched_version": "8.5.10",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/postcss/postcss/security/advisories/GHSA-qx2v-qp2m-jg93",
+        "https://github.com/postcss/postcss/releases/tag/8.5.10"
+      ]
+    },
+    "GHSA-qxg6-89mg-rqv8": {
+      "ghsa_id": "GHSA-qxg6-89mg-rqv8",
+      "npm_entries": [
+        {
+          "package": "@vitest/mocker",
+          "affected_dependency": "@vitest/mocker",
+          "range": ">=2.1.0-beta.7 <4.1.12",
+          "severity": "moderate",
+          "title": "Vitest: Code injection via unauthenticated manual mock registration",
+          "source": 1242767
+        }
+      ],
+      "cve_id": "CVE-2026-112949",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-10-21T19:54:26Z",
+      "updated_at": "2026-10-21T19:54:27Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-qxg6-89mg-rqv8",
+      "url": "https://github.com/advisories/GHSA-qxg6-89mg-rqv8",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "@vitest/mocker"
+          },
+          "vulnerable_version_range": ">= 2.1.0-beta.7, < 4.1.12",
+          "first_patched_version": "4.1.12",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "@vitest/mocker"
+          },
+          "vulnerable_version_range": ">= 5.0.0-beta.1, < 5.0.3",
+          "first_patched_version": "5.0.3",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitest-dev/vitest/security/advisories/GHSA-qxg6-89mg-rqv8",
+        "https://github.com/vitest-dev/vitest/releases/tag/v4.1.12",
+        "https://github.com/vitest-dev/vitest/releases/tag/v5.0.3"
+      ]
+    },
+    "GHSA-r28c-9q8g-f849": {
+      "ghsa_id": "GHSA-r28c-9q8g-f849",
+      "npm_entries": [
+        {
+          "package": "postcss",
+          "affected_dependency": "postcss",
+          "range": "<=8.5.17",
+          "severity": "high",
+          "title": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure",
+          "source": 1139510
+        }
+      ],
+      "cve_id": "CVE-2026-73646",
+      "github_severity": "high",
+      "github_reviewed": true,
+      "published_at": "2026-07-24T16:24:55Z",
+      "updated_at": "2026-08-13T17:55:56Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-r28c-9q8g-f849",
+      "url": "https://github.com/advisories/GHSA-r28c-9q8g-f849",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "postcss"
+          },
+          "vulnerable_version_range": "<= 8.5.17",
+          "first_patched_version": "8.5.18",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/postcss/postcss/security/advisories/GHSA-r28c-9q8g-f849",
+        "https://github.com/postcss/postcss/releases/tag/8.5.18"
+      ]
+    },
+    "GHSA-r825-w8mm-5pxw": {
+      "ghsa_id": "GHSA-r825-w8mm-5pxw",
+      "npm_entries": [
+        {
+          "package": "vite",
+          "affected_dependency": "vite",
+          "range": ">=7.0.0 <=7.3.6",
+          "severity": "moderate",
+          "title": "launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors",
+          "source": 1242652
+        }
+      ],
+      "cve_id": "CVE-2026-112944",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-10-20T19:51:52Z",
+      "updated_at": "2026-10-20T19:51:54Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-r825-w8mm-5pxw",
+      "url": "https://github.com/advisories/GHSA-r825-w8mm-5pxw",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "launch-editor"
+          },
+          "vulnerable_version_range": "<= 2.14.1",
+          "first_patched_version": "2.14.2",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.3.0, <= 8.3.2",
+          "first_patched_version": "8.3.3",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.2.0, <= 8.2.3",
+          "first_patched_version": "8.2.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.0.0, <= 8.1.5",
+          "first_patched_version": "8.1.6",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 7.0.0, <= 7.3.6",
+          "first_patched_version": "7.3.7",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": "<= 6.4.3",
+          "first_patched_version": "6.4.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite-plus"
+          },
+          "vulnerable_version_range": "<= 1.0.0",
+          "first_patched_version": "1.1.0",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitejs/launch-editor/security/advisories/GHSA-r825-w8mm-5pxw",
+        "https://github.com/vitejs/launch-editor/releases/tag/v2.14.2"
+      ]
+    },
+    "GHSA-rq7h-c2jc-7f22": {
+      "ghsa_id": "GHSA-rq7h-c2jc-7f22",
+      "npm_entries": [
+        {
+          "package": "vite",
+          "affected_dependency": "vite",
+          "range": ">=7.0.0 <=7.3.6",
+          "severity": "moderate",
+          "title": "Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine",
+          "source": 1242731
+        }
+      ],
+      "cve_id": "CVE-2026-112946",
+      "github_severity": "medium",
+      "github_reviewed": true,
+      "published_at": "2026-10-21T16:47:42Z",
+      "updated_at": "2026-10-21T16:47:43Z",
+      "github_api_url": "https://api.github.com/advisories/GHSA-rq7h-c2jc-7f22",
+      "url": "https://github.com/advisories/GHSA-rq7h-c2jc-7f22",
+      "package_ranges": [
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.3.0, <= 8.3.2",
+          "first_patched_version": "8.3.3",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.2.0, <= 8.2.3",
+          "first_patched_version": "8.2.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 8.0.0, <= 8.1.5",
+          "first_patched_version": "8.1.6",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": ">= 7.0.0, <= 7.3.6",
+          "first_patched_version": "7.3.7",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite"
+          },
+          "vulnerable_version_range": "<= 6.4.3",
+          "first_patched_version": "6.4.4",
+          "vulnerable_functions": []
+        },
+        {
+          "package": {
+            "ecosystem": "npm",
+            "name": "vite-plus"
+          },
+          "vulnerable_version_range": "<= 1.0.0",
+          "first_patched_version": "1.1.0",
+          "vulnerable_functions": []
+        }
+      ],
+      "primary_sources": [
+        "https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22"
+      ]
+    }
+  },
+  "packages": [
+    {
+      "package": "@eslint-community/eslint-utils",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "*",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "eslint"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@eslint-community/eslint-utils",
+          "version": "4.10.1",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@eslint-community/eslint-utils@4.10.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@eslint/eslintrc",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "0.0.1 || >=0.1.1",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@eslint/eslintrc",
+          "version": "2.1.4",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@humanwhocodes/config-array",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "*",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@humanwhocodes/config-array",
+          "version": "0.13.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@typescript-eslint/eslint-plugin",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "*",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@typescript-eslint/parser",
+        "@typescript-eslint/type-utils",
+        "@typescript-eslint/utils",
+        "eslint"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/eslint-plugin",
+          "version": "8.71.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@typescript-eslint/parser",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "*",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@typescript-eslint/typescript-estree",
+        "eslint"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/parser",
+          "version": "8.71.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@typescript-eslint/type-utils",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": ">=5.9.2-alpha.0",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@typescript-eslint/typescript-estree",
+        "@typescript-eslint/utils",
+        "eslint"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/type-utils",
+          "version": "8.71.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@typescript-eslint/typescript-estree",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": ">=6.16.0",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/typescript-estree",
+          "version": "8.71.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "@typescript-eslint/utils",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "*",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@eslint-community/eslint-utils",
+        "@typescript-eslint/typescript-estree",
+        "eslint"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/utils",
+          "version": "8.71.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "eslint",
+      "npm_severity": "moderate",
+      "is_direct": true,
+      "aggregate_affected_range": "0.7.1 - 2.0.0-rc.1 || >=4.1.0",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@eslint-community/eslint-utils",
+        "@eslint/eslintrc",
+        "@humanwhocodes/config-array",
+        "file-entry-cache",
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/eslint",
+          "version": "8.57.1",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "eslint-config-next",
+      "npm_severity": "moderate",
+      "is_direct": true,
+      "aggregate_affected_range": ">=10.2.1-canary.2",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "@typescript-eslint/eslint-plugin",
+        "@typescript-eslint/parser",
+        "eslint",
+        "eslint-plugin-import",
+        "eslint-plugin-jsx-a11y",
+        "eslint-plugin-react"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/eslint-config-next",
+          "version": "15.5.29",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Aligned with patched Next.js at 15.5.29. The inherited minimatch advisory remains visible. Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "eslint-plugin-import",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": ">=1.15.0",
+      "npm_fix_available_raw": true,
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/eslint-plugin-import",
+          "version": "2.32.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "eslint-plugin-jsx-a11y",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": ">=6.5.0",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/eslint-plugin-jsx-a11y",
+          "version": "6.10.2",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "eslint-plugin-react",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": ">=7.23.0",
+      "npm_fix_available_raw": {
+        "name": "eslint-config-next",
+        "version": "0.2.4",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/eslint-plugin-react",
+          "version": "7.37.5",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "file-entry-cache",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "4.0.0 - 7.0.2",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "flat-cache"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/file-entry-cache",
+          "version": "6.0.1",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "flat-cache",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "1.3.4 - 4.0.0",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "rimraf"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/flat-cache",
+          "version": "3.2.0",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "glob",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "3.0.0 - 13.0.6",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "minimatch"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/glob",
+          "version": "7.2.3",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "minimatch",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "<11.0.1",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [],
+      "direct_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": false,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch",
+          "version": "10.2.6",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "@typescript-eslint/typescript-estree@8.71.0",
+              "minimatch@10.2.6"
+            ]
+          ]
+        },
+        {
+          "path": "node_modules/minimatch",
+          "version": "3.1.5",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "minimatch@3.1.5"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "@eslint/eslintrc@2.1.4",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "@humanwhocodes/config-array@0.13.0",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2",
+              "glob@7.2.3",
+              "minimatch@3.1.5"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "minimatch@3.1.5"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    },
+    {
+      "package": "rimraf",
+      "npm_severity": "moderate",
+      "is_direct": false,
+      "aggregate_affected_range": "2.3.0 - 3.0.2 || 4.2.0 - 6.1.3",
+      "npm_fix_available_raw": {
+        "name": "eslint",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_packages": [
+        "glob"
+      ],
+      "direct_advisory_ids": [],
+      "all_advisory_ids": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "is_meta_vulnerability": true,
+      "present_in_production_audit": false,
+      "nodes": [
+        {
+          "path": "node_modules/rimraf",
+          "version": "3.0.2",
+          "dev": true,
+          "installed_version_evidence": "actual security branch npm explain matched npm-generated lock",
+          "dependency_paths": [
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ]
+          ],
+          "npm_explain_paths": [
+            [
+              "@prufai/web",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/type-utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "@eslint-community/eslint-utils@4.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "@typescript-eslint/utils@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/eslint-plugin@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "@typescript-eslint/parser@8.71.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-import-resolver-typescript@3.10.1",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-import@2.32.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-jsx-a11y@6.10.2",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react@7.37.5",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ],
+            [
+              "@prufai/web",
+              "eslint-config-next@15.5.29",
+              "eslint-plugin-react-hooks@5.2.0",
+              "eslint@8.57.1",
+              "file-entry-cache@6.0.1",
+              "flat-cache@3.2.0",
+              "rimraf@3.0.2"
+            ]
+          ]
+        }
+      ],
+      "exposure": "DEVELOPMENT_AND_CI_ONLY",
+      "usage": "Development lint/config/cache/glob chain. Repository-controlled file patterns; no production HTTP input path found. Maintainer describes minimatch 10.2.6 preprocessing with optimizationLevel>=2. Root v3.1.5 has no optimizationLevel implementation, and locked TypeScript-ESLint calls nested v10.2.6 with {dot:true}, leaving default level 1. npm flags all <11.0.1; retain that audit finding rather than asserting it absent.",
+      "plan": "Record explicit development-only residual for GHSA-g3hv-75wg-m249. Do not install npm suggested ESLint 4.0.0/eslint-config-next 0.2.4 downgrades. Do not globally override minimatch 11: minimatch 3 exports a callable CommonJS function while 11 exports an object, breaking legacy consumers; TypeScript-ESLint nested ^10.2.2 also does not admit 11. Follow up with a compatible ESLint/TypeScript-ESLint/plugin/glob family migration or maintainer backport; rerun the full lint/typecheck/test/build envelope and audit.",
+      "disposition": "RESIDUAL_DEVELOPMENT_ONLY_NO_SAFE_GLOBAL_OVERRIDE"
+    }
+  ]
+}

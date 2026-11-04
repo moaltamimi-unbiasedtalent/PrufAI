@@ -1,0 +1,189 @@
+{
+  "phase": "FINAL_SUPPORTED_RUNTIME_LOCAL",
+  "baseline_sha": "e7752acbecb47a1182f7c2d39a4f2f2822ad311f",
+  "branch": "security/dependency-hardening",
+  "runtime_commit": "43a8be5688a798bcbec9001ee5ca70891050ca0d",
+  "scope": "The tested final candidate and every baseline-tracked file in the security branch match byte for byte; newly added audit documentation does not alter runtime or tests.",
+  "source_byte_match_to_security_branch": true,
+  "python": "3.11.15",
+  "pytest": "9.0.3",
+  "node": "24.15.0",
+  "api": {
+    "tests": 942,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "seconds": 932.327,
+    "module_counts": {
+      "tests.test_ai_orchestration": 6,
+      "tests.test_ai_orchestration_postgresql_integration": 1,
+      "tests.test_ai_speaking_demo_seed": 4,
+      "tests.test_ai_writing_demo_seed": 4,
+      "tests.test_audio_demo_seed": 5,
+      "tests.test_audio_evidence_contract": 36,
+      "tests.test_audio_full_inspection": 16,
+      "tests.test_audio_media_bounds": 5,
+      "tests.test_authentication_api": 3,
+      "tests.test_authentication_security": 9,
+      "tests.test_candidate_audio_postgresql_integration": 1,
+      "tests.test_candidate_runtime": 10,
+      "tests.test_candidate_runtime_postgresql_integration": 1,
+      "tests.test_control_center": 19,
+      "tests.test_control_centre_postgresql_integration": 14,
+      "tests.test_control_centre_seed": 6,
+      "tests.test_demo_seed": 3,
+      "tests.test_demo_seed_postgresql_integration": 2,
+      "tests.test_exam_studio": 3,
+      "tests.test_exam_studio_governance": 6,
+      "tests.test_exam_studio_postgresql_integration": 1,
+      "tests.test_health": 1,
+      "tests.test_human_speaking_governance": 39,
+      "tests.test_human_speaking_postgresql_minio_integration": 24,
+      "tests.test_human_writing_governance": 29,
+      "tests.test_hybrid_retrieval": 5,
+      "tests.test_identity_tenancy_rbac_audit": 7,
+      "tests.test_institution_inspection": 2,
+      "tests.test_integrated_demo_seed": 4,
+      "tests.test_integrated_practice_postgresql_integration": 6,
+      "tests.test_integrated_writing_postgresql_integration": 5,
+      "tests.test_memory_governance": 4,
+      "tests.test_memory_postgresql_integration": 1,
+      "tests.test_memory_redis_integration": 1,
+      "tests.test_migration_revision_safety": 1,
+      "tests.test_object_storage_integration": 1,
+      "tests.test_postgresql_integration": 1,
+      "tests.test_postgresql_retrieval_integration": 1,
+      "tests.test_question_bank": 11,
+      "tests.test_question_bank_postgresql_integration": 1,
+      "tests.test_recorded_audio_postgresql_minio_integration": 34,
+      "tests.test_redis_integration": 1,
+      "tests.test_result_correction_fixture_guard": 1,
+      "tests.test_result_correction_postgresql_integration": 1,
+      "tests.test_result_correction_scenario_postgresql_integration": 1,
+      "tests.test_result_correction_services": 1,
+      "tests.test_result_governance": 5,
+      "tests.test_result_governance_concurrency_postgresql_integration": 1,
+      "tests.test_result_governance_postgresql_integration": 4,
+      "tests.test_result_release": 13,
+      "tests.test_result_release_api": 9,
+      "tests.test_result_release_concurrency_postgresql_integration": 2,
+      "tests.test_result_release_postgresql_integration": 21,
+      "tests.test_retrieval_quality": 4,
+      "tests.test_rules_engine": 6,
+      "tests.test_rules_postgresql_integration": 1,
+      "tests.test_scoring": 12,
+      "tests.test_scoring_postgresql_integration": 1,
+      "tests.test_speaking_assessment": 4,
+      "tests.test_speaking_assessment_object_storage_integration": 1,
+      "tests.test_speaking_assessment_postgresql_integration": 1,
+      "tests.test_speaking_audio": 14,
+      "tests.test_speaking_execution_postgresql_minio_integration": 89,
+      "tests.test_speaking_execution_profile_api": 7,
+      "tests.test_speaking_human_demo_seed": 2,
+      "tests.test_speaking_provider_runtime": 42,
+      "tests.test_speaking_results_demo_seed": 2,
+      "tests.test_speaking_results_postgresql_minio_integration": 25,
+      "tests.test_speaking_scoring": 31,
+      "tests.test_speaking_validator_regressions": 4,
+      "tests.test_speech_transcription": 5,
+      "tests.test_speech_transcription_object_storage_integration": 1,
+      "tests.test_speech_transcription_postgresql_integration": 1,
+      "tests.test_standard_packs": 4,
+      "tests.test_standards_knowledge": 8,
+      "tests.test_transcription_bounded_storage": 5,
+      "tests.test_transcription_execution_demo_seed": 4,
+      "tests.test_transcription_execution_postgresql_minio_integration": 47,
+      "tests.test_transcription_profile_approval": 5,
+      "tests.test_transcription_runtime": 34,
+      "tests.test_writing_assessment": 8,
+      "tests.test_writing_assessment_evaluation": 39,
+      "tests.test_writing_assessment_postgresql_integration": 1,
+      "tests.test_writing_demo_seed": 4,
+      "tests.test_writing_execution_postgresql_integration": 71,
+      "tests.test_writing_execution_profile_api": 7,
+      "tests.test_writing_execution_registry": 11,
+      "tests.test_writing_foundation_postgresql_integration": 20,
+      "tests.test_writing_provider_runtime": 28
+    }
+  },
+  "ai": {
+    "passed": 7,
+    "skips": 0
+  },
+  "frontend": {
+    "test_files": 18,
+    "passed": 172,
+    "format": "PASS",
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "production_build": "PASS"
+  },
+  "browser": {
+    "passed": 17,
+    "skips": 0,
+    "retries": 0
+  },
+  "static": {
+    "ruff": "PASS",
+    "ruff_format_files": 302,
+    "mypy_api_files": 168,
+    "mypy_ai_files": 4
+  },
+  "services": {
+    "postgresql": "16.14; fresh Alembic-migrated owned test databases",
+    "object_storage": "Real private MinIO/S3; no fake or memory substitute in required integrations",
+    "redis": "Real Redis; both integration cases executed",
+    "alembic_head": "0029_speaking_execution",
+    "required_postgres_flag": "1",
+    "required_object_storage_flag": "1"
+  },
+  "framework_removal": {
+    "langchain_core": "ABSENT",
+    "langgraph": "ABSENT",
+    "langsmith": "ABSENT",
+    "pip_check": "PASS"
+  },
+  "pytest_containment": "Private owned mode-0700 parent; patched pytest9.0.3; defense in depth alongside upstream fix.",
+  "local_capture_hashes": {
+    "api": {
+      "filename": "prufai-security-supported-api.log",
+      "sha256": "210cc0e244bf179060ef7c2bc8df367c0006bba7b7e08a6cab2086a500d4d31e",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "api_junit": {
+      "filename": "prufai-security-supported-api.xml",
+      "sha256": "4b2aa08957fd3274637d1ef57f56b696a36935933804d25c6ff5a0e1f8cebe01",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "frontend": {
+      "filename": "prufai-security-candidate-web.log",
+      "sha256": "d241ba3ebbb71c436dded51eff414226f4a50f67a61ca4b09fe507428e5aeeeb",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "browser": {
+      "filename": "prufai-security-supported-browser.log",
+      "sha256": "5f9000baac17e3a4cda1fa0b001f4f74bbfc13b031c4e102558dfaa14c38a0d1",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "ai": {
+      "filename": "prufai-security-supported-ai.log",
+      "sha256": "84a378b4df7c86909fa857717b2e30237a1ad5e1a2be2dd63adfb751958646c8",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "ai_junit": {
+      "filename": "prufai-security-supported-ai.xml",
+      "sha256": "0c1eef96da321386ae6155f9ddcbce4ef1e6f13fcd24bc5e58d508b88459fa35",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "static": {
+      "filename": "prufai-security-supported-static.log",
+      "sha256": "3e8a78ad7a7bd4d28f95d941e4c45712750e86c661bca6bb3542d9a85e26ced9",
+      "retention": "Full local capture retained outside published bundle"
+    },
+    "production_build": {
+      "filename": "build.log",
+      "sha256": "484e32c31f530ac5e82f83a61169803edcbe3b6a4e448f4b11920747aba5fbad",
+      "retention": "Full local capture retained outside published bundle"
+    }
+  }
+}

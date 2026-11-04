@@ -1,0 +1,729 @@
+{
+  "repository": "moaltamimi-unbiasedtalent/PrufAI",
+  "baseline_sha": "e7752acbecb47a1182f7c2d39a4f2f2822ad311f",
+  "auditor": "pip-audit 2.10.1",
+  "interpreter": "Python 3.11.15",
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "audit_method": "Dedicated auditor venv with --path targeting separate application environments; JSON descriptions/aliases; no audit-tool dependencies installed in app targets. Editable first-party projects explicitly excluded, third-party dependencies audited.",
+  "environment_notes": {
+    "ci": "macOS Python3.11 resolver using repository combined API+AI dev install and CI pip-upgrade to26.3; not a claim of identical Ubuntu installed artifacts. Bootstrap pre-upgrade evidence retained under ci-bootstrap prefix.",
+    "production": "Fresh separate API and AI runtime installs. pip/setuptools bootstrap findings reported separately from application dependency reachability.",
+    "no_source_changes": true
+  },
+  "before": {
+    "ci": {
+      "audited_distributions": 85,
+      "raw_vulnerability_records": 25,
+      "affected_packages": 6,
+      "unique_advisories": 14,
+      "unique_severity_counts": {
+        "medium": 6,
+        "high": 5,
+        "low": 2,
+        "critical": 1
+      },
+      "exit_status": 1,
+      "artifact_prefix": "prufai-security-py-ci-before"
+    },
+    "api-prod": {
+      "audited_distributions": 45,
+      "raw_vulnerability_records": 3,
+      "affected_packages": 2,
+      "unique_advisories": 2,
+      "unique_severity_counts": {
+        "low": 1,
+        "medium": 1
+      },
+      "exit_status": 1,
+      "artifact_prefix": "prufai-security-py-api-prod-before"
+    },
+    "ai-prod": {
+      "audited_distributions": 50,
+      "raw_vulnerability_records": 25,
+      "affected_packages": 6,
+      "unique_advisories": 14,
+      "unique_severity_counts": {
+        "medium": 6,
+        "high": 5,
+        "low": 2,
+        "critical": 1
+      },
+      "exit_status": 1,
+      "artifact_prefix": "prufai-security-py-ai-prod-before"
+    }
+  },
+  "findings": [
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-2g6r-c272-w58r",
+      "advisory_ids": [
+        "CVE-2026-26013",
+        "GHSA-2g6r-c272-w58r",
+        "PYSEC-2026-2562"
+      ],
+      "fixed_versions": [
+        "1.2.11"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "low",
+      "summary": "LangChain affected by SSRF via image_url token counting in ChatOpenAI.get_num_tokens_from_messages",
+      "affected_ranges": [
+        "< 1.2.11"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-2g6r-c272-w58r",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D1.2.11"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-2g6r-c272-w58r",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-6qv9-48xg-fc7f",
+      "advisory_ids": [
+        "CVE-2025-65106",
+        "GHSA-6qv9-48xg-fc7f",
+        "PYSEC-2026-1518"
+      ],
+      "fixed_versions": [
+        "0.3.80",
+        "1.0.7"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "high",
+      "summary": "LangChain Vulnerable to Template Injection via Attribute Access in Prompt Templates",
+      "affected_ranges": [
+        ">= 1.0.0, <= 1.0.6",
+        "<= 0.3.79"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-6qv9-48xg-fc7f"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-6qv9-48xg-fc7f",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-926x-3r5x-gfhw",
+      "advisory_ids": [
+        "CVE-2026-40087",
+        "GHSA-926x-3r5x-gfhw",
+        "PYSEC-2026-2563"
+      ],
+      "fixed_versions": [
+        "0.3.84",
+        "1.2.28"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "LangChain has incomplete f-string validation in prompt templates",
+      "affected_ranges": [
+        "< 0.3.83",
+        ">= 1.0.0a1, < 1.2.28"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-926x-3r5x-gfhw",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D0.3.84",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D1.2.28"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-926x-3r5x-gfhw",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-c67j-w6g6-q2cm",
+      "advisory_ids": [
+        "CVE-2025-68664",
+        "GHSA-c67j-w6g6-q2cm",
+        "PYSEC-2026-373"
+      ],
+      "fixed_versions": [
+        "0.3.81",
+        "1.2.5"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "critical",
+      "summary": "LangChain serialization injection vulnerability enables secret extraction in dumps/loads APIs",
+      "affected_ranges": [
+        ">= 1.0.0, < 1.2.5",
+        "< 0.3.81"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-c67j-w6g6-q2cm",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D0.3.81",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D1.2.5",
+        "https://github.com/pypa/advisory-database/tree/main/vulns/langchain-core/PYSEC-2026-373.yaml"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-c67j-w6g6-q2cm",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-pjwx-r37v-7724",
+      "advisory_ids": [
+        "CVE-2026-44843",
+        "GHSA-pjwx-r37v-7724",
+        "PYSEC-2026-2564"
+      ],
+      "fixed_versions": [
+        "0.3.85",
+        "1.3.3"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "high",
+      "summary": "LangChain vulnerable to unsafe deserialization of attacker-controlled objects through overly broad `load()` allowlists",
+      "affected_ranges": [
+        ">= 1.0.0, <= 1.3.2",
+        "<= 0.3.84"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-pjwx-r37v-7724"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-pjwx-r37v-7724",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langchain-core",
+      "installed_version": "0.3.79",
+      "advisory": "GHSA-qh6h-p6c9-ff54",
+      "advisory_ids": [
+        "CVE-2026-34070",
+        "GHSA-qh6h-p6c9-ff54",
+        "PYSEC-2026-2193"
+      ],
+      "fixed_versions": [
+        "1.2.22"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "high",
+      "summary": "LangChain Core has Path Traversal vulnerabilites in legacy `load_prompt` functions",
+      "affected_ranges": [
+        "< 1.2.22"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langchain/security/advisories/GHSA-qh6h-p6c9-ff54",
+        "https://github.com/langchain-ai/langchain/releases/tag/langchain-core==1.2.22"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-qh6h-p6c9-ff54",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langchain-core"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph",
+      "installed_version": "0.6.7",
+      "advisory": "GHSA-g48c-2wqr-h844",
+      "advisory_ids": [
+        "CVE-2026-28277",
+        "GHSA-g48c-2wqr-h844",
+        "PYSEC-2026-83"
+      ],
+      "fixed_versions": [
+        "1.0.10",
+        "1.0.10rc1"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "LangGraph checkpoint loading has unsafe msgpack deserialization",
+      "affected_ranges": [
+        "<= 1.0.9"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-g48c-2wqr-h844",
+        "https://github.com/pypa/advisory-database/tree/main/vulns/langgraph/PYSEC-2026-83.yaml"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-g48c-2wqr-h844",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph-checkpoint",
+      "installed_version": "2.1.2",
+      "advisory": "GHSA-fjqc-hq36-qh5p",
+      "advisory_ids": [
+        "CVE-2026-48775",
+        "GHSA-fjqc-hq36-qh5p",
+        "PYSEC-2026-2573"
+      ],
+      "fixed_versions": [
+        "4.1.1"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "LangGraph Checkpoint: Unsafe JSON deserialization in checkpoint loading",
+      "affected_ranges": [
+        "< 4.1.1"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-fjqc-hq36-qh5p"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-fjqc-hq36-qh5p",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph",
+          "langgraph-checkpoint"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph-checkpoint",
+      "installed_version": "2.1.2",
+      "advisory": "GHSA-mhr3-j7m5-c7c9",
+      "advisory_ids": [
+        "CVE-2026-27794",
+        "GHSA-mhr3-j7m5-c7c9",
+        "PYSEC-2026-2574"
+      ],
+      "fixed_versions": [
+        "4.0.0"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "LangGraph: BaseCache Deserialization of Untrusted Data may lead to Remote Code Execution ",
+      "affected_ranges": [
+        "< 4.0.0"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-mhr3-j7m5-c7c9",
+        "https://github.com/langchain-ai/langgraph/releases/tag/checkpoint%3D%3D4.0.0"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-mhr3-j7m5-c7c9",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph",
+          "langgraph-checkpoint"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph-checkpoint",
+      "installed_version": "2.1.2",
+      "advisory": "GHSA-wwqv-p2pp-99h5",
+      "advisory_ids": [
+        "CVE-2025-64439",
+        "GHSA-wwqv-p2pp-99h5",
+        "PYSEC-2026-1527"
+      ],
+      "fixed_versions": [
+        "3.0.0"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "high",
+      "summary": "LangGraph Checkpoint affected by RCE in \"json\" mode of JsonPlusSerializer ",
+      "affected_ranges": [
+        "< 3.0.0"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-wwqv-p2pp-99h5",
+        "https://github.com/langchain-ai/langgraph/releases/tag/checkpoint%3D%3D3.0.0"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-wwqv-p2pp-99h5",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph",
+          "langgraph-checkpoint"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph-sdk",
+      "installed_version": "0.2.15",
+      "advisory": "GHSA-fvww-7h3r-vfhp",
+      "advisory_ids": [
+        "CVE-2026-104873",
+        "GHSA-fvww-7h3r-vfhp",
+        "PYSEC-2026-4240"
+      ],
+      "fixed_versions": [
+        "0.4.4"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "high",
+      "summary": "LangGraph SDK custom auth silently ignores actions= on resource decorators",
+      "affected_ranges": [
+        ">= 0.1.45, <= 0.4.3"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-fvww-7h3r-vfhp",
+        "https://github.com/langchain-ai/langgraph/releases/tag/sdk==0.4.4"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-fvww-7h3r-vfhp",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph",
+          "langgraph-sdk"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "langgraph-sdk",
+      "installed_version": "0.2.15",
+      "advisory": "GHSA-w39p-vh2g-g8g5",
+      "advisory_ids": [
+        "CVE-2026-48776",
+        "GHSA-w39p-vh2g-g8g5",
+        "PYSEC-2026-2194",
+        "PYSEC-2026-2575"
+      ],
+      "fixed_versions": [
+        "0.3.15"
+      ],
+      "environments": [
+        "ai-prod",
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "LangGraph SDK has unsafe URL path construction",
+      "affected_ranges": [
+        "< 0.3.15"
+      ],
+      "primary_links": [
+        "https://github.com/langchain-ai/langgraph/security/advisories/GHSA-w39p-vh2g-g8g5",
+        "https://github.com/langchain-ai/langgraph/releases/tag/sdk%3D%3D0.3.15",
+        "https://github.com/pypa/advisory-database/tree/main/vulns/langgraph-sdk/PYSEC-2026-2575.yaml",
+        "https://github.com/pypa/advisory-database/tree/main/vulns/langgraph/PYSEC-2026-2194.yaml"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-w39p-vh2g-g8g5",
+      "exposure": "Declared AI-service production dependency; affected library features are not imported or dynamically loaded by current repository runtime.",
+      "dependency_paths": [
+        [
+          "prufai-ai",
+          "langgraph",
+          "langgraph-sdk"
+        ]
+      ],
+      "applicable_usage": "No upstream LangChain/LangGraph/SDK import, serializer, prompt-template, cache, checkpoint loader, network SDK or plugin entrypoint use found. Local compatible classes use stdlib/Pydantic; seven AI tests passed with these frameworks absent.",
+      "provisional_remediation_type": "Remove the two unused direct AI runtime declarations; their vulnerable transitive graph disappears. Reintroduction requires separately reviewed patched compatible releases.",
+      "final_remediation_type": "Remove unused LangChain Core/LangGraph direct declarations and their transitive graph; no upstream framework upgrade or business-runtime rewrite."
+    },
+    {
+      "package": "pip",
+      "installed_version": "26.1.2",
+      "advisory": "GHSA-qwm4-qh6w-59xr",
+      "advisory_ids": [
+        "CVE-2026-13346",
+        "GHSA-qwm4-qh6w-59xr",
+        "PYSEC-2026-3721"
+      ],
+      "fixed_versions": [
+        "26.2",
+        "26.2.0"
+      ],
+      "environments": [
+        "ai-prod",
+        "api-prod"
+      ],
+      "severity": "medium",
+      "summary": "pip would incorrectly handle doubly-encoded package URLs from indexes",
+      "affected_ranges": [
+        "< 26.2.0"
+      ],
+      "primary_links": [
+        "https://github.com/pypa/pip/commit/10dfb6b9005484578b386f64b9f36982e3dc6679",
+        "https://github.com/pypa/advisory-database/tree/main/vulns/pip/PYSEC-2026-3721.yaml"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-qwm4-qh6w-59xr",
+      "exposure": "Disposable venv bootstrap/package-install tooling, not application runtime.",
+      "dependency_paths": [
+        [
+          "venv bootstrap",
+          "pip"
+        ]
+      ],
+      "applicable_usage": "Requires malicious index; auditing used explicit trusted PyPI. Repository CI already upgrades pip and the CI-aligned target resolved patched 26.3.",
+      "provisional_remediation_type": "Upgrade disposable/CI bootstrap pip to patched release; no application manifest change.",
+      "final_remediation_type": "Both Python CI jobs use bounded patched bootstrap pip>=26.2,<27; latest tested26.3. Explicit>=3.11 support policy avoids unsupported3.9 tool resolution."
+    },
+    {
+      "package": "pytest",
+      "installed_version": "8.4.2",
+      "advisory": "GHSA-6w46-j5rx-g56g",
+      "advisory_ids": [
+        "CVE-2025-71176",
+        "GHSA-6w46-j5rx-g56g",
+        "PYSEC-2026-1845"
+      ],
+      "fixed_versions": [
+        "9.0.3"
+      ],
+      "environments": [
+        "ci"
+      ],
+      "severity": "medium",
+      "summary": "pytest has vulnerable tmpdir handling",
+      "affected_ranges": [
+        "< 9.0.3"
+      ],
+      "primary_links": [
+        "https://github.com/pytest-dev/pytest/releases/tag/9.0.3"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-6w46-j5rx-g56g",
+      "exposure": "Development/test only; local UNIX predictable temporary-directory handling.",
+      "dependency_paths": [
+        [
+          "prufai-api[dev]",
+          "pytest"
+        ],
+        [
+          "prufai-ai[dev]",
+          "pytest"
+        ]
+      ],
+      "applicable_usage": "Tests run on disposable controlled CI/local environments; no production pytest use. Fixed 9.0.3 requires Python >=3.10 while project still declares >=3.9.",
+      "provisional_remediation_type": "Retain explicit medium residual until Python floor/test-major compatibility decision; no patched 8.x release available in current PyPI metadata. Isolate temporary directories and avoid untrusted shared local test execution.",
+      "final_remediation_type": "Upgrade to >=9.0.3,<9.1 after explicitly raising both service Python minimums to>=3.11; run complete regressions and advisory audit. No current medium-risk retention."
+    },
+    {
+      "package": "setuptools",
+      "installed_version": "83.0.0",
+      "advisory": "GHSA-xmj3-9gf7-h52w",
+      "advisory_ids": [
+        "GHSA-xmj3-9gf7-h52w"
+      ],
+      "fixed_versions": [
+        "84.1.0"
+      ],
+      "environments": [
+        "ai-prod",
+        "api-prod",
+        "ci"
+      ],
+      "severity": "low",
+      "summary": "setuptools: Windows path escape via namespace_packages.txt during legacy wheel installation  Description",
+      "affected_ranges": [
+        ">= 38.2.2, < 84.1.0"
+      ],
+      "primary_links": [
+        "https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w",
+        "https://github.com/pypa/setuptools/releases/tag/v84.1.0"
+      ],
+      "advisory_url": "https://github.com/advisories/GHSA-xmj3-9gf7-h52w",
+      "exposure": "Disposable venv bootstrap/build tooling; low severity Windows-only legacy wheel installation path.",
+      "dependency_paths": [
+        [
+          "venv bootstrap",
+          "setuptools"
+        ]
+      ],
+      "applicable_usage": "Initial macOS venv bootstrap 83.0.0; current audited platform and CI Linux are outside advisory Windows exploit platform. Project build isolation resolves separately from this bootstrap copy.",
+      "provisional_remediation_type": "Use patched 84.1.0+ build tooling where Python >=3.10; validate project Python 3.9 support before changing universal build lower bound. No application runtime dependency change.",
+      "final_remediation_type": "Both project build-system requirements and both Python CI bootstrap steps use setuptools>=84.1,<85; tested84.2.1. Older Python support is explicitly withdrawn rather than treating old tooling as an acceptable current residual."
+    }
+  ],
+  "tooling_registry": {
+    "patched_pip_minimum": "26.2.0",
+    "tested_pip": "26.3",
+    "patched_setuptools_minimum": "84.1.0",
+    "tested_setuptools": "84.2.1",
+    "patched_pytest_minimum": "9.0.3",
+    "latest_pytest_8": "8.4.2",
+    "fixed_tooling_requires_python": ">=3.10",
+    "source_urls": [
+      "https://pypi.org/pypi/pip/26.3/json",
+      "https://pypi.org/pypi/setuptools/84.2.1/json",
+      "https://pypi.org/pypi/pytest/9.0.3/json"
+    ]
+  },
+  "primary_advisory_metadata": {
+    "portable_source": "findings[*].primary_links and advisory_url",
+    "raw_api_capture": "retained locally; not bundled",
+    "note": "No dependency on an absent adjacent metadata file"
+  },
+  "evidence_disposition": {
+    "before_audit_results": "Bundled auditor results omit only freeform descriptions and preserve original raw SHA256; before/resolved metadata is in python-resolved-before.json.",
+    "primary_sources": "Maintainer URLs and fixed-version/Python metadata are embedded in findings and tooling_registry.",
+    "raw_inspect_freeze_and_exploratory_logs": "Retained locally; not presented as adjacent published files."
+  },
+  "capture_scope": "Original current-main Python3.11 dependency BEFORE snapshots; counts and vulnerabilities are historical audit facts, not final residual findings.",
+  "final_disposition": {
+    "status": "Candidate plan implemented outside Git; final branch audit/regression/remote gates still required",
+    "python_minimum": "API and AI >=3.11, explicit breaking compatibility decision after actual3.9 rejected-candidate audit",
+    "pytest": "Both dev extras >=9.0.3,<9.1; provisional retention ofpytest8 superseded",
+    "build_and_ci_tooling": "Both build-system requirements setuptools>=84.1,<85; both Python CI jobs bootstrap pip>=26.2,<27 andsetuptools>=84.1,<85",
+    "runtime_security_minimums": {
+      "api": [
+        "anyio>=4.14.2,<5",
+        "starlette>=1.3.1,<2",
+        "python-dotenv>=1.2.2,<2",
+        "urllib3>=2.8,<3"
+      ],
+      "ai": [
+        "anyio>=4.14.2,<5",
+        "starlette>=1.3.1,<2",
+        "python-dotenv>=1.2.2,<2"
+      ]
+    },
+    "frameworks": "Remove the two unused direct declarations; preserve local orchestrator and API workers",
+    "pytest_private_temporary_root": "Retained as defense in depth after patchedpytest, not a residual-advisory waiver",
+    "legacy_evidence": "python39-rejected-candidate-inventory.json",
+    "rebuild_requirement": "Recreate application environments on supported Python; no database reset or migration implied"
+  },
+  "historical_candidate_audits": [
+    {
+      "environment": "ai-candidate-dev",
+      "distributions": 37,
+      "raw_vulnerability_records": 2,
+      "findings": [
+        {
+          "package": "pytest",
+          "version": "8.4.2",
+          "advisories": [
+            "GHSA-6w46-j5rx-g56g"
+          ]
+        }
+      ],
+      "expected_exit_status": 1,
+      "stderr": "Found 2 known vulnerabilities in 1 package"
+    },
+    {
+      "environment": "ai-candidate-prod",
+      "distributions": 22,
+      "raw_vulnerability_records": 0,
+      "findings": [],
+      "expected_exit_status": 0,
+      "stderr": "No known vulnerabilities found"
+    },
+    {
+      "environment": "api-prod-patched-tooling",
+      "distributions": 45,
+      "raw_vulnerability_records": 0,
+      "findings": [],
+      "expected_exit_status": 0,
+      "stderr": "No known vulnerabilities found"
+    }
+  ],
+  "historical_candidate_audit_note": "These SDK-removal-only Python3.11 probes preceded the actual3.9 audit and final support-floor/pytest correction; theirpytest8 result is historical, not a final residual.",
+  "historical_framework_removal_validation": {
+    "frameworks_absent": [
+      "langchain",
+      "langchain_core",
+      "langgraph",
+      "langsmith",
+      "httpx2"
+    ],
+    "existing_declared_dev_httpx": "0.28.1; Starlette1.10 intentionally supports legacy fallback with deprecation warning",
+    "ai_tests": "7 PASS; 1 deprecation warning; 0.15s",
+    "log": "prufai-security-py-ai-minimal-declared-dev-tests.log",
+    "repo_manifests_not_changed": true,
+    "log_disposition": "Local exploratory capture retained outside this bundle; final complete local regressions are recorded in README and local-verification.json.",
+    "capture_stage": "Initial minimal framework-removal-only probe; not finalpatchedpytest/floor state"
+  }
+}

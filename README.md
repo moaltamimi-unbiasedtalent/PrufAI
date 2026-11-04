@@ -44,6 +44,10 @@ The separate governed Writing proposal worker, exact registry and deployment
 approval gates, and technical acceptance boundary are documented in
 [AI-assisted Writing proposal execution](docs/ai-writing-proposals.md).
 
+The separate audio-first Speaking proposal worker, exact deployment approval,
+original-audio/transport distinction and mandatory human review are documented in
+[AI-assisted Speaking proposal execution](docs/ai-speaking-proposals.md).
+
 ```bash
 docker compose -f infra/docker-compose.yml up -d
 ```

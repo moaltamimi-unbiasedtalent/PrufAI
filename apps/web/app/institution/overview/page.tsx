@@ -4,34 +4,11 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { authenticatedFetch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
-import { assessmentApi, canScoreAttempt } from "../assessment-api";
-
-type ResultSummary = {
-  id: string;
-  version_id: string;
-  version_number: number;
-  status: string;
-  outcome: string | null;
-  raw_awarded_points: string | null;
-  raw_maximum_points: string;
-  checksum: string;
-};
-
-type AssignmentInspection = {
-  id: string;
-  candidate_user_id: string;
-  candidate_name: string | null;
-  exam_name: string | null;
-  exam_version_label: string | null;
-  status: string;
-  maximum_attempts: number;
-  attempts: Array<{
-    id: string;
-    status: string;
-    attempt_number: number;
-    result: ResultSummary | null;
-  }>;
-};
+import {
+  assessmentApi,
+  canScoreAttempt,
+  type AssignmentInspection,
+} from "../assessment-api";
 
 export default function InstitutionOverviewPage() {
   const { organisationId, permissions, user } = useAuth();
@@ -240,6 +217,47 @@ export default function InstitutionOverviewPage() {
                   <h3>
                     Attempt {attempt.attempt_number}: {attempt.status}
                   </h3>
+                  {attempt.scoring_readiness?.has_speaking && (
+                    <section aria-label="Speaking scoring readiness">
+                      <h4>
+                        Speaking scoring readiness:{" "}
+                        {attempt.scoring_readiness.state}
+                      </h4>
+                      {attempt.scoring_readiness.components.map((component) => (
+                        <p key={component.binding_id}>
+                          {component.skill}: {component.status}
+                          {component.assessment_version_id && (
+                            <>
+                              {" "}
+                              · assessment version{" "}
+                              {component.assessment_version_id}
+                            </>
+                          )}
+                        </p>
+                      ))}
+                      {attempt.scoring_readiness.reasons.length > 0 && (
+                        <ul>
+                          {attempt.scoring_readiness.reasons.map(
+                            (reason, index) => (
+                              <li
+                                key={`${reason.binding_id ?? "attempt"}:${reason.code}:${index}`}
+                              >
+                                {reason.message}
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      )}
+                      {!attempt.scoring_readiness.can_score && (
+                        <p>
+                          Complete the required human assessment decisions
+                          before creating a current Speaking result. Historical
+                          results remain available according to their release
+                          status.
+                        </p>
+                      )}
+                    </section>
+                  )}
                   {attempt.result ? (
                     <div>
                       <p>

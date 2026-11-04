@@ -106,27 +106,24 @@ non-destructive; use a fresh dedicated database for a repeat acceptance run.
 7. **Platform Admin:** inspect safe rubric/assessment audit references in the
    Control Centre. Candidate speech and private rationale remain private.
 
-## Scoring boundary and known next-step blocker
+## Foundation boundary and result integration
 
 The generic schema can represent HUMAN Speaking: exact response/rubric pins,
 asset and SHA, approved criterion values, aggregate score and actor provenance.
 This step validates that approved evidence contract independently of results.
 
-**The current scorer does not yet consume HUMAN Speaking.**
-`services/api/app/scoring/service.py` dispatches every HUMAN version to
-`HumanWritingService.approved_scoring_evidence` in
-`services/api/app/writing_assessment/governance.py`. That validator resolves
-Writing-specific pins and explicitly rejects non-WRITING skill. In addition,
-the scorer selects the highest assessment version before checking APPROVED;
-a pending reassessment can therefore make that binding unavailable to scoring.
-Step 2B.3 must explicitly govern skill-specific validation, successor selection
-and correction lineage before claiming a Speaking ScoringRun/ResultVersion.
-This feature changes no scoring behavior and claims no completed Speaking
-result, release, Statement of Results or certification journey.
-The generic HUMAN correction entry point also rejects non-Writing evidence:
-Speaking must use its independent successor workflow. Step 2B.3 must explicitly
-connect any upheld-appeal correction lineage to that workflow; it cannot reuse
-Writing's correction approval to bypass a new independent Speaking decision.
+Step 2B.2 stopped at that approved assessment. At that boundary the generic
+scorer dispatched HUMAN evidence through Writing-specific validation, so it
+could not consume Speaking. It also lacked explicit authoritative-successor
+selection and the governed human Speaking correction adapter.
+
+[Integrated Speaking results, Step 2B.3](integrated-speaking-results.md) connects
+the existing scorer and result/release services using skill-specific validation,
+explicit pending/rejected/approved successor rules and exact correction lineage.
+The generic Writing correction entry point remains unavailable for HUMAN
+Speaking: a correction must obtain a new independent Speaking decision through
+the actual successor workflow. The foundation itself does not infer AI
+execution, issue official certification or automatically release a result.
 
 ## Verification scope
 
@@ -161,7 +158,7 @@ responses must not be mocked. Local results are separate from exact-head remote
 CI evidence; neither constitutes automatic merge authorization.
 
 The isolated browser API child has a bounded refresh allowance of 120 requests
-per existing window because all twelve journeys share one loopback client IP.
+per existing window because the combined journeys share one loopback client IP.
 The normal product default remains 30, and login/reset limits, authentication
 checks and API security-test settings are unchanged. This avoids treating the
 combined browser suite's repeated legitimate account switches as an attack.

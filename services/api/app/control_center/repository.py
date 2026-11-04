@@ -364,6 +364,26 @@ class ControlCenterRepository:
             AuditEvent.workflow_id,
             AuditEvent.metadata_json["operation_id"].as_string().label("operation_id"),
             AuditEvent.metadata_json["source_version_id"].as_string().label("source_version_id"),
+            AuditEvent.new_state_hash.label("_state_checksum"),
+            AuditEvent.metadata_json["checksum"].as_string().label("_artifact_checksum"),
+            AuditEvent.metadata_json["sha256"].as_string().label("_audio_sha256"),
+            AuditEvent.metadata_json["candidate_media_asset_id"].as_string().label("_audio_asset"),
+            AuditEvent.metadata_json["candidate_response_revision_id"]
+            .as_string()
+            .label("_response_revision"),
+            AuditEvent.metadata_json["result_version_id"].as_string().label("_result_version"),
+            AuditEvent.metadata_json["source_result_version_id"]
+            .as_string()
+            .label("_source_result"),
+            AuditEvent.metadata_json["new_component_version_id"]
+            .as_string()
+            .label("_new_component"),
+            AuditEvent.metadata_json["source_component_version_id"]
+            .as_string()
+            .label("_source_component"),
+            AuditEvent.metadata_json["source_scoring_run_id"].as_string().label("_source_run"),
+            AuditEvent.metadata_json["new_scoring_run_id"].as_string().label("_new_run"),
+            AuditEvent.metadata_json["new_result_version_id"].as_string().label("_new_result"),
         )
         if organisation_id is not None:
             query = query.where(AuditEvent.organisation_id == organisation_id)

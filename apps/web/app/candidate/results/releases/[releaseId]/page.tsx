@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../../../../lib/auth";
-import { AssessmentEvidence } from "../../../../institution/assessment-evidence";
+import {
+  AssessmentEvidence,
+  assessmentSkillName,
+} from "../../../../institution/assessment-evidence";
 import {
   releaseApi,
   releaseStateMessage,
@@ -172,9 +175,15 @@ export default function CandidateReleasedResultPage({
                   ? new Date(statement.issued_at).toLocaleString()
                   : "Not available in this historical projection"}
               </p>
-              {statement.payload?.assessment_components?.some(
-                (component) => component.skill === "WRITING",
-              ) && <p>Assessment: Writing</p>}
+              {[
+                ...new Set(
+                  statement.payload?.assessment_components?.map(
+                    (component) => component.skill,
+                  ) ?? [],
+                ),
+              ].map((skill) => (
+                <p key={skill}>Assessment: {assessmentSkillName(skill)}</p>
+              ))}
               <p>
                 Statement issuer reference:{" "}
                 {String(

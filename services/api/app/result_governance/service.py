@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.models import (
     AppealInformationEntry,
     AssessmentResult,
@@ -577,6 +578,8 @@ class ResultGovernanceService:
         corrections: dict[str, dict[str, Any]] | None = None,
         transcription_factory: Any = None,
         objective_bindings: list[dict[str, str]] | None = None,
+        source_component_version_id: uuid.UUID | None = None,
+        source_component_checksum: str | None = None,
     ) -> ResultCorrection:
         """Execute a governed component correction and rescore, without score editing."""
         AuthorizationService.require_permission(context, "appeal.correct", context.organisation_id)
@@ -595,6 +598,28 @@ class ResultGovernanceService:
                 or existing.source_result_checksum != appeal.challenged_result_checksum
             ):
                 raise ResultGovernanceError("operation_id already used with a different correction")
+            if existing.metadata_json.get("human_speaking") is True:
+                for permission in ("appeal.correct", "subjective.assess"):
+                    require_active_tenant_permission(session, context, permission)
+                if existing.created_by_user_id != context.user_id:
+                    raise PermissionError(
+                        "HUMAN Speaking correction replay requires its original actor"
+                    )
+                request_checksum = _checksum(
+                    {
+                        "appeal_version_number": appeal_version_number,
+                        "appeal_checksum": appeal_checksum,
+                        "evidence_bundle_checksum": evidence_bundle_checksum,
+                        "source_component_version_id": str(source_component_version_id),
+                        "source_component_checksum": source_component_checksum,
+                        "corrections": corrections or {},
+                    }
+                )
+                if request_checksum != existing.metadata_json.get("request_checksum"):
+                    raise ResultGovernanceError(
+                        "operation_id already used with different Speaking correction inputs"
+                    )
+                return existing
             component = (
                 session.get(SubjectiveAssessmentVersion, existing.new_component_version_id)
                 if existing.new_component_version_id
@@ -685,6 +710,55 @@ class ResultGovernanceService:
                 CorrectionType.WRITING_REASSESSMENT,
                 CorrectionType.SPEAKING_REASSESSMENT,
             }:
+                source = (
+                    cls._human_speaking_source(
+                        session, appeal, source_component_version_id, source_component_checksum
+                    )
+                    if correction_type is CorrectionType.SPEAKING_REASSESSMENT
+                    else None
+                )
+                if source is not None:
+                    for permission in ("appeal.correct", "subjective.assess"):
+                        require_active_tenant_permission(session, context, permission)
+                    if corrections:
+                        raise ResultGovernanceError(
+                            "HUMAN Speaking correction cannot override criterion scores"
+                        )
+                    correction.metadata_json = {
+                        **correction.metadata_json,
+                        "human_speaking": True,
+                        "source_component_version_id": str(source.id),
+                        "source_component_checksum": source.checksum,
+                        "request_checksum": _checksum(
+                            {
+                                "appeal_version_number": appeal_version_number,
+                                "appeal_checksum": appeal_checksum,
+                                "evidence_bundle_checksum": evidence_bundle_checksum,
+                                "source_component_version_id": str(source_component_version_id),
+                                "source_component_checksum": source_component_checksum,
+                                "corrections": corrections or {},
+                            }
+                        ),
+                    }
+                    from app.speaking_assessment.governance import HumanSpeakingService
+
+                    successor = HumanSpeakingService.successor(
+                        session,
+                        context,
+                        source.id,
+                        operation_id=uuid.uuid5(
+                            uuid.NAMESPACE_URL, "prufai.correction." + str(correction.id)
+                        ),
+                        expected_checksum=source.checksum,
+                        reason="Governed Speaking reassessment for upheld appeal " + str(appeal.id),
+                        _result_correction_id=correction.id,
+                    )
+                    correction.new_component_version_id = successor.id
+                    correction.status = CorrectionStatus.AWAITING_COMPONENT_REVIEW
+                    cls._audit_correction(
+                        session, context, "result.correction_component_created", correction
+                    )
+                    return correction
                 source = cls._subjective_source(session, appeal, correction_type)
                 if source is None:
                     raise ResultGovernanceError("approved subjective source is unavailable")
@@ -786,6 +860,177 @@ class ResultGovernanceService:
             if isinstance(exc, (ResultGovernanceError, AuthorizationError, PermissionError)):
                 raise
             raise ResultGovernanceError("governed correction failed") from exc
+
+    @staticmethod
+    def _human_speaking_source(
+        session: Session,
+        appeal: ResultAppeal,
+        version_id: uuid.UUID | None,
+        expected_checksum: str | None,
+    ) -> SubjectiveAssessmentVersion | None:
+        """Resolve only a source actually consumed by the challenged immutable run."""
+        candidates = []
+        for score in session.scalars(
+            select(ItemScore).where(ItemScore.scoring_run_id == appeal.scoring_run_id)
+        ):
+            reference = score.scoring_metadata.get("subjective_assessment_version_id")
+            try:
+                source = session.get(SubjectiveAssessmentVersion, uuid.UUID(str(reference)))
+            except (ValueError, TypeError):
+                source = None
+            if (
+                source is not None
+                and source.assessment_origin == "HUMAN"
+                and source.candidate_media_asset_id is not None
+            ):
+                candidates.append(source)
+        if not candidates and version_id is None and expected_checksum is None:
+            return None  # Preserve the configured legacy AI correction workflow.
+        if version_id is None or expected_checksum is None:
+            raise ResultGovernanceError(
+                "HUMAN Speaking correction requires an exact source component and checksum"
+            )
+        matches = [
+            row for row in candidates if row.id == version_id and row.checksum == expected_checksum
+        ]
+        if len(matches) != 1:
+            raise ResultGovernanceError(
+                "Speaking correction source was not used by the challenged result"
+            )
+        return matches[0]
+
+    @staticmethod
+    def human_speaking_correction_pins(
+        session: Session,
+        source: SubjectiveAssessmentVersion,
+        correction_id: uuid.UUID,
+        *,
+        phase: str,
+    ) -> dict[str, Any]:
+        """Validate the existing upheld correction chain without rewriting historical evidence."""
+        correction = session.get(ResultCorrection, correction_id)
+        appeal = session.get(ResultAppeal, correction.appeal_id) if correction else None
+        decision = (
+            session.get(ResultAppealVersion, correction.appeal_version_id) if correction else None
+        )
+        result = (
+            session.get(ResultVersion, correction.source_result_version_id) if correction else None
+        )
+        run = session.get(ScoringRun, result.scoring_run_id) if result else None
+        assessment_result = session.get(AssessmentResult, result.result_id) if result else None
+        allowed = (
+            {CorrectionStatus.IN_PROGRESS}
+            if phase == "initializing"
+            else {
+                CorrectionStatus.AWAITING_COMPONENT_REVIEW,
+                CorrectionStatus.READY_FOR_RESCORING,
+                CorrectionStatus.RESCORED,
+            }
+            if phase == "approved"
+            else set()
+        )
+        if (
+            correction is None
+            or appeal is None
+            or decision is None
+            or result is None
+            or run is None
+            or assessment_result is None
+            or correction.correction_type is not CorrectionType.SPEAKING_REASSESSMENT
+            or correction.status not in allowed
+            or correction.metadata_json.get("human_speaking") is not True
+            or source.assessment_origin != "HUMAN"
+            or source.candidate_media_asset_id is None
+            or source.status
+            not in {SubjectiveAssessmentStatus.APPROVED, SubjectiveAssessmentStatus.SUPERSEDED}
+            or correction.organisation_id != source.assessment.organisation_id
+            or appeal.organisation_id != source.assessment.organisation_id
+            or appeal.candidate_user_id != source.assessment.candidate_user_id
+            or appeal.attempt_id != source.attempt_id
+            or appeal.exam_version_id != source.exam_version_id
+            or appeal.standard_pack_version_id != source.standard_pack_version_id
+            or correction.source_result_version_id != appeal.challenged_result_version_id
+            or result.result_id != appeal.result_id
+            or assessment_result.attempt_id != source.attempt_id
+            or assessment_result.organisation_id != source.assessment.organisation_id
+            or assessment_result.candidate_user_id != source.assessment.candidate_user_id
+            or correction.source_result_checksum != result.checksum
+            or result.checksum != appeal.challenged_result_checksum
+            or run.id != appeal.scoring_run_id
+            or not run.checksum
+            or run.attempt_id != source.attempt_id
+            or run.organisation_id != source.assessment.organisation_id
+            or run.candidate_user_id != source.assessment.candidate_user_id
+            or run.exam_version_id != source.exam_version_id
+            or run.standard_pack_version_id != source.standard_pack_version_id
+            or result.scoring_run_checksum != run.checksum
+            or decision.appeal_id != appeal.id
+            or decision.version_number != appeal.current_version_number
+            or decision.checksum != appeal.current_checksum
+            or decision.challenged_result_version_id != result.id
+            or decision.challenged_result_checksum != result.checksum
+            or decision.evidence_bundle_checksum
+            != correction.metadata_json.get("evidence_bundle_checksum")
+            or decision.decision not in {AppealDecision.UPHOLD, AppealDecision.PARTIALLY_UPHOLD}
+            or correction.metadata_json.get("source_component_version_id") != str(source.id)
+            or correction.metadata_json.get("source_component_checksum") != source.checksum
+        ):
+            raise ResultGovernanceError(
+                "HUMAN Speaking requires an exact current upheld correction chain"
+            )
+        score = session.scalar(
+            select(ItemScore).where(
+                ItemScore.scoring_run_id == run.id,
+                ItemScore.exam_version_item_binding_id == source.exam_version_item_binding_id,
+            )
+        )
+        if (
+            score is None
+            or score.question_bank_item_version_id != source.question_bank_item_version_id
+            or score.candidate_response_revision_id != source.candidate_response_revision_id
+            or score.response_checksum != source.response_checksum
+            or score.scoring_metadata.get("subjective_assessment_version_id") != str(source.id)
+            or score.scoring_metadata.get("subjective_assessment_checksum") != source.checksum
+        ):
+            raise ResultGovernanceError(
+                "Speaking correction source was not consumed by the challenged run"
+            )
+        if phase == "initializing" and correction.new_component_version_id is not None:
+            raise ResultGovernanceError("Speaking correction already has a component")
+        if phase == "approved":
+            successor = session.get(
+                SubjectiveAssessmentVersion, correction.new_component_version_id
+            )
+            if (
+                successor is None
+                or successor.supersedes_version_id != source.id
+                or successor.subjective_assessment_id != source.subjective_assessment_id
+                or successor.provenance.get("result_correction_id") != str(correction.id)
+                or successor.provenance.get("initialized_by") != str(correction.created_by_user_id)
+                or successor.assessment_origin != "HUMAN"
+            ):
+                raise ResultGovernanceError(
+                    "Speaking correction successor provenance does not match"
+                )
+        # Status in an old result's evidence bundle may legitimately change after
+        # explicit successor release. Retain the initially checked bundle hash;
+        # the immutable source run/result/component references above remain exact.
+        return {
+            "correction_id": str(correction.id),
+            "correction_type": correction.correction_type.value,
+            "appeal_id": str(appeal.id),
+            "appeal_version_id": str(decision.id),
+            "appeal_checksum": decision.checksum,
+            "evidence_bundle_checksum": decision.evidence_bundle_checksum,
+            "source_result_version_id": str(result.id),
+            "source_result_checksum": result.checksum,
+            "source_scoring_run_id": str(run.id),
+            "source_scoring_run_checksum": run.checksum,
+            "source_component_version_id": str(source.id),
+            "source_component_checksum": source.checksum,
+            "source_item_score_id": str(score.id),
+            "exam_version_item_binding_id": str(source.exam_version_item_binding_id),
+        }
 
     @staticmethod
     def _subjective_source(
@@ -903,14 +1148,29 @@ class ResultGovernanceService:
         correction_id: uuid.UUID,
         component_checksum: str,
     ) -> ResultCorrection:
-        """Resume a transcription correction only after its human component approval."""
+        """Resume the existing correction after exact human component approval."""
         AuthorizationService.require_permission(context, "appeal.correct", context.organisation_id)
         correction = session.scalar(
             select(ResultCorrection).where(ResultCorrection.id == correction_id).with_for_update()
         )
         if correction is None or correction.organisation_id != context.organisation_id:
             raise ResultGovernanceError("correction not found")
-        if correction.status is CorrectionStatus.RESCORED:
+        human_speaking = correction.metadata_json.get("human_speaking") is True
+        if human_speaking:
+            for permission in ("appeal.correct", "subjective.assess"):
+                require_active_tenant_permission(session, context, permission)
+            if correction.created_by_user_id != context.user_id:
+                raise PermissionError(
+                    "HUMAN Speaking correction resume requires its original actor"
+                )
+            component = session.get(
+                SubjectiveAssessmentVersion, correction.new_component_version_id
+            )
+            if component is None or component.checksum != component_checksum:
+                raise ResultGovernanceError("stale Speaking correction component")
+            if correction.status is CorrectionStatus.RESCORED:
+                return correction
+        elif correction.status is CorrectionStatus.RESCORED:
             return correction
         if correction.status is not CorrectionStatus.AWAITING_COMPONENT_REVIEW:
             raise ResultGovernanceError("correction is not awaiting component review")
@@ -922,6 +1182,11 @@ class ResultGovernanceService:
             or component.speech_transcription_version_id != correction.new_transcription_version_id
         ):
             raise ResultGovernanceError("stale or unapproved correction component")
+        if human_speaking:
+            from app.speaking_assessment.governance import HumanSpeakingService
+
+            HumanSpeakingService.validate_approved_evidence(session, component)
+            correction.status = CorrectionStatus.READY_FOR_RESCORING
         appeal = session.get(ResultAppeal, correction.appeal_id)
         if appeal is None:
             raise ResultGovernanceError("appeal not found")
@@ -930,9 +1195,32 @@ class ResultGovernanceService:
         result = session.get(AssessmentResult, appeal.result_id)
         if result is None:
             raise ResultGovernanceError("assessment result not found")
-        correction.new_result_version_id = max(
-            result.versions, key=lambda item: item.version_number
-        ).id
+        target = session.scalar(
+            select(ResultVersion).where(
+                ResultVersion.result_id == result.id, ResultVersion.scoring_run_id == run.id
+            )
+        )
+        if target is None:
+            raise ResultGovernanceError("correction scoring run has no exact result version")
+        if human_speaking:
+            score = session.scalar(
+                select(ItemScore).where(
+                    ItemScore.scoring_run_id == run.id,
+                    ItemScore.exam_version_item_binding_id
+                    == component.exam_version_item_binding_id,
+                )
+            )
+            if (
+                score is None
+                or score.scoring_metadata.get("subjective_assessment_version_id")
+                != str(component.id)
+                or score.scoring_metadata.get("subjective_assessment_checksum")
+                != component.checksum
+            ):
+                raise ResultGovernanceError(
+                    "correction run did not consume its approved Speaking successor"
+                )
+        correction.new_result_version_id = target.id
         correction.status = CorrectionStatus.RESCORED
         correction.completed_at = _now()
         correction.updated_at = _now()
@@ -944,6 +1232,7 @@ class ResultGovernanceService:
     def _audit_correction(
         session: Session, context: TenantContext, event_type: str, correction: ResultCorrection
     ) -> None:
+        source_result = session.get(ResultVersion, correction.source_result_version_id)
         AuditService.record(
             session,
             context,
@@ -955,6 +1244,17 @@ class ResultGovernanceService:
                 "correction_type": correction.correction_type.value,
                 "status": correction.status.value,
                 "source_result_version_id": str(correction.source_result_version_id),
+                **(
+                    {
+                        "source_component_version_id": correction.metadata_json.get(
+                            "source_component_version_id"
+                        ),
+                        "source_scoring_run_id": str(source_result.scoring_run_id),
+                    }
+                    if correction.metadata_json.get("human_speaking") is True
+                    and source_result is not None
+                    else {}
+                ),
                 "new_component_version_id": str(correction.new_component_version_id)
                 if correction.new_component_version_id
                 else None,

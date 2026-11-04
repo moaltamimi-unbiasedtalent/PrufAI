@@ -20,6 +20,7 @@ from app.models import (
     CandidateResponse,
     CandidateResponseMediaBinding,
     CandidateResponseRevision,
+    QuestionBankItemVersion,
     RubricVersion,
     SubjectiveAssessment,
     SubjectiveAssessmentVersion,
@@ -55,6 +56,15 @@ class HumanSpeakingService(HumanWritingService):
         cls, session: Session, context: TenantContext, version_id: uuid.UUID, permission: str
     ) -> SubjectiveAssessmentVersion:
         require_tenant_membership(session, context, permission)
+        candidate = session.get(SubjectiveAssessmentVersion, version_id)
+        if candidate is None or candidate.assessment.organisation_id != context.organisation_id:
+            raise RubricError("human assessment is not available in this organisation")
+        session.scalar(
+            select(CandidateExamAttempt)
+            .where(CandidateExamAttempt.id == candidate.attempt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         return super()._version(session, context, version_id, permission)
 
     @staticmethod
@@ -193,6 +203,7 @@ class HumanSpeakingService(HumanWritingService):
         rubric_checksum: str,
         _source: SubjectiveAssessmentVersion | None = None,
         _reason: str | None = None,
+        _result_correction_id: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         _permission(context, "subjective.assess")
         require_tenant_membership(session, context, "subjective.assess")
@@ -221,6 +232,19 @@ class HumanSpeakingService(HumanWritingService):
             "source_checksum": _source.checksum if _source else None,
             "reason": _reason,
         }
+        correction_pins = None
+        if _result_correction_id is not None:
+            if _source is None:
+                raise RubricError("Speaking correction requires an exact source version")
+            from app.result_governance.service import ResultGovernanceService
+
+            try:
+                correction_pins = ResultGovernanceService.human_speaking_correction_pins(
+                    session, _source, _result_correction_id, phase="initializing"
+                )
+            except ValueError as exc:
+                raise RubricError(str(exc)) from exc
+            payload["result_correction_id"] = str(_result_correction_id)
         receipt = _receipt(session, context, operation_id, action, target_id, payload)
         if receipt:
             result = session.get(SubjectiveAssessmentVersion, receipt.result_id)
@@ -300,6 +324,14 @@ class HumanSpeakingService(HumanWritingService):
             "audio_evidence": cls.audio_pins(asset, revision),
             "initialized_by": str(context.user_id),
             "initialized_at": datetime.now(timezone.utc).isoformat(),
+            **(
+                {
+                    "result_correction_id": str(_result_correction_id),
+                    "result_correction": correction_pins,
+                }
+                if correction_pins is not None
+                else {}
+            ),
             **(
                 {
                     "source_version_id": str(_source.id),
@@ -436,6 +468,7 @@ class HumanSpeakingService(HumanWritingService):
         operation_id: uuid.UUID,
         expected_checksum: str,
         reason: str,
+        _result_correction_id: uuid.UUID | None = None,
     ) -> SubjectiveAssessmentVersion:
         # Use the initialization lock order before taking the source-version lock.
         # This also serializes retries against a newer terminal descendant.
@@ -478,6 +511,7 @@ class HumanSpeakingService(HumanWritingService):
             rubric_checksum=source.rubric_checksum,
             _source=source,
             _reason=reason.strip(),
+            _result_correction_id=_result_correction_id,
         )
 
     @staticmethod
@@ -595,6 +629,21 @@ class HumanSpeakingService(HumanWritingService):
         }:
             raise RubricError("approved Speaking values do not match immutable criterion evidence")
         cls.validate_initial_approval(session, version)
+        correction_id = version.provenance.get("result_correction_id")
+        if correction_id is not None:
+            from app.result_governance.service import ResultGovernanceService
+
+            source = session.get(SubjectiveAssessmentVersion, version.supersedes_version_id)
+            if source is None:
+                raise RubricError("Speaking correction source is unavailable")
+            try:
+                pins = ResultGovernanceService.human_speaking_correction_pins(
+                    session, source, uuid.UUID(str(correction_id)), phase="approved"
+                )
+            except ValueError as exc:
+                raise RubricError(str(exc)) from exc
+            if version.provenance.get("result_correction") != pins:
+                raise RubricError("Speaking correction provenance no longer matches")
         return {
             "skill": "SPEAKING",
             "assessment_origin": "HUMAN",
@@ -609,3 +658,117 @@ class HumanSpeakingService(HumanWritingService):
             "audio_sha256": version.audio_sha256,
             "approved_score": str(version.approved_score),
         }
+
+    @classmethod
+    def approved_scoring_evidence(
+        cls,
+        session: Session,
+        version: SubjectiveAssessmentVersion,
+        attempt: CandidateExamAttempt,
+        item: QuestionBankItemVersion,
+        response: dict[str, Any],
+        maximum: Decimal,
+    ) -> dict[str, Any]:
+        """Return the existing scorer contract after validating original AUDIO evidence."""
+        if (
+            item.skill is not QuestionBankSkill.SPEAKING
+            or version.attempt_id != attempt.id
+            or version.exam_version_id != attempt.exam_version_id
+            or version.question_bank_item_version_id != item.id
+            or version.assessment.organisation_id != attempt.organisation_id
+            or version.assessment.candidate_user_id != attempt.candidate_user_id
+            or str(version.exam_version_item_binding_id) != response.get("binding_id")
+            or str(version.candidate_response_id) != response.get("response_id")
+            or str(version.candidate_response_revision_id) != response.get("response_revision_id")
+            or version.response_checksum != response.get("payload_checksum")
+            or not maximum.is_finite()
+            or maximum < 0
+            or maximum != maximum.quantize(Decimal("0.0001"))
+        ):
+            raise RubricError("approved HUMAN Speaking does not match the exact scored response")
+        component = cls.validate_approved_evidence(session, version)
+        rubric = session.get(RubricVersion, version.rubric_version_id)
+        if rubric is None:
+            raise RubricError("Speaking rubric is unavailable")
+        if cls.scoring_maximum(rubric) != maximum:
+            raise RubricError("Speaking item maximum does not match the published rubric")
+        aggregate = version.approved_score
+        if (
+            aggregate is None
+            or not aggregate.is_finite()
+            or not 0 <= aggregate <= maximum
+            or aggregate != aggregate.quantize(Decimal("0.0001"))
+        ):
+            raise RubricError("approved Speaking aggregate is outside exact item bounds")
+        approved = [
+            {
+                "criterion_code": row.criterion_code,
+                "level": row.approved_level,
+                "points": str(row.approved_points),
+            }
+            for row in version.criterion_assessments
+        ]
+        aggregate_checksum = canonical_checksum(
+            {
+                "rubric_checksum": version.rubric_checksum,
+                "aggregation_policy": rubric.aggregation_policy,
+                "approved_criteria": approved,
+                "approved_score": str(aggregate),
+                "maximum_points": str(maximum),
+            }
+        )
+        return {
+            "subjective_assessment_checksum": version.checksum,
+            "component": {
+                **component,
+                "assessment_mode": "HUMAN_ONLY",
+                "task_spec_id": str(rubric.task_spec_id),
+                "maximum_points": str(maximum),
+                "criterion_aggregation_checksum": aggregate_checksum,
+            },
+            "approved_criteria": approved,
+            "audio_evidence": version.provenance["audio_evidence"],
+            "criterion_aggregation_checksum": aggregate_checksum,
+        }
+
+    @staticmethod
+    def scoring_maximum(rubric: RubricVersion) -> Decimal:
+        """Derive the score scale only from the published aggregation definition."""
+        bounds = {str(row["code"]): _decimal(row["max_points"]) for row in rubric.criteria}
+        if rubric.aggregation_policy.get("method") in {"SUM", "WEIGHTED_SUM"}:
+            maximum = SubjectiveAssessmentService._aggregate(rubric, bounds)
+        elif rubric.aggregation_policy.get("method") == "DECLARED_MAPPING":
+            mapping = rubric.aggregation_policy.get("mapping")
+            if not isinstance(mapping, dict) or not mapping:
+                raise RubricError("Speaking aggregation mapping must be explicitly declared")
+            outputs = []
+            for key, value in mapping.items():
+                if not isinstance(key, str):
+                    raise RubricError("Speaking aggregation mapping key is invalid")
+                try:
+                    pairs = [part.split(":", 1) for part in key.split(",")]
+                    declared = {code: _decimal(points) for code, points in pairs}
+                except (ValueError, TypeError) as exc:
+                    raise RubricError("Speaking aggregation mapping key is invalid") from exc
+                if (
+                    len(pairs) != len(bounds)
+                    or set(declared) != set(bounds)
+                    or any(
+                        not 0 <= points <= bounds[code]
+                        or points != points.quantize(Decimal("0.0001"))
+                        for code, points in declared.items()
+                    )
+                ):
+                    raise RubricError(
+                        "Speaking aggregation mapping must cover exact bounded criteria"
+                    )
+                output = _decimal(value)
+                if output < 0 or output != output.quantize(Decimal("0.0001")):
+                    raise RubricError("Speaking aggregation output must be finite fixed precision")
+                outputs.append(output)
+            maximum = max(outputs)
+        else:
+            raise RubricError("Speaking aggregation policy is unsupported")
+        if maximum < 0 or not maximum.is_finite() or maximum != maximum.quantize(Decimal("0.0001")):
+            raise RubricError("Speaking rubric maximum must have exact fixed precision")
+        return maximum

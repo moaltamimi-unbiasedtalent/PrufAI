@@ -18,6 +18,25 @@ export type ResultSummary = {
   scoring_run_id: string;
   review: HumanResultReview | null;
 };
+export type ScoringReadiness = {
+  state: "READY" | "INCOMPLETE" | "CONFLICT";
+  has_speaking: boolean;
+  can_score: boolean;
+  reasons: Array<{
+    code: string;
+    binding_id?: string | null;
+    skill?: string | null;
+    status?: string | null;
+    message: string;
+  }>;
+  components: Array<{
+    binding_id: string;
+    skill: string;
+    status: string;
+    assessment_version_id?: string | null;
+    checksum?: string | null;
+  }>;
+};
 export type AssignmentInspection = {
   id: string;
   candidate_user_id: string;
@@ -32,6 +51,7 @@ export type AssignmentInspection = {
     status: string;
     attempt_number: number;
     result: ResultSummary | null;
+    scoring_readiness?: ScoringReadiness | null;
   }>;
 };
 export type AssignmentOptions = {
@@ -173,12 +193,19 @@ export function resultActions(
 }
 
 export function canScoreAttempt(
-  attempt: { status: string; result: { status: string } | null },
+  attempt: {
+    status: string;
+    result: { status: string } | null;
+    scoring_readiness?: ScoringReadiness | null;
+  },
   permissions: string[],
 ) {
   return (
     permissions.includes("scoring.run") &&
     attempt.status === "SUBMITTED" &&
-    (!attempt.result || attempt.result.status === "INCOMPLETE")
+    (!attempt.result || attempt.result.status === "INCOMPLETE") &&
+    (!attempt.scoring_readiness?.has_speaking ||
+      (attempt.scoring_readiness.state === "READY" &&
+        attempt.scoring_readiness.can_score === true))
   );
 }

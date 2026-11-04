@@ -425,6 +425,13 @@ def list_organisation_assignments(
             attempt_payload["result"] = None
             if not can_read_results:
                 continue
+            if attempt_payload["status"] == "SUBMITTED":
+                try:
+                    attempt_payload["scoring_readiness"] = ScoringService.scoring_readiness(
+                        session, context, uuid.UUID(attempt_payload["id"])
+                    )
+                except AuthorizationError as exc:
+                    raise HTTPException(status_code=403, detail=str(exc)) from exc
             result = session.scalar(
                 select(AssessmentResult).where(
                     AssessmentResult.attempt_id == uuid.UUID(attempt_payload["id"]),

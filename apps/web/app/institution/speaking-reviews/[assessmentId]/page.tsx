@@ -519,10 +519,16 @@ export default function SpeakingReviewWorkspace({
                 <p className={css.notice}>
                   Approved subjective score:{" "}
                   {review.approved_score ?? "See criterion evidence"}. This
-                  exact version and its audio judgments are immutable.{" "}
-                  {human
-                    ? "This Speaking assessment does not yet produce a result or statement."
-                    : "Result scoring, release and statements are separate governed steps."}
+                  exact version and its audio judgments are immutable. Result
+                  scoring, human result approval and release are separate
+                  governed steps.{" "}
+                  {permissions.includes("exam_assignment.read") && (
+                    <Link
+                      href={`/institution/overview#attempt-${encodeURIComponent(review.attempt_id)}`}
+                    >
+                      Inspect submitted attempt and scoring →
+                    </Link>
+                  )}
                 </p>
               )}
               {canSucceed && (

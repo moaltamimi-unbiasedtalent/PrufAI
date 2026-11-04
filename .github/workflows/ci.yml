@@ -367,6 +367,24 @@ jobs:
           OBJECT_STORAGE_ACCESS_KEY: prufai_ci
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
+      - name: HUMAN Speaking scoring, results and release (required PostgreSQL and real MinIO)
+        run: |
+          python -m pytest tests/test_speaking_results_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/speaking-results-required.xml"
+          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/speaking-results-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_speaking_results_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required Speaking result tests must execute without skips'"
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          AUDIO_MEDIA_RUNTIME: docker
+          AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
+          OBJECT_STORAGE_BACKEND: s3
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
       - run: python -m pytest tests/test_object_storage_integration.py
         working-directory: services/api
         env:

@@ -228,6 +228,7 @@ def reconcile_audio_demo(
     platform_operator: User,
     password: str,
     human_speaking: bool = False,
+    speaking_results: bool = False,
 ) -> dict[str, str]:
     if settings.environment != "development" or not enabled:
         raise RuntimeError("Audio demo requires ENVIRONMENT=development and PRUFAI_DEMO_ENABLED=1.")
@@ -241,11 +242,33 @@ def reconcile_audio_demo(
         SPEAKING_HUMAN_VERSION_LABEL,
     )
 
+    human_speaking = human_speaking or speaking_results
     namespace = "human-speaking-" if human_speaking else ""
     version_label = SPEAKING_HUMAN_VERSION_LABEL if human_speaking else AUDIO_VERSION_LABEL
     scenario_code = "PRUFAI_HUMAN_SPEAKING_B1" if human_speaking else "PRUFAI_RECORDED_AUDIO_B1"
     scenario_name = SPEAKING_HUMAN_EXAM_NAME if human_speaking else AUDIO_EXAM_NAME
     policy_content = SPEAKING_HUMAN_POLICY_CONTENT if human_speaking else AUDIO_POLICY_CONTENT
+    candidate_email = (
+        "speaking.candidate@demo.prufai.local" if human_speaking else AUDIO_CANDIDATE_EMAIL
+    )
+    candidate_name = "Human Speaking Practice Candidate" if human_speaking else AUDIO_CANDIDATE_NAME
+    if speaking_results:
+        from app.scripts.seed_speaking_results_demo import (
+            SPEAKING_RESULTS_CANDIDATE_EMAIL,
+            SPEAKING_RESULTS_EXAM_NAME,
+            SPEAKING_RESULTS_VERSION_LABEL,
+        )
+
+        namespace = "speaking-results-"
+        version_label = SPEAKING_RESULTS_VERSION_LABEL
+        scenario_code = "PRUFAI_SPEAKING_RESULTS_B1"
+        scenario_name = SPEAKING_RESULTS_EXAM_NAME
+        candidate_email = SPEAKING_RESULTS_CANDIDATE_EMAIL
+        candidate_name = "Speaking Results Practice Candidate"
+        policy_content = SPEAKING_HUMAN_POLICY_CONTENT + (
+            "This independent original development scenario supports a real human-governed "
+            "Speaking result journey. No score, result, statement or release is seeded.\n"
+        )
     tasks = AUDIO_TASKS[:1] if human_speaking else AUDIO_TASKS
 
     def ensure(model: type[Model], key: str, **values: Any) -> Model:
@@ -261,8 +284,8 @@ def reconcile_audio_demo(
         organisation,
         password,
         namespace=namespace,
-        email="speaking.candidate@demo.prufai.local" if human_speaking else AUDIO_CANDIDATE_EMAIL,
-        name="Human Speaking Practice Candidate" if human_speaking else AUDIO_CANDIDATE_NAME,
+        email=candidate_email,
+        name=candidate_name,
     )
     author = build_tenant_context(session, administrator.id, organisation.id)
     publisher = build_tenant_context(session, platform_operator.id, organisation.id)
@@ -331,7 +354,9 @@ def reconcile_audio_demo(
     authority = ensure(
         KnowledgeAuthority,
         "policy-authority",
-        code="PRUFAI_HUMAN_SPEAKING_INTERNAL"
+        code="PRUFAI_SPEAKING_RESULTS_INTERNAL"
+        if speaking_results
+        else "PRUFAI_HUMAN_SPEAKING_INTERNAL"
         if human_speaking
         else "PRUFAI_RECORDED_AUDIO_INTERNAL",
         name=f"Original internal audio policy — {AUDIO_LABEL}",
@@ -610,14 +635,15 @@ def reconcile_audio_demo(
     CandidateRuntimeService._safe_plan(session, exam_version)
     if human_speaking:
         assert rubric_version is not None
+        prefix = "speaking_results" if speaking_results else "speaking_human"
         return {
-            "speaking_human_candidate_user_id": str(candidate.id),
-            "speaking_human_exam_version_id": str(exam_version.id),
-            "speaking_human_pack_version_id": str(version.id),
-            "speaking_human_item_version_id": str(items[0].id),
-            "speaking_human_task_spec_id": str(specifications[0].id),
-            "speaking_human_rubric_id": str(rubric_version.rubric_id),
-            "speaking_human_rubric_version_id": str(rubric_version.id),
+            f"{prefix}_candidate_user_id": str(candidate.id),
+            f"{prefix}_exam_version_id": str(exam_version.id),
+            f"{prefix}_pack_version_id": str(version.id),
+            f"{prefix}_item_version_id": str(items[0].id),
+            f"{prefix}_task_spec_id": str(specifications[0].id),
+            f"{prefix}_rubric_id": str(rubric_version.rubric_id),
+            f"{prefix}_rubric_version_id": str(rubric_version.id),
         }
     return {
         "audio_candidate_user_id": str(candidate.id),

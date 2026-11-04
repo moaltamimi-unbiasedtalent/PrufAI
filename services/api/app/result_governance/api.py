@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -46,6 +46,8 @@ class CorrectionRequest(BaseModel):
     operation_id: str = Field(min_length=1, max_length=120)
     corrections: dict[str, dict[str, Any]] = Field(default_factory=dict)
     objective_bindings: list[dict[str, str]] = Field(default_factory=list)
+    source_component_version_id: Optional[uuid.UUID] = None
+    source_component_checksum: Optional[str] = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class CorrectionResumeRequest(BaseModel):
@@ -477,11 +479,16 @@ def initiate_correction(
             operation_id=payload.operation_id,
             corrections=payload.corrections,
             objective_bindings=payload.objective_bindings,
+            source_component_version_id=payload.source_component_version_id,
+            source_component_checksum=payload.source_component_checksum,
         )
         session.commit()
         return {
             "id": str(correction.id),
             "status": correction.status.value,
+            "new_component_version_id": str(correction.new_component_version_id)
+            if correction.new_component_version_id
+            else None,
             "new_scoring_run_id": str(correction.new_scoring_run_id)
             if correction.new_scoring_run_id
             else None,

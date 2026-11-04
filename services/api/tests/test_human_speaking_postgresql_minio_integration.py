@@ -854,7 +854,11 @@ def test_real_two_connection_competing_approval_has_one_authoritative_decision(s
     ]
     responses = _concurrent(
         speaking,
-        "subjective_assessment_versions",
+        # Decisions now take the canonical attempt lock before the version lock.
+        # Overlap both real connections before their first lock; waiting at the
+        # later version lock would leave one holding the attempt lock at a barrier
+        # which the second connection cannot reach.
+        "candidate_exam_attempts",
         bodies,
         [speaking.login("admin@demo.prufai.local"), speaking.login(speaking.users[1].email)],
     )

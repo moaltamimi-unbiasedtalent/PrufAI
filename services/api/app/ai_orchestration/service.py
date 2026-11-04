@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
@@ -99,7 +99,13 @@ class AIOrchestrationService:
             select(SpeakingExecutionJob.id)
             .join(
                 SubjectiveAssessmentVersion,
-                SubjectiveAssessmentVersion.id == SpeakingExecutionJob.assessment_version_id,
+                or_(
+                    SubjectiveAssessmentVersion.id == SpeakingExecutionJob.assessment_version_id,
+                    and_(
+                        SpeakingExecutionJob.ai_run_id.is_not(None),
+                        SubjectiveAssessmentVersion.ai_run_id == SpeakingExecutionJob.ai_run_id,
+                    ),
+                ),
             )
             .where(
                 or_(

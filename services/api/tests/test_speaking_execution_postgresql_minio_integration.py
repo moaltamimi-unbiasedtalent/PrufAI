@@ -1151,6 +1151,7 @@ def test_independent_human_explicit_complete_decisions_create_immutable_successo
         actor = session.scalar(select(User).where(User.email == "reviewer@demo.prufai.local"))
         context = build_tenant_context(session, actor.id, job.organisation_id)
         approved_id = successor.id
+        approved_checksum = successor.checksum
         with pytest.raises(ValueError, match="GOVERNED_SPEAKING_REVIEW_REQUIRED"):
             SubjectiveAssessmentService.correct(
                 session,
@@ -1182,6 +1183,48 @@ def test_independent_human_explicit_complete_decisions_create_immutable_successo
         with pytest.raises(ValueError, match="immutable|cannot"):
             session.commit()
         session.rollback()
+
+    # An actual generic workflow request is an adversarial review envelope,
+    # never a provider execution or fabricated successful Speaking result.
+    platform = p.login(PLATFORM_ADMIN_EMAIL, tenant=False)
+    generic = p.call(
+        "POST",
+        f"/api/v1/platform/ai/workflow-versions/{job.execution_profile_id}/run",
+        platform,
+        expected=202,
+        json={"request_id": "shadow-review-negative-" + uuid.uuid4().hex},
+    )
+    for target in (approved["id"], str(version.subjective_assessment_id)):
+        response = p.client.post(
+            f"/api/v1/platform/ai/runs/{generic['id']}/review",
+            headers=platform,
+            json={
+                "entity_type": "UNTRUSTED_ALIAS",
+                "entity_id": target,
+                "checksum": approved_checksum,
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == "review target requires a domain governed decision"
+    with p.factory() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(HumanReviewRequest)
+                .where(
+                    HumanReviewRequest.entity_id.in_(
+                        [uuid.UUID(approved["id"]), version.subjective_assessment_id]
+                    )
+                )
+            )
+            == 0
+        )
+        assert (
+            session.get(SubjectiveAssessmentVersion, uuid.UUID(approved["id"])).approved_score == 2
+        )
+        assert (
+            session.get(SubjectiveAssessmentVersion, version.id).ai_proposal == version.ai_proposal
+        )
 
 
 @pytest.mark.parametrize("boundary", ["before-provider", "after-provider", "missing-object"])

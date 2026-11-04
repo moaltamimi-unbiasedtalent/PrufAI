@@ -271,6 +271,15 @@ jobs:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Governed evaluation foundation (required PostgreSQL)
+        run: |
+          python -m pytest tests/test_evaluation_foundation_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/evaluation-foundation-required.xml"
+          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/evaluation-foundation-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_evaluation_foundation_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required governed evaluation tests must execute without skips'"
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - name: Integrated three-application practice journey (required PostgreSQL)
         run: python -m pytest tests/test_integrated_practice_postgresql_integration.py -v
         working-directory: services/api
@@ -433,6 +442,27 @@ jobs:
           PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
           SPEAKING_TEST_ADAPTER_ENABLED: "1"
+          AUDIO_MEDIA_RUNTIME: docker
+          AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
+          OBJECT_STORAGE_BACKEND: s3
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
+      - name: Existing execution evaluation replay (required PostgreSQL and real MinIO)
+        run: |
+          python -m pytest tests/test_evaluation_replay_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/evaluation-replay-required.xml"
+          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/evaluation-replay-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_evaluation_replay_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required existing-execution replay tests must execute without skips'"
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          WRITING_TEST_ADAPTER_ENABLED: "1"
+          SPEAKING_TEST_ADAPTER_ENABLED: "1"
+          SPEECH_TRANSCRIPTION_TEST_ADAPTER_ENABLED: "1"
           AUDIO_MEDIA_RUNTIME: docker
           AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
           OBJECT_STORAGE_BACKEND: s3

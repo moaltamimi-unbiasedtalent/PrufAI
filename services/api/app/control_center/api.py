@@ -139,7 +139,9 @@ def audit(
 
 @router.get("/ai-operations")
 def ai_operations(
-    kind: Literal["models", "workflows", "runs", "reviews", "checkpoints"] = "models",
+    kind: Literal[
+        "models", "workflows", "runs", "reviews", "checkpoints", "transcriptions"
+    ] = "models",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=25, ge=1, le=100),
     context: TenantContext = Depends(platform_context),

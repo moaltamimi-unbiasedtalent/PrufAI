@@ -5,14 +5,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.authorization import AuthorizationError, TenantContext
 from app.config import Settings, get_settings
 from app.control_center.repository import OVERVIEW_MODELS, ControlCenterRepository
-from app.models import Base
+from app.models import AIModelProfile, Base
+from app.models.enums import AIArtifactStatus
 from app.result_release.service import ResultReleaseService
+from app.speech_transcription.runtime import validate_profile_configuration
 
 ENTRY_PERMISSION = "platform.control_center.read"
 SECTION_PERMISSIONS = {
@@ -96,6 +99,7 @@ SAFE_ENTITY_TYPES = frozenset(
         "CANDIDATE_ASSIGNMENT",
         "CANDIDATE_ATTEMPT",
         "SPEECH_TRANSCRIPTION",
+        "SPEECH_TRANSCRIPTION_JOB",
         "standard_pack",
         "ResultRelease",
         "StatementOfResults",
@@ -139,6 +143,97 @@ def _audit_references(row: dict[str, Any]) -> list[str]:
         if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value):
             references.append(f"{label}: {value}")
     return references
+
+
+def _safe_transcription_operation(row: dict[str, Any]) -> None:
+    """Whitelisted metadata; even corrupted operational rows cannot expose payloads."""
+    for key, values in (
+        ("status", {"QUEUED", "RUNNING", "RETRYABLE", "READY", "FAILED", "CANCELLED"}),
+        ("provider", {"OPENAI", "DETERMINISTIC_TEST"}),
+        ("model_name", {"gpt-transcribe", "fixture-transcriber"}),
+        ("adapter_version", {"1"}),
+        (
+            "failure_category",
+            {
+                None,
+                "PROVIDER_TIMEOUT",
+                "PROVIDER_UNAVAILABLE",
+                "PROVIDER_UNCONFIGURED",
+                "INVALID_PROVIDER_OUTPUT",
+                "EMPTY_RESULT",
+                "STORAGE_UNAVAILABLE",
+                "STORAGE_READ_FAILED",
+                "DATABASE_UNAVAILABLE",
+                "PERSISTENCE_FAILED",
+                "STALE_AUDIO_EVIDENCE",
+                "REQUESTER_UNAUTHORIZED",
+                "LEASE_EXPIRED",
+                "RETRY_EXHAUSTED",
+                "CANCELLED",
+                "EXECUTION_FAILED",
+                "OBJECT_STORAGE_UNAVAILABLE",
+                "WORKER_LEASE_EXPIRED",
+                "REQUEST_AUTHORITY_REVOKED",
+                "UNCONFIGURED",
+            },
+        ),
+    ):
+        if row.get(key) not in values:
+            row[key] = "REDACTED"
+    value = row.get("profile_version")
+    if not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None:
+        row["profile_version"] = None
+    row["test_only"] = row.get("provider") == "DETERMINISTIC_TEST"
+    started, completed = row.get("started_at"), row.get("completed_at")
+    row["duration_ms"] = (
+        max(0, int((completed - started).total_seconds() * 1000))
+        if isinstance(started, datetime) and isinstance(completed, datetime)
+        else None
+    )
+
+
+def _transcription_executor(session: Session, settings: Settings) -> dict[str, Any]:
+    # Availability describes configuration, never a completed provider call or
+    # worker liveness. Human assessment and generic AI execution remain separate.
+    profiles = session.scalars(
+        select(AIModelProfile).where(
+            AIModelProfile.purpose == "SPEECH_TRANSCRIPTION",
+            AIModelProfile.status == AIArtifactStatus.ACTIVE,
+        )
+    ).all()
+    for profile in profiles:
+        if profile.approved_at is None or profile.approved_by is None:
+            continue
+        from app.speech_transcription.execution import snapshot_profile
+
+        languages = (profile.configuration or {}).get("languages", [])
+        if not languages or not isinstance(languages, list):
+            continue
+        try:
+            snapshot = snapshot_profile(profile, languages[0], {})
+            availability = validate_profile_configuration(snapshot, settings)["availability"]
+        except (ValueError, TypeError, KeyError):
+            continue
+        if availability in {"CONFIGURED", "TEST_ONLY"}:
+            return {
+                "status": availability,
+                "description": (
+                    "TEST ONLY technical worker configuration; no speech recognition is verified."
+                    if availability == "TEST_ONLY"
+                    else "Approved transcription configuration is available to the worker. "
+                    "Worker health and real provider acceptance are not asserted."
+                ),
+                "provider": snapshot["provider"],
+                "model_name": snapshot["model_name"],
+                "adapter_version": snapshot["adapter_version"],
+                "test_only": availability == "TEST_ONLY",
+            }
+    return {
+        "status": "UNCONFIGURED",
+        "description": "No approved deployment transcription configuration is available. "
+        "Original audio and human-only assessment remain available.",
+        "test_only": False,
+    }
 
 
 class ControlCenterService:
@@ -346,11 +441,13 @@ class ControlCenterService:
     ) -> dict[str, Any]:
         ControlCenterService.require(context, "ai.read")
         ControlCenterService._page(offset, limit)
-        if kind not in {"models", "workflows", "runs", "reviews", "checkpoints"}:
+        if kind not in {"models", "workflows", "runs", "reviews", "checkpoints", "transcriptions"}:
             raise ValueError("unsupported AI metadata view")
         page = ControlCenterRepository.ai_operations(session, kind, offset, limit)
         for row in page["items"]:
-            if kind == "runs":
+            if kind == "transcriptions":
+                _safe_transcription_operation(row)
+            elif kind == "runs":
                 row["request_id"] = safe_reference(row["request_id"])
             elif kind == "reviews":
                 if row["entity_type"] not in SAFE_ENTITY_TYPES:
@@ -449,6 +546,7 @@ class ControlCenterService:
                 "description": "Workflow records and checkpoints are implemented. No live executor "
                 "is connected to this API.",
             },
+            "speech_transcription_executor": _transcription_executor(session, settings),
             "certification": {
                 "official_issuance": "DISABLED",
                 "synthetic_issuance_enabled": settings.certification_issuance_enabled,

@@ -32,6 +32,7 @@ from app.models import (
     ResultAppeal,
     ResultModerationCase,
     ResultRelease,
+    SpeechTranscriptionJob,
     StandardPack,
     StandardPackSourceBinding,
     StandardPackVersion,
@@ -401,7 +402,31 @@ class ControlCenterRepository:
         limit: int,
     ) -> dict[str, Any]:
         query: MetadataQuery
-        if kind == "workflows":
+        if kind == "transcriptions":
+            # Intentionally no audio identity, candidate, profile config, object
+            # key, transcript, claim token or arbitrary provider payload projection.
+            query = select(
+                SpeechTranscriptionJob.id,
+                SpeechTranscriptionJob.organisation_id,
+                SpeechTranscriptionJob.status,
+                SpeechTranscriptionJob.profile_id,
+                SpeechTranscriptionJob.profile_version,
+                SpeechTranscriptionJob.profile_snapshot["provider"].as_string().label("provider"),
+                SpeechTranscriptionJob.profile_snapshot["model_name"]
+                .as_string()
+                .label("model_name"),
+                SpeechTranscriptionJob.profile_snapshot["adapter_version"]
+                .as_string()
+                .label("adapter_version"),
+                SpeechTranscriptionJob.attempt_count,
+                SpeechTranscriptionJob.max_attempts,
+                SpeechTranscriptionJob.created_at,
+                SpeechTranscriptionJob.updated_at,
+                SpeechTranscriptionJob.started_at,
+                SpeechTranscriptionJob.completed_at,
+                SpeechTranscriptionJob.failure_category,
+            ).order_by(SpeechTranscriptionJob.created_at.desc(), SpeechTranscriptionJob.id)
+        elif kind == "workflows":
             query = (
                 select(
                     AIWorkflowVersion.id,

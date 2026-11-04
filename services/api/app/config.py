@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     knowledge_reranker_api_key: str = ""
     knowledge_reranker_timeout_seconds: int = 20
     environment: Literal["development", "test", "production"] = "development"
+    speech_transcription_test_adapter_enabled: bool = False
+    speech_transcription_provider_timeout_seconds: int = Field(default=45, ge=1, le=120)
+    # Deployment approval is separate from a platform actor approving a profile.
+    # These are exact immutable profile fingerprints, never API credentials.
+    speech_transcription_approved_profile_fingerprints: list[str] = []
     certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -53,6 +58,19 @@ class Settings(BaseSettings):
     auth_rate_limit_reset_attempts: int = 3
     auth_rate_limit_refresh_attempts: int = 30
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
+
+    @model_validator(mode="after")
+    def transcription_deployment_boundary(self) -> "Settings":
+        import re
+
+        if self.environment == "production" and self.speech_transcription_test_adapter_enabled:
+            raise ValueError("TEST ONLY speech transcription is forbidden in production")
+        if any(
+            re.fullmatch(r"[a-f0-9]{64}", value) is None
+            for value in self.speech_transcription_approved_profile_fingerprints
+        ):
+            raise ValueError("approved speech profiles require exact SHA256 fingerprints")
+        return self
 
     @field_validator("auth_access_token_ttl_minutes")
     @classmethod

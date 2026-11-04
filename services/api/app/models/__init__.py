@@ -118,6 +118,7 @@ from app.models.standard_pack import (
     StandardPackTaskSpecification,
     StandardPackVersion,
 )
+from app.models.transcription_execution import SpeechTranscriptionJob
 from app.models.writing_assessment import (
     AssessmentRubric,
     RubricEvidenceBinding,
@@ -129,6 +130,7 @@ from app.models.writing_assessment import (
 )
 
 __all__ = [
+    "SpeechTranscriptionJob",
     "AuditEvent",
     "AIModelProfile",
     "AIRun",

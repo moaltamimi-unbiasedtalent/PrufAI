@@ -90,6 +90,7 @@ from app.runtime.service import CandidateRuntimeService
 from app.scoring.service import ScoringService, checksum
 from app.scripts.seed_audio_demo import reconcile_audio_demo
 from app.scripts.seed_speaking_human_demo import reconcile_speaking_human_demo
+from app.scripts.seed_speaking_results_demo import reconcile_speaking_results_demo
 from app.scripts.seed_writing_demo import reconcile_writing_demo
 from app.services.identity import normalize_email
 from app.standard_packs.service import StandardPackService
@@ -702,6 +703,15 @@ def reconcile_demo(
         platform_operator=platform_administrator,
         password=password,
     )
+    speaking_results = reconcile_speaking_results_demo(
+        session,
+        settings,
+        enabled=enabled,
+        organisation=organisation,
+        administrator=administrator,
+        platform_operator=platform_administrator,
+        password=password,
+    )
     session.commit()
     return {
         "organisation_id": str(organisation.id),
@@ -717,6 +727,7 @@ def reconcile_demo(
         **writing,
         **audio,
         **speaking_human,
+        **speaking_results,
     }
 
 

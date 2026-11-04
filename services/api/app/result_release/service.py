@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.config import get_settings
 from app.models import (
     AssessmentResult,
@@ -71,7 +72,7 @@ def _operation(value: str) -> None:
 
 
 class ResultReleaseService:
-    """Lock the AssessmentResult aggregate before every consequential action.
+    """Lock attempt then result/version before every consequential action.
 
     Replays authenticate and scope before lookup. Artifact provenance stays
     immutable; validity is derived from release, current result and authorization.
@@ -82,6 +83,29 @@ class ResultReleaseService:
         session: Session, context: TenantContext, version_id: uuid.UUID
     ) -> tuple[ResultVersion, AssessmentResult, ScoringRun, CandidateExamAttempt, ExamVersion]:
         version = session.get(ResultVersion, version_id)
+        scope = (
+            session.scalar(
+                select(AssessmentResult).where(
+                    AssessmentResult.id == version.result_id,
+                    AssessmentResult.organisation_id == context.organisation_id,
+                )
+            )
+            if version
+            else None
+        )
+        if scope is None:
+            raise ResultReleaseError("result is not available in this organisation")
+        attempt = session.scalar(
+            select(CandidateExamAttempt)
+            .where(
+                CandidateExamAttempt.id == scope.attempt_id,
+                CandidateExamAttempt.organisation_id == context.organisation_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if attempt is None:
+            raise ResultReleaseError("result release provenance is incomplete")
         result = (
             session.scalar(
                 select(AssessmentResult)
@@ -104,7 +128,6 @@ class ResultReleaseService:
             .execution_options(populate_existing=True)
         )
         run = session.get(ScoringRun, version.scoring_run_id) if version else None
-        attempt = session.get(CandidateExamAttempt, result.attempt_id)
         exam = session.get(ExamVersion, result.exam_version_id)
         if version is None or run is None or attempt is None or exam is None:
             raise ResultReleaseError("result release provenance is incomplete")
@@ -124,6 +147,18 @@ class ResultReleaseService:
         ):
             raise ResultReleaseError("result release provenance does not match")
         return version, result, run, attempt, exam
+
+    @staticmethod
+    def _speaking_permission(
+        session: Session, context: TenantContext, run: ScoringRun, permission: str
+    ) -> None:
+        if any(
+            isinstance(row.scoring_metadata.get("component"), dict)
+            and row.scoring_metadata["component"].get("skill") == "SPEAKING"
+            and row.scoring_metadata["component"].get("assessment_origin") == "HUMAN"
+            for row in run.item_scores
+        ):
+            require_active_tenant_permission(session, context, permission, run.organisation_id)
 
     @staticmethod
     def _latest(session: Session, version: ResultVersion) -> bool:
@@ -149,6 +184,7 @@ class ResultReleaseService:
         version, result, run, attempt, exam = ResultReleaseService._version(
             session, context, version_id
         )
+        ResultReleaseService._speaking_permission(session, context, run, "result.release")
         existing = session.scalar(
             select(ResultRelease).where(ResultRelease.result_version_id == version.id)
         )
@@ -161,6 +197,9 @@ class ResultReleaseService:
             ResultReleaseService._check_release(existing, version, result, run, exam)
             ResultReleaseService._active(session, existing)
             return existing
+        # A fresh release must still consume the exact current approved evidence.
+        # Existing releases and their immutable historical reads are not rescored.
+        ScoringService.assert_run_current_authority(session, run)
         if not ResultReleaseService._latest(session, version):
             raise ResultReleaseError("stale result version")
         if ResultReleaseService._moderation_blocked(session, version.id):
@@ -224,6 +263,10 @@ class ResultReleaseService:
         session.flush()
         if previous is not None:
             previous.status = ReleaseStatus.SUPERSEDED
+            prior_version = session.get(ResultVersion, previous.result_version_id)
+            if prior_version is None:
+                raise ResultReleaseError("successor result predecessor is unavailable")
+            prior_version.status = ResultVersionStatus.SUPERSEDED
             ResultReleaseService._audit(session, context, "result.release_superseded", previous)
         ResultReleaseService._audit(session, context, "result.release_created", release)
         return release
@@ -367,6 +410,10 @@ class ResultReleaseService:
         _operation(operation_id)
         release = ResultReleaseService._owned_release(session, context, release_id)
         ResultReleaseService._active(session, release)
+        run = session.get(ScoringRun, release.scoring_run_id)
+        if run is None:
+            raise ResultReleaseError("statement scoring run is unavailable")
+        ResultReleaseService._speaking_permission(session, context, run, "result.release")
         existing = session.scalar(
             select(StatementOfResults).where(StatementOfResults.release_id == release.id)
         )
@@ -375,11 +422,11 @@ class ResultReleaseService:
                 raise ResultReleaseError("statement already issued with a different operation")
             ResultReleaseService._artifact_scope(existing, release)
             return existing
+        ScoringService.assert_run_current_authority(session, run)
         ResultReleaseService._active(session, release)
         version = session.get(ResultVersion, release.result_version_id)
         if version is None:
             raise ResultReleaseError("statement result version is unavailable")
-        run = session.get(ScoringRun, release.scoring_run_id)
         issued_at = _now()
         payload = {
             "statement_type": "Statement of Results",
@@ -672,6 +719,10 @@ class ResultReleaseService:
     ) -> ResultRelease:
         AuthorizationService.require_permission(context, "result.manage", context.organisation_id)
         release = ResultReleaseService._owned_release(session, context, release_id)
+        run = session.get(ScoringRun, release.scoring_run_id)
+        if run is None:
+            raise ResultReleaseError("release scoring run is unavailable")
+        ResultReleaseService._speaking_permission(session, context, run, "result.manage")
         ResultReleaseService._revoke_replay(
             session, context, release, reason, "result.release_revoked", operation_id
         )

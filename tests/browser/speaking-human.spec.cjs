@@ -82,7 +82,8 @@ test("original audio receives a version-pinned independently approved human Spea
     versionId,
     initializedChecksum,
     proposal,
-    initializeBody;
+    initializeBody,
+    responseRevisionId;
 
   await test.step("two distinct authorised humans publish the exact AUDIO rubric", async () => {
     const requester = await login(page, ADMIN);
@@ -231,7 +232,10 @@ test("original audio receives a version-pinned independently approved human Spea
     expect(asset.status).toBe("READY");
     expect(asset.duration_ms).toBeGreaterThan(0);
     expect(asset.sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect((await attached).status()).toBe(200);
+    const savedResponse = await attached;
+    expect(savedResponse.status()).toBe(200);
+    responseRevisionId = (await savedResponse.json())
+      .candidate_response_revision_id;
     await page.reload();
     await expect(
       page.getByText("Audio saved to this response.", { exact: true }),
@@ -259,12 +263,7 @@ test("original audio receives a version-pinned independently approved human Spea
       name: "Submitted Speaking response",
       exact: true,
     });
-    const source = sources
-      .locator("option")
-      .filter({ hasText: "response" })
-      .filter({ hasNotText: "Select an exact" });
-    await expect(source).toHaveCount(1);
-    await sources.selectOption(await source.getAttribute("value"));
+    await sources.selectOption(responseRevisionId);
     const rubrics = page.getByRole("combobox", {
       name: "Published Speaking rubric",
       exact: true,

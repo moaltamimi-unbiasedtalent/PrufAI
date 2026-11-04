@@ -113,6 +113,34 @@ def safe_reference(value: Any) -> str | None:
         return None
 
 
+def _audit_references(row: dict[str, Any]) -> list[str]:
+    """Only explicit UUIDs and SHA256 digests; never serialize a domain payload."""
+    references = []
+    for key, label in (
+        ("_audio_asset", "Audio asset"),
+        ("_response_revision", "Response revision"),
+        ("_result_version", "Result version"),
+        ("_source_result", "Source result version"),
+        ("_source_component", "Source assessment version"),
+        ("_source_run", "Source scoring run"),
+        ("_new_component", "Successor assessment version"),
+        ("_new_run", "Successor scoring run"),
+        ("_new_result", "Successor result version"),
+    ):
+        value = safe_reference(row.pop(key, None))
+        if value is not None:
+            references.append(f"{label}: {value}")
+    for key, label in (
+        ("_state_checksum", "Evidence checksum"),
+        ("_artifact_checksum", "Artifact checksum"),
+        ("_audio_sha256", "Audio SHA256"),
+    ):
+        value = row.pop(key, None)
+        if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value):
+            references.append(f"{label}: {value}")
+    return references
+
+
 class ControlCenterService:
     @staticmethod
     def require(context: TenantContext, permission: str = ENTRY_PERMISSION) -> None:
@@ -287,6 +315,7 @@ class ControlCenterService:
             raise ValueError("event_type must be a bounded event key")
         page = ControlCenterRepository.audit(session, offset, limit, organisation_id, event_type)
         for row in page["items"]:
+            evidence_references = _audit_references(row)
             source_version_id = safe_reference(row.pop("source_version_id", None))
             if source_version_id is not None:
                 row["source_version_id"] = source_version_id
@@ -299,6 +328,12 @@ class ControlCenterService:
                 row["event_type"] = "REDACTED"
             if row["entity_type"] not in SAFE_ENTITY_TYPES:
                 row["entity_type"] = "REDACTED"
+            if (
+                evidence_references
+                and row["event_type"] != "REDACTED"
+                and row["entity_type"] != "REDACTED"
+            ):
+                row["evidence_references"] = evidence_references
         return page
 
     @staticmethod

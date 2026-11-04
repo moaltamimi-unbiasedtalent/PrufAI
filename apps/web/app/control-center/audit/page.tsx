@@ -125,6 +125,7 @@ export default function AuditPage() {
                 ["entity_id", "Entity reference"],
                 ["operation_id", "Operation reference"],
                 ["source_version_id", "Source assessment version"],
+                ["evidence_references", "Evidence references"],
                 ["request_id", "Request reference"],
                 ["workflow_id", "Workflow reference"],
               ]}

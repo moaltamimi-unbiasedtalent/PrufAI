@@ -13,7 +13,15 @@ export type AssessmentComponent = {
   task_spec_id: string | null;
   approved_score: string;
   maximum_points: string;
+  assessment_mode?: string;
+  evidence_mode?: string;
 };
+
+export function assessmentSkillName(skill: string): string {
+  if (skill === "WRITING") return "Writing";
+  if (skill === "SPEAKING") return "Speaking";
+  return skill;
+}
 
 export function AssessmentEvidence({
   components,
@@ -25,12 +33,14 @@ export function AssessmentEvidence({
     <section className={css.card} aria-label="Assessment provenance">
       {components.map((component) => (
         <article key={component.subjective_assessment_version_id}>
-          <h2>
-            {component.skill === "WRITING"
-              ? "Writing assessment"
-              : `${component.skill} assessment`}
-          </h2>
+          <h2>{assessmentSkillName(component.skill)} assessment</h2>
           <p>Assessment origin: {component.assessment_origin}</p>
+          {component.assessment_mode && (
+            <p>Assessment mode: {component.assessment_mode}</p>
+          )}
+          {component.evidence_mode && (
+            <p>Evidence mode: {component.evidence_mode}</p>
+          )}
           {component.assessment_origin === "HUMAN" && (
             <p>Human-only assessment; no AI proposal or model attribution.</p>
           )}

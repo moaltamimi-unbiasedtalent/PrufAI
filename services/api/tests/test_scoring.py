@@ -194,7 +194,9 @@ def test_current_subjective_selection_is_order_independent_and_never_reuses_olde
         status=SubjectiveAssessmentStatus.IN_REVIEW,
     )
     for versions in ([old, current], [current, old]):
-        assert ScoringService._current_approved_subjective_versions(versions) == {}
+        with pytest.raises(ScoringError, match="CURRENT_SUBJECTIVE_ASSESSMENT_UNRESOLVED"):
+            ScoringService._current_approved_subjective_versions(versions)
+    old.status = SubjectiveAssessmentStatus.SUPERSEDED
     current.status = SubjectiveAssessmentStatus.APPROVED
     for versions in ([old, current], [current, old]):
         assert ScoringService._current_approved_subjective_versions(versions) == {

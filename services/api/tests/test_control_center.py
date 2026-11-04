@@ -253,6 +253,52 @@ def test_audit_projection_is_allowlisted_and_filters_persisted_metadata(control_
     assert client.get(f"{PREFIX}/audit?organisation_id={uuid.uuid4()}").json()["items"] == []
 
 
+def test_audit_evidence_references_expose_only_valid_ids_and_checksums(control_api):
+    client, session, scenario, platform, authenticate = control_api
+    asset, revision, result = (str(uuid.uuid4()) for _ in range(3))
+    audio_sha, state_sha = "a" * 64, "b" * 64
+    AuditService.record(
+        session,
+        replace(platform, organisation_id=scenario.organisation.id),
+        event_type="candidate_audio.finalized",
+        entity_type="CANDIDATE_AUDIO",
+        entity_id=asset,
+        organisation_id=scenario.organisation.id,
+        new_state_hash=state_sha,
+        metadata={
+            "candidate_media_asset_id": asset,
+            "candidate_response_revision_id": revision,
+            "result_version_id": result,
+            "sha256": audio_sha,
+            "new_scoring_run_id": PRIVATE,
+            "checksum": PRIVATE,
+            "storage_key": PRIVATE,
+            "private_audio_url": PRIVATE,
+            "rationale": PRIVATE,
+            "criterion_evidence": {"speech": PRIVATE},
+        },
+        require_audit_permission=False,
+    )
+    session.flush()
+    authenticate()
+    response = client.get(
+        f"{PREFIX}/audit?event_type=candidate_audio.finalized"
+        f"&organisation_id={scenario.organisation.id}"
+    )
+    assert response.status_code == 200, response.text
+    assert PRIVATE not in response.text
+    row = response.json()["items"][0]
+    assert set(row["evidence_references"]) == {
+        f"Audio asset: {asset}",
+        f"Response revision: {revision}",
+        f"Result version: {result}",
+        f"Audio SHA256: {audio_sha}",
+        f"Evidence checksum: {state_sha}",
+    }
+    assert not any(key.startswith("_") for key in row)
+    assert "metadata" not in row and "rationale" not in row
+
+
 def test_ai_and_system_metadata_do_not_claim_live_execution_or_expose_secrets(
     control_api, monkeypatch
 ):

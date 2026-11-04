@@ -274,6 +274,8 @@ class TranscriptionExecutionService:
     def _verify_job_source(
         cls, session: Session, job: SpeechTranscriptionJob
     ) -> CandidateMediaAsset:
+        from app.speech_transcription.profiles import snapshot_approval_valid
+
         try:
             asset, _, _, identity = cls.source(
                 session,
@@ -290,6 +292,8 @@ class TranscriptionExecutionService:
             or job.profile_snapshot.get("profile_version") != job.profile_version
         ):
             raise ExecutionError("STALE_AUDIO_EVIDENCE")
+        if not snapshot_approval_valid(session, job.profile_snapshot):
+            raise ExecutionError("PROFILE_APPROVAL_INVALID")
         return asset
 
     @staticmethod
@@ -355,6 +359,7 @@ class TranscriptionExecutionService:
         response_revision_id: uuid.UUID | None = None,
         audio_sha256: str | None = None,
     ) -> SpeechTranscriptionJob:
+        from app.speech_transcription.profiles import approved_profile_record
         from app.speech_transcription.runtime import validate_profile_configuration
 
         asset, revision, binding, source = cls.source(
@@ -390,6 +395,14 @@ class TranscriptionExecutionService:
         if profile.approved_at is None or profile.approved_by is None:
             raise ExecutionError("TRANSCRIPTION_PROFILE_NOT_APPROVED")
         snapshot = snapshot_profile(profile, language, source)
+        approval = approved_profile_record(session, profile, snapshot)
+        if approval is None:
+            raise ExecutionError("PROFILE_APPROVAL_INVALID")
+        snapshot["approval"] = {
+            "id": str(approval.id),
+            "profile_version": snapshot["profile_version"],
+            "approved_by": str(profile.approved_by),
+        }
         availability = validate_profile_configuration(snapshot, settings)
         if availability.get("availability") not in {"CONFIGURED", "TEST_ONLY"}:
             raise ExecutionError(str(availability.get("unavailable_reason") or "UNCONFIGURED"))

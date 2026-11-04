@@ -135,6 +135,8 @@ def transcription_options(
     session: Session = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
+    from app.speech_transcription.profiles import approved_profile_record
+
     _asset(session, principal, organisation_id, asset_id, "speech_transcription.request")
     try:
         _, _, _, source = TranscriptionExecutionService.source(session, asset_id)
@@ -160,10 +162,10 @@ def transcription_options(
         try:
             snapshot = snapshot_profile(profile, languages[0] if languages else "de", source)
             availability = validate_profile_configuration(snapshot, settings)
-            if profile.approved_at is None or profile.approved_by is None:
+            if approved_profile_record(session, profile, snapshot) is None:
                 availability = {
                     "availability": "UNCONFIGURED",
-                    "unavailable_reason": "TRANSCRIPTION_PROFILE_NOT_APPROVED",
+                    "unavailable_reason": "PROFILE_APPROVAL_INVALID",
                     "test_only": profile.provider == "DETERMINISTIC_TEST",
                 }
         except ValueError:

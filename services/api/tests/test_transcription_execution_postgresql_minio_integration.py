@@ -30,7 +30,9 @@ from sqlalchemy import event, func, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
+from app.audit import AuditService
 from app.auth.service import AuthenticationService
+from app.authorization import build_tenant_context
 from app.knowledge.storage import StorageError
 from app.models import (
     AIModelProfile,
@@ -47,6 +49,7 @@ from app.models import (
 )
 from app.models.enums import AIArtifactStatus, CandidateMediaStatus, MembershipStatus, RoleScope
 from app.scripts.seed_demo import PASSWORD, PLATFORM_ADMIN_EMAIL
+from app.scripts.seed_transcription_execution_demo import record_test_only_profile_approval
 from app.services.identity import IdentityService
 from app.speech_transcription.execution import TranscriptionExecutionService, snapshot_profile
 from app.speech_transcription.provider import TranscriptionSegment
@@ -160,7 +163,7 @@ class ExecutionProof(RecordedAudio):
                 )
             )
 
-    def profile(self, *, scenario="success", delay=0):
+    def profile(self, *, scenario="success", delay=0, approve=True):
         with self.factory() as session:
             profile = session.get(
                 AIModelProfile, uuid.UUID(self.ids["transcription_execution_profile_id"])
@@ -168,6 +171,11 @@ class ExecutionProof(RecordedAudio):
             configuration = copy.deepcopy(profile.configuration)
             configuration.update(scenario=scenario, delay_seconds=delay)
             profile.configuration = configuration
+            if approve:
+                operator = session.get(User, uuid.UUID(self.ids["platform_admin_user_id"]))
+                record_test_only_profile_approval(
+                    session, profile, operator, settings=self.settings
+                )
             session.commit()
 
     def claim(self, *, worker="technical-test-worker", lease_seconds=90):
@@ -698,7 +706,9 @@ def test_invalid_or_stale_source_never_creates_execution_job(execution, corrupti
 def test_profile_snapshot_is_pinned_and_ready_history_cannot_be_rewritten(execution):
     state = execution.submitted()
     first = execution.job(execution.request(state))
-    execution.profile(scenario="timeout")
+    execution.profile(scenario="timeout", approve=False)
+    rejected = execution.request(state, expected=409)
+    assert rejected["detail"] == "PROFILE_APPROVAL_INVALID"
     replay = execution.job(execution.request(state, operation=str(first.operation_id)))
     assert replay.id == first.id and replay.profile_version == first.profile_version
     with execution.factory() as session:
@@ -711,7 +721,9 @@ def test_profile_snapshot_is_pinned_and_ready_history_cannot_be_rewritten(execut
         current = session.get(AIModelProfile, first.profile_id)
         current.status = AIArtifactStatus.ACTIVE
         session.commit()
-    # The queued snapshot remains success, even after the current profile changes.
+    # A later explicitly qualified profile cannot replace the job's older pinned
+    # approval record or success configuration during recovery.
+    execution.profile(scenario="timeout")
     execution.worker_once()
     assert execution.job(first.id).status == "READY"
     original = execution.versions()[0]
@@ -720,8 +732,10 @@ def test_profile_snapshot_is_pinned_and_ready_history_cannot_be_rewritten(execut
         copy.deepcopy(original.configuration),
         original.checksum,
     )
-    execution.profile(scenario="success")
+    execution.profile(scenario="success", delay=0.01)
     successor = execution.job(execution.request(state))
+    assert successor.profile_version != first.profile_version
+    assert successor.profile_snapshot["approval"]["id"] != first.profile_snapshot["approval"]["id"]
     execution.worker_once()
     versions = execution.versions()
     assert len(versions) == 2 and versions[1].supersedes_version_id == original.id
@@ -1022,7 +1036,9 @@ def test_slow_execution_renews_real_lease_and_excludes_second_worker_after_origi
     assert len(execution.versions()) == 1
 
 
-def test_platform_profile_independent_exact_version_approval_is_not_transfer_authority(execution):
+def test_platform_profile_independent_exact_version_approval_is_not_transfer_authority(
+    execution, monkeypatch
+):
     with execution.factory() as session:
         approver = IdentityService.create_user(
             session, email=f"transcription-platform-approver-{uuid.uuid4()}@example.test"
@@ -1111,3 +1127,123 @@ def test_platform_profile_independent_exact_version_approval_is_not_transfer_aut
     assert rejected["detail"] == "DEPLOYMENT_APPROVAL_REQUIRED"
     with execution.factory() as session:
         assert session.scalar(select(func.count()).select_from(SpeechTranscriptionJob)) == 0
+
+    # An exact deployment allowlist does not bless an edit made after registry
+    # approval. This placeholder is deliberately not a usable provider credential;
+    # this negative request never invokes a provider or starts a worker.
+    with execution.factory() as session:
+        profile = session.get(AIModelProfile, uuid.UUID(created["id"]))
+        edited = copy.deepcopy(profile.configuration)
+        edited["model_configuration_version"] = "unreviewed-technical-edit-v2"
+        profile.configuration = edited
+        session.commit()
+        edited_snapshot = snapshot_profile(profile, "de", {})
+    assert edited_snapshot["profile_version"] != fingerprint
+    execution.settings.speech_transcription_approved_profile_fingerprints = [
+        edited_snapshot["profile_version"]
+    ]
+    monkeypatch.setenv(CREDENTIAL_REFERENCE, "TEST_ONLY_NOT_A_REAL_PROVIDER_CREDENTIAL")
+    assert (
+        validate_profile_configuration(edited_snapshot, execution.settings)["availability"]
+        == "CONFIGURED"
+    )
+    rejected_edit = execution.request(
+        state,
+        expected=409,
+        body={
+            "operation_id": str(uuid.uuid4()),
+            "profile_id": created["id"],
+            "language": "de",
+            "candidate_response_revision_id": str(state["revision"].id),
+            "audio_sha256": state["asset"]["sha256"],
+        },
+    )
+    assert rejected_edit["detail"] == "PROFILE_APPROVAL_INVALID"
+    with execution.factory() as session:
+        assert session.scalar(select(func.count()).select_from(SpeechTranscriptionJob)) == 0
+
+
+def test_invalid_or_missing_exact_profile_approval_records_never_authorize_a_new_job(execution):
+    state = execution.submitted()
+    for invalid in (
+        "missing",
+        "fingerprint",
+        "actor",
+        "creator",
+        "provider",
+        "test-marker",
+        "qualification",
+        "latest-mismatch",
+    ):
+        with execution.factory() as session:
+            operator = session.get(User, uuid.UUID(execution.ids["platform_admin_user_id"]))
+            original = session.get(
+                AIModelProfile, uuid.UUID(execution.ids["transcription_execution_profile_id"])
+            )
+            profile = AIModelProfile(
+                code=f"test.invalid-approval.{invalid}.{uuid.uuid4().hex}",
+                name="TEST ONLY invalid approval negative fixture",
+                provider=original.provider,
+                model_name=original.model_name,
+                purpose=original.purpose,
+                configuration=copy.deepcopy(original.configuration),
+                status=AIArtifactStatus.ACTIVE,
+                created_by=operator.id,
+                approved_by=operator.id,
+                approved_at=datetime.now(timezone.utc),
+            )
+            session.add(profile)
+            session.flush()
+            metadata = {
+                "profile_id": str(profile.id),
+                "profile_version": snapshot_profile(profile, "de", {})["profile_version"],
+                "provider": profile.provider,
+                "adapter_version": "1",
+                "created_by": str(profile.created_by),
+                "test_only": True,
+                "qualification": "AUTOMATED_TECHNICAL_TEST",
+            }
+            actor = operator.id
+            if invalid == "latest-mismatch":
+                record_test_only_profile_approval(
+                    session, profile, operator, settings=execution.settings
+                )
+            if invalid in {"fingerprint", "latest-mismatch"}:
+                metadata["profile_version"] = "0" * 64
+            elif invalid == "actor":
+                profile.approved_by = execution.users[1].id
+            elif invalid == "creator":
+                metadata["created_by"] = str(execution.users[1].id)
+            elif invalid == "provider":
+                metadata["provider"] = "WRONG"
+            elif invalid == "test-marker":
+                metadata["test_only"] = "true"
+            elif invalid == "qualification":
+                metadata["qualification"] = "UNQUALIFIED_FIXTURE"
+            if invalid != "missing":
+                AuditService.record(
+                    session,
+                    build_tenant_context(session, actor),
+                    event_type="speech_transcription.profile_approved",
+                    entity_type="AIModelProfile",
+                    entity_id=str(profile.id),
+                    metadata=metadata,
+                    require_audit_permission=False,
+                )
+            identifier = str(profile.id)
+            session.commit()
+        rejected = execution.request(
+            state,
+            expected=409,
+            body={
+                "operation_id": str(uuid.uuid4()),
+                "profile_id": identifier,
+                "language": "de",
+                "candidate_response_revision_id": str(state["revision"].id),
+                "audio_sha256": state["asset"]["sha256"],
+            },
+        )
+        assert rejected["detail"] == "PROFILE_APPROVAL_INVALID", invalid
+    with execution.factory() as session:
+        assert session.scalar(select(func.count()).select_from(SpeechTranscriptionJob)) == 0
+    assert execution.versions() == []

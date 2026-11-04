@@ -174,6 +174,7 @@ def _safe_transcription_operation(row: dict[str, Any]) -> None:
                 "OBJECT_STORAGE_UNAVAILABLE",
                 "WORKER_LEASE_EXPIRED",
                 "REQUEST_AUTHORITY_REVOKED",
+                "PROFILE_APPROVAL_INVALID",
                 "UNCONFIGURED",
             },
         ),
@@ -211,6 +212,10 @@ def _transcription_executor(session: Session, settings: Settings) -> dict[str, A
             continue
         try:
             snapshot = snapshot_profile(profile, languages[0], {})
+            from app.speech_transcription.profiles import approved_profile_record
+
+            if approved_profile_record(session, profile, snapshot) is None:
+                continue
             availability = validate_profile_configuration(snapshot, settings)["availability"]
         except (ValueError, TypeError, KeyError):
             continue

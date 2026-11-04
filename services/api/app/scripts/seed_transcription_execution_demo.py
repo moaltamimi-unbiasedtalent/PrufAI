@@ -7,14 +7,18 @@ test-adapter setting is enabled. No recording, execution or transcript is seeded
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import AuditService
+from app.authorization import build_tenant_context
 from app.config import Settings
-from app.models import AIModelProfile, Organisation, User
+from app.models import AIModelProfile, AuditEvent, Organisation, User
 from app.models.enums import AIArtifactStatus
+from app.speech_transcription.execution import snapshot_profile
 
 TRANSCRIPTION_CANDIDATE_EMAIL = "transcription.candidate@demo.prufai.local"
 TRANSCRIPTION_EXAM_NAME = (
@@ -40,6 +44,65 @@ TRANSCRIPTION_POLICY_CONTENT = (
     "No recording, execution, transcript, assessment, result or release is seeded.\n"
     "No external provider or data transfer is approved by this development fixture.\n"
 )
+
+
+def record_test_only_profile_approval(
+    session: Session,
+    profile: AIModelProfile,
+    platform_operator: User,
+    *,
+    settings: Settings,
+) -> AuditEvent:
+    """Explicit nonproduction technical qualification, never an independent human review."""
+    if (
+        settings.environment not in {"development", "test"}
+        or profile.provider != "DETERMINISTIC_TEST"
+        or profile.model_name != "fixture-transcriber"
+        or profile.created_by != platform_operator.id
+        or profile.purpose != "SPEECH_TRANSCRIPTION"
+    ):
+        raise RuntimeError(
+            "TEST ONLY profile qualification requires the owned nonproduction fixture."
+        )
+    snapshot = snapshot_profile(profile, "de", {})
+    metadata = {
+        "profile_id": str(profile.id),
+        "profile_version": snapshot["profile_version"],
+        "provider": profile.provider,
+        "adapter_version": "1",
+        "created_by": str(profile.created_by),
+        "test_only": True,
+        "qualification": "AUTOMATED_TECHNICAL_TEST",
+    }
+    latest = session.scalar(
+        select(AuditEvent)
+        .where(
+            AuditEvent.event_type == "speech_transcription.profile_approved",
+            AuditEvent.entity_type == "AIModelProfile",
+            AuditEvent.entity_id == str(profile.id),
+        )
+        .order_by(AuditEvent.timestamp.desc(), AuditEvent.id.desc())
+        .limit(1)
+    )
+    if (
+        latest is not None
+        and latest.metadata_json == metadata
+        and latest.actor_id == platform_operator.id
+        and profile.approved_by == platform_operator.id
+        and profile.approved_at is not None
+    ):
+        return latest
+    profile.approved_by = platform_operator.id
+    profile.approved_at = datetime.now(timezone.utc)
+    return AuditService.record(
+        session,
+        build_tenant_context(session, platform_operator.id),
+        event_type="speech_transcription.profile_approved",
+        entity_type="AIModelProfile",
+        entity_id=str(profile.id),
+        metadata=metadata,
+        require_audit_permission=False,
+    )
 
 
 def reconcile_transcription_execution_demo(
@@ -90,7 +153,7 @@ def reconcile_transcription_execution_demo(
             model_name="fixture-transcriber",
             purpose="SPEECH_TRANSCRIPTION",
             status=AIArtifactStatus.ACTIVE,
-            configuration=dict(TRANSCRIPTION_PROFILE_CONFIGURATION),
+            configuration=copy.deepcopy(TRANSCRIPTION_PROFILE_CONFIGURATION),
             created_by=platform_operator.id,
             approved_by=platform_operator.id,
             approved_at=datetime.now(timezone.utc),
@@ -100,6 +163,7 @@ def reconcile_transcription_execution_demo(
         session.flush()
     if profile.status is not AIArtifactStatus.ACTIVE or profile.approved_by is None:
         raise RuntimeError("Transcription fixture profile approval changed; no approval restored.")
+    record_test_only_profile_approval(session, profile, platform_operator, settings=settings)
     return {
         **identifiers,
         "transcription_execution_profile_id": str(profile.id),

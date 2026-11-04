@@ -23,6 +23,12 @@ provider/model/adapter, language, safe deployment references and checksums. Work
 recovery does not select a newer current profile. Secrets are never stored in the
 profile snapshot or job.
 
+New requests must match the latest exact independent registry-approval record;
+an edited ACTIVE row cannot inherit approval for different configuration. The job
+pins that approval identity, and recovery validates the historical approval rather
+than selecting a newer registry revision. TEST ONLY fixture approvals are marked
+as automated technical approvals and cannot authorize external processing.
+
 `INSTITUTION_ADMIN` and `EXAM_MANAGER` receive request/read permission. Generic
 Question Bank REVIEWER and candidate roles do not. Current active membership and
 database role grants are reloaded; a platform permission alone does not confer

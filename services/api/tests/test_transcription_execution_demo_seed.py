@@ -9,6 +9,7 @@ from app.authorization import build_tenant_context
 from app.config import Settings
 from app.models import (
     AIModelProfile,
+    AuditEvent,
     CandidateExamAssignment,
     CandidateMediaAsset,
     ExamVersion,
@@ -28,6 +29,7 @@ from app.scripts.seed_transcription_execution_demo import (
     TRANSCRIPTION_PROFILE_CONFIGURATION,
     TRANSCRIPTION_PROFILE_NAME,
 )
+from app.speech_transcription.execution import snapshot_profile
 
 
 def test_execution_seed_is_distinct_unassigned_and_contains_no_transcription_evidence(session):
@@ -57,6 +59,23 @@ def test_execution_seed_is_distinct_unassigned_and_contains_no_transcription_evi
     assert profile.status is AIArtifactStatus.ACTIVE
     assert profile.approved_by == uuid.UUID(ids["platform_admin_user_id"])
     assert profile.approved_at is not None
+    approval = session.scalar(
+        select(AuditEvent).where(
+            AuditEvent.entity_id == str(profile.id),
+            AuditEvent.event_type == "speech_transcription.profile_approved",
+        )
+    )
+    assert approval.actor_id == profile.approved_by
+    assert approval.organisation_id is None
+    assert approval.metadata_json == {
+        "profile_id": str(profile.id),
+        "profile_version": snapshot_profile(profile, "de", {})["profile_version"],
+        "provider": "DETERMINISTIC_TEST",
+        "adapter_version": "1",
+        "created_by": str(profile.created_by),
+        "test_only": True,
+        "qualification": "AUTOMATED_TECHNICAL_TEST",
+    }
     exam = session.get(ExamVersion, uuid.UUID(ids["transcription_execution_exam_version_id"]))
     assert exam.exam.name == TRANSCRIPTION_EXAM_NAME
     assert exam.status is ExamVersionStatus.ACTIVE
@@ -84,6 +103,17 @@ def test_execution_seed_is_distinct_unassigned_and_contains_no_transcription_evi
     assert counts == {
         model: session.scalar(select(func.count()).select_from(model)) for model in counts
     }
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.event_type == "speech_transcription.profile_approved",
+                AuditEvent.entity_id == str(profile.id),
+            )
+        )
+        == 1
+    )
 
 
 def test_execution_seed_refuses_unrelated_candidate_identity(session):

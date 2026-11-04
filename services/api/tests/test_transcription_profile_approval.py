@@ -13,7 +13,7 @@ from app.models.enums import AIArtifactStatus, PlatformAssignmentStatus, UserSta
 from app.speech_transcription.execution import snapshot_profile
 from app.speech_transcription.profiles import approve_profile, profile_descriptor
 from app.speech_transcription.runtime import validate_profile_configuration
-from tests.test_transcription_runtime import real_snapshot
+from tests.test_transcription_runtime import fixture_snapshot, real_snapshot
 
 
 @pytest.fixture
@@ -155,5 +155,25 @@ def test_invalid_provider_configuration_never_becomes_active(session, profiles):
             expected_version=version(profile),
             context=context,
             settings=Settings(_env_file=None),
+        )
+    assert profile.status == AIArtifactStatus.DRAFT and profile.approved_by is None
+
+
+def test_manual_test_profile_approval_is_not_a_human_or_external_processing_approval(
+    session, profiles
+):
+    profile, _, context = profiles
+    profile.provider, profile.model_name = "DETERMINISTIC_TEST", "fixture-transcriber"
+    profile.configuration = fixture_snapshot()["configuration"]
+    session.flush()
+    with pytest.raises(ValueError, match="AUTOMATED_APPROVAL_ONLY"):
+        approve_profile(
+            session,
+            profile_id=profile.id,
+            expected_version=version(profile),
+            context=context,
+            settings=Settings(
+                _env_file=None, environment="test", speech_transcription_test_adapter_enabled=True
+            ),
         )
     assert profile.status == AIArtifactStatus.DRAFT and profile.approved_by is None

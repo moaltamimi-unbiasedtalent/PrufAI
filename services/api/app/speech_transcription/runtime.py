@@ -270,10 +270,12 @@ class OpenAITranscriptionProvider:
             "eu.api.openai.com", timeout=timeout, context=ssl.create_default_context()
         )
         expired = threading.Event()
+        io_socket: socket.socket | None = None
+        response: http.client.HTTPResponse | None = None
 
         def stop_io() -> None:
             expired.set()
-            active_socket = connection.sock
+            active_socket = io_socket if io_socket is not None else connection.sock
             if active_socket is not None:
                 try:
                     active_socket.shutdown(socket.SHUT_RDWR)
@@ -297,6 +299,9 @@ class OpenAITranscriptionProvider:
                     "Accept-Encoding": "identity",
                 },
             )
+            # Capture before getresponse(): a closing response can detach it
+            # from HTTPConnection while still reading the provider body.
+            io_socket = connection.sock
             response = connection.getresponse()
             if response.status != 200:
                 # Never include provider response/error bodies in safe failure records.
@@ -310,9 +315,11 @@ class OpenAITranscriptionProvider:
                 remaining = timeout - (time.monotonic() - started)
                 if remaining <= 0:
                     raise ProviderTimeout("PROVIDER_TIMEOUT")
-                if connection.sock is not None:
-                    connection.sock.settimeout(remaining)
+                if io_socket is not None:
+                    io_socket.settimeout(remaining)
                 chunk = response.read1(min(65536, MAX_RESPONSE_BYTES + 1 - size))
+                if expired.is_set():
+                    raise ProviderTimeout("PROVIDER_TIMEOUT")
                 if not chunk:
                     break
                 size += len(chunk)
@@ -351,7 +358,15 @@ class OpenAITranscriptionProvider:
             raise ProviderUnavailable("PROVIDER_UNAVAILABLE") from exc
         finally:
             deadline.cancel()
-            connection.close()
+            if response is not None:
+                try:
+                    response.close()
+                except OSError:
+                    pass
+            try:
+                connection.close()
+            except OSError:
+                pass
 
 
 def build_transcription_provider(

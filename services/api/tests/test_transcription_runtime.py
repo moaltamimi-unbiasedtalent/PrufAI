@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import socket
+import threading
 from copy import deepcopy
 
 import pytest
@@ -198,6 +199,11 @@ def test_test_execution_is_explicit_and_carries_exact_identity():
 class Response(io.BytesIO):
     status = 200
 
+    def close(self):
+        if not self.closed:
+            self.position_at_close = self.tell()
+        super().close()
+
     def getheader(self, name):
         return None
 
@@ -284,7 +290,7 @@ def test_provider_redirect_is_never_followed_or_error_body_exposed(monkeypatch):
     with pytest.raises(ProviderUnavailable) as exc:
         invoke(monkeypatch, response)
     assert str(exc.value) == "PROVIDER_REQUEST_REJECTED"
-    assert response.tell() == 0
+    assert response.closed and response.position_at_close == 0
 
 
 def test_provider_response_size_is_bounded_even_without_length_header(monkeypatch):
@@ -300,6 +306,57 @@ def test_provider_timeout_is_safe(monkeypatch):
     with pytest.raises(ProviderTimeout) as exc:
         invoke(monkeypatch, TimeoutResponse())
     assert str(exc.value) == "PROVIDER_TIMEOUT"
+
+
+def test_total_deadline_cancels_body_read_after_response_takes_socket_ownership(monkeypatch):
+    runtime = approved_settings(monkeypatch)
+    runtime.speech_transcription_provider_timeout_seconds = 1
+
+    class OwnedSocket:
+        stopped = threading.Event()
+
+        def shutdown(self, _how):
+            self.stopped.set()
+
+        def settimeout(self, _timeout):
+            pass
+
+    owned = OwnedSocket()
+
+    class ClosingResponse(Response):
+        def read1(self, _size):
+            if owned.stopped.wait(2):
+                raise OSError("closed by execution deadline")
+            return b""
+
+    class ClosingConnection(Connection):
+        def __init__(self):
+            super().__init__(ClosingResponse())
+            self.sock = owned
+
+        def getresponse(self):
+            # HTTPConnection does this when HTTPResponse owns a closing stream.
+            self.sock = None
+            return self.response
+
+    connection = ClosingConnection()
+    monkeypatch.setattr(
+        "app.speech_transcription.runtime.http.client.HTTPSConnection",
+        lambda *_args, **_kwargs: connection,
+    )
+    audio = b"verified-original"
+    with pytest.raises(ProviderTimeout):
+        OpenAITranscriptionProvider(real_snapshot(), runtime).transcribe(
+            audio,
+            language="de",
+            limits={},
+            configuration={
+                "execution_id": "deadline-unit",
+                "source_content_type": "audio/webm",
+                "audio_sha256": hashlib.sha256(audio).hexdigest(),
+            },
+        )
+    assert owned.stopped.is_set() and connection.closed
 
 
 @pytest.mark.parametrize(

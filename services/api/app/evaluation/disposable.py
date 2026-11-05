@@ -44,9 +44,10 @@ def assert_disposable_database(url: str, expected_name: str | None = None) -> st
     )
     if not (local or ci):
         raise ValueError("DISPOSABLE_DATABASE_REQUIRED")
+    environment = "github-actions-ephemeral" if ci else "local-isolated"
     print(
         f"Verified disposable PostgreSQL target: host={target.hostname} "
-        f"port={port} database={name}",
+        f"port={port} database={name} environment={environment}",
         flush=True,
     )
     return name

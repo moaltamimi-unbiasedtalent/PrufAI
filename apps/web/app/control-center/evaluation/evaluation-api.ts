@@ -1,5 +1,6 @@
 import { authenticatedFetch } from "../../../lib/api";
 import { PlatformApiError } from "../control-api";
+import type { RegressionReport } from "./regressions/regression-api";
 
 export type EvaluationEvidenceClass =
   | "SYNTHETIC_TEST"
@@ -96,7 +97,13 @@ export type EvaluationRunDetail = {
   run: EvaluationRun;
   pins: EvaluationPins;
   metrics: EvaluationMetric[];
-  failures: { case_id: string; failure_categories: string[] }[];
+  failures: {
+    case_id: string;
+    failure_categories: string[];
+    result_id?: string;
+    result_checksum?: string;
+    failed_checks?: string[];
+  }[];
   reviews: {
     id: string;
     decision: string;
@@ -104,6 +111,7 @@ export type EvaluationRunDetail = {
     created_at: string;
   }[];
   limitations: string[];
+  regression?: RegressionReport | null;
   comparison?: {
     comparison_kind: string;
     left: {

@@ -127,6 +127,8 @@ def _population(
     session: Session,
     dataset: EvaluationDatasetVersion,
     context: TenantContext | None,
+    *,
+    lock_evidence: bool = True,
 ) -> _ReferencePopulation:
     provenance = dataset.provenance
     if dataset.status != "PUBLISHED" or provenance.get("origin") != "GOVERNED_REFERENCE":
@@ -135,7 +137,7 @@ def _population(
         raise ValueError("EVALUATION_CALIBRATION_SKILL_NOT_SUPPORTED")
     source_id = uuid.UUID(provenance["reference_id"])
     source = (
-        expert._reference(session, context, source_id)
+        expert._reference(session, context, source_id, lock=lock_evidence)
         if context is not None
         else session.get(EvaluationReference, source_id)
     )
@@ -220,6 +222,7 @@ def _population(
                 source,
                 qualification.id,
                 qualification.checksum,
+                lock=lock_evidence,
             )
         validate_judgment_evidence(
             source.body,

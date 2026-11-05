@@ -348,6 +348,11 @@ def create_change_candidate(
         raise FeedbackConflict("CHANGE_CANDIDATE_ALREADY_EXISTS")
     if proposal.body["hypothesis_code"] != HYPOTHESIS:
         raise FeedbackConflict("CHANGE_CANDIDATE_HYPOTHESIS_UNSUPPORTED")
+    if (
+        proposal.body["evaluation_requirements"]["reference_evidence"]
+        != "NO_ADDITIONAL_REFERENCE_REQUIRED"
+    ):
+        raise FeedbackConflict("CHANGE_CANDIDATE_APPROVED_REFERENCE_REQUIRED")
     target = resolve_target(session, TargetPin.model_validate(payload.target.model_dump()))
     if target != proposal.body["target"] or proposal.body["change_category"] not in {
         "PROMPT_REVISION",

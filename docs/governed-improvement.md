@@ -8,8 +8,8 @@ Institution context and candidate accounts cannot access this workflow.
 
 The first supported change clears the optional legacy instruction block of a
 versioned Writing prompt to prevent a recorded request-policy failure. Proposals
-about reference agreement, evidence grounding or recovery are outside this
-lane. A retired baseline blocks new evaluation and review but preserves history. The service creates a real draft in the same prompt
+about reference agreement, evidence grounding or recovery, or with an explicit
+approved-reference requirement, are outside this lane. A retired baseline blocks new evaluation and review but preserves history. The service creates a real draft in the same prompt
 definition, preserves its system template, schemas and configuration, and
 never accepts a prompt body or instructions from feedback. The source prompt
 stays unchanged. PostgreSQL seals the linked draft against edits, deletion and

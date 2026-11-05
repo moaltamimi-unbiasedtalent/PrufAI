@@ -281,6 +281,8 @@ export default function CandidateWorkbench() {
     proposal?.status === "APPROVED_FOR_EVALUATION" &&
     proposal.target.type === "PROMPT_VERSION" &&
     proposal.hypothesis_code === "PREVENT_RECORDED_FAILURE" &&
+    proposal.evaluation_requirements.reference_evidence ===
+      "NO_ADDITIONAL_REFERENCE_REQUIRED" &&
     ["PROMPT_REVISION", "VALIDATION_GUARD"].includes(proposal.change_category)
       ? proposal
       : null;
@@ -354,7 +356,8 @@ export default function CandidateWorkbench() {
               {proposal && !eligibleProposal && (
                 <p role="alert">
                   Use a PromptVersion proposal approved for evaluation to
-                  prevent a recorded failure.
+                  prevent a recorded failure, with no additional approved
+                  reference requirement.
                 </p>
               )}
               {eligibleProposal && (

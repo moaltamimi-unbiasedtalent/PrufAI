@@ -123,7 +123,12 @@ class Scenario:
 
 
 def _setup(
-    expert, *, retained_canary=False, partial_suite=False, hypothesis="PREVENT_RECORDED_FAILURE"
+    expert,
+    *,
+    retained_canary=False,
+    partial_suite=False,
+    hypothesis="PREVENT_RECORDED_FAILURE",
+    category="ACCESS_CONTROL",
 ):
     cases = [_case(), _case()]
     tokens = [case["input"]["text"] for case in cases]
@@ -177,7 +182,7 @@ def _setup(
                             "result": _pin(result),
                             "failed_check": CHECK,
                         },
-                        "category": "ACCESS_CONTROL",
+                        "category": category,
                         "severity": "MEDIUM",
                     }
                 ),
@@ -739,11 +744,20 @@ def test_retired_baseline_blocks_new_transitions_but_preserves_history(expert, t
         assert before["receipt"] == after["receipt"] and before["history"] == after["history"]
 
 
-def test_expert_agreement_proposal_cannot_use_offline_prompt_policy_lane(expert):
-    scenario = _setup(expert, hypothesis="IMPROVE_REFERENCE_AGREEMENT")
+@pytest.mark.parametrize(
+    ("hypothesis", "category", "reason"),
+    [
+        ("IMPROVE_REFERENCE_AGREEMENT", "ACCESS_CONTROL", "HYPOTHESIS_UNSUPPORTED"),
+        ("PREVENT_RECORDED_FAILURE", "SCORING_CORRECTNESS", "APPROVED_REFERENCE_REQUIRED"),
+    ],
+)
+def test_proposal_requiring_expert_evidence_cannot_use_offline_lane(
+    expert, hypothesis, category, reason
+):
+    scenario = _setup(expert, hypothesis=hypothesis, category=category)
     with expert.factory() as session:
         creator = expert.context(session)
-        with pytest.raises(FeedbackConflict, match="HYPOTHESIS_UNSUPPORTED"):
+        with pytest.raises(FeedbackConflict, match=reason):
             candidates.create_change_candidate(session, creator, scenario.payload)
         session.rollback()
         assert (

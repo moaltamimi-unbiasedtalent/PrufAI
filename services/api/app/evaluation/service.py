@@ -128,6 +128,9 @@ def create_dataset_version(
     if len(json.dumps(value, allow_nan=False).encode()) > 1_000_000:
         raise ValueError("EVALUATION_DATASET_TOO_LARGE")
     validate_case_collection(value["cases"])
+    from app.evaluation.split_integrity import guard_import
+
+    guard_import(session, value["cases"])
     if payload.organisation_id and session.get(Organisation, payload.organisation_id) is None:
         raise ValueError("EVALUATION_ORGANISATION_NOT_FOUND")
     if dataset_id is None:
@@ -203,6 +206,10 @@ def transition_dataset(
     }[action]
     if row.status != source:
         raise EvaluationConflict("EVALUATION_DATASET_STATE_CONFLICT")
+    if row.provenance.get("origin") == "GOVERNED_REFERENCE":
+        from app.evaluation.expert_service import validate_dataset_transition
+
+        validate_dataset_transition(session, context, row, action)
     if action == "submit":
         row.submitted_at = utcnow()
     elif action == "approve":
@@ -402,15 +409,20 @@ def verify_run(session: Session, run: EvaluationRun) -> list[EvaluationCaseResul
     version = _version(session, run.dataset_version_id)
     if canonical_checksum(run.configuration) != run.configuration_checksum:
         raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
-    configured = RunConfiguration.model_validate(
-        {
-            key: value
-            for key, value in run.configuration.items()
-            if key in RunConfiguration.model_fields
-        }
-    )
-    if validate_configuration(session, version, configured) != run.configuration:
-        raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
+    if run.configuration.get("execution_adapter") == "GOVERNED_REFERENCE_CALIBRATION_V1":
+        from app.evaluation.expert_comparison import verify_calibration_configuration
+
+        verify_calibration_configuration(session, run, version)
+    else:
+        configured = RunConfiguration.model_validate(
+            {
+                key: value
+                for key, value in run.configuration.items()
+                if key in RunConfiguration.model_fields
+            }
+        )
+        if validate_configuration(session, version, configured) != run.configuration:
+            raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
     results = list(
         session.scalars(select(EvaluationCaseResult).where(EvaluationCaseResult.run_id == run.id))
     )
@@ -638,16 +650,60 @@ def run_detail(session: Session, context: TenantContext, identifier: uuid.UUID) 
     pins = {
         key: value
         for key, value in row.configuration.items()
-        if key not in {"metric_configuration", "not_applicable_reasons"}
+        if key
+        not in {
+            "metric_configuration",
+            "not_applicable_reasons",
+            "pins",
+            "request",
+            "side_receipts",
+        }
     }
+    pins.update(row.configuration.get("pins", {}))
     config = row.configuration["metric_configuration"]
     pins.update(
         metric_schema_version=config["schema_version"],
         metric_normalization=config["normalization"],
         metric_retrieval_k=config["retrieval_k"],
     )
+    comparison = None
+    if row.configuration.get("execution_adapter") == "GOVERNED_REFERENCE_CALIBRATION_V1":
+        full: dict[str, Any] = next(
+            (
+                result.result["calibration_summary"]
+                for result in results
+                if result.result.get("calibration_summary")
+            ),
+            {},
+        )
+        comparison = {
+            key: full.get(key)
+            for key in (
+                "comparison_kind",
+                "left",
+                "right",
+                "empirical_thresholds",
+                "quality_claim",
+                "uncertainty",
+                "limitations",
+                "production_activation",
+            )
+        }
+        comparison["criteria"] = [
+            {
+                key: criterion.get(key)
+                for key in (
+                    "criterion_code",
+                    "expected_count",
+                    "sample_size",
+                    "disagreement_distribution",
+                )
+            }
+            for criterion in full.get("criteria", [])
+        ]
     return {
         "run": run_summary(session, row),
+        "comparison": comparison,
         "pins": pins,
         "metrics": metrics,
         "failures": [

@@ -22,7 +22,13 @@ from app.evaluation.retrieval import (
 )
 
 METHOD_VERSION = "governed-evaluation-v1"
-EVIDENCE_CLASSES = {"TECHNICAL_TEST", "SYNTHETIC_REGRESSION", "EXPERT_LABELLED", "REAL_PROVIDER"}
+EVIDENCE_CLASSES = {
+    "SYNTHETIC_TEST",
+    "TECHNICAL_TEST",
+    "SYNTHETIC_REGRESSION",
+    "EXPERT_LABELLED",
+    "REAL_PROVIDER",
+}
 
 
 def edit_distance(reference: Sequence[Any], hypothesis: Sequence[Any]) -> int:
@@ -575,6 +581,7 @@ def evaluate_case(
     config = MetricConfiguration.model_validate(metric_configuration or {})
     if parsed.synthetic_observation is not None and evidence_class not in {
         "TECHNICAL_TEST",
+        "SYNTHETIC_TEST",
         "SYNTHETIC_REGRESSION",
     }:
         evidence_class = "TECHNICAL_TEST"

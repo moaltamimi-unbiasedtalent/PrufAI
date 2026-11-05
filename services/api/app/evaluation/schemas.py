@@ -62,7 +62,7 @@ class DatasetApprovalRequest(ChecksumRequest):
 
 
 class RunConfiguration(Contract):
-    dataset_split: Literal["TRAIN", "CALIBRATION", "TEST"] = "TEST"
+    dataset_split: Literal["TRAIN", "CALIBRATION", "TEST", "VALIDATION", "HELD_OUT"] = "TEST"
     standard_pack_version_id: uuid.UUID
     standard_pack_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
     rubric_version_id: uuid.UUID | None = None

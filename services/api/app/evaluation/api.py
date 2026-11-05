@@ -115,6 +115,8 @@ def dataset_cases(
     def read() -> dict[str, Any]:
         service.require(session, context, service.READ, service.REVIEW)
         row = service._version(session, version_id)
+        if any(case.get("split") == "HELD_OUT" for case in row.cases):
+            raise AuthorizationError("EVALUATION_HELD_OUT_EXPORT_FORBIDDEN")
         # Phase1 original synthetic content only; this is never a candidate-data export.
         if row.provenance.get("origin") != "ORIGINAL_SYNTHETIC":
             raise AuthorizationError("EVALUATION_PRIVATE_SOURCE_ACCESS_UNCONFIGURED")

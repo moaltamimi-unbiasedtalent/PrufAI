@@ -9,7 +9,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 EvidenceClass = Literal[
-    "TECHNICAL_TEST", "SYNTHETIC_REGRESSION", "EXPERT_LABELLED", "REAL_PROVIDER", "PILOT_CALIBRATED"
+    "SYNTHETIC_TEST",
+    "TECHNICAL_TEST",
+    "SYNTHETIC_REGRESSION",
+    "EXPERT_LABELLED",
+    "REAL_PROVIDER",
+    "PILOT_CALIBRATED",
 ]
 LabelKind = Literal["SYNTHETIC_EXPECTATION", "SINGLE_EXPERT", "ADJUDICATED_EXPERT"]
 CaseKind = Literal["TRANSCRIPTION", "WRITING", "SPEAKING", "RETRIEVAL"]
@@ -126,7 +131,7 @@ class CaseInput(Contract):
 class EvaluationCase(Contract):
     case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$")
     kind: CaseKind
-    split: Literal["TRAIN", "CALIBRATION", "TEST"] = "TEST"
+    split: Literal["TRAIN", "CALIBRATION", "TEST", "VALIDATION", "HELD_OUT"] = "TEST"
     input: CaseInput
     reference: CaseReference
     synthetic_observation: dict[str, Any] | None = None

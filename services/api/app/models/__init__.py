@@ -30,6 +30,12 @@ from app.models.exam import (
     ExamVersionSection,
     ExamVersionTask,
 )
+from app.models.expert_evaluation import (
+    EvaluationAdjudication,
+    EvaluationExaminerQualification,
+    EvaluationExpertJudgment,
+    EvaluationReference,
+)
 from app.models.identity import (
     AuthSession,
     MembershipRole,
@@ -137,6 +143,10 @@ from app.models.writing_assessment import (
 )
 
 __all__ = [
+    "EvaluationReference",
+    "EvaluationExaminerQualification",
+    "EvaluationExpertJudgment",
+    "EvaluationAdjudication",
     "EvaluationDataset",
     "EvaluationDatasetVersion",
     "EvaluationRun",

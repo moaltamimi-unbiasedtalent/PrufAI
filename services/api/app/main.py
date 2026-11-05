@@ -12,6 +12,8 @@ from app.control_center.api import router as control_center_router
 from app.dependencies import settings_dependency
 from app.evaluation.api import router as evaluation_router
 from app.evaluation.api import summary_router as evaluation_summary_router
+from app.evaluation.expert_api import router as expert_reference_router
+from app.evaluation.expert_api import summary_router as expert_reference_summary_router
 from app.exams.api import router as exam_router
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
@@ -85,6 +87,8 @@ app.include_router(result_governance_router)
 app.include_router(result_release_router)
 app.include_router(candidate_release_router)
 app.include_router(control_center_router)
+app.include_router(expert_reference_router)
+app.include_router(expert_reference_summary_router)
 app.include_router(evaluation_router)
 app.include_router(evaluation_summary_router)
 

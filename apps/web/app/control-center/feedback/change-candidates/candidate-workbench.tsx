@@ -17,6 +17,8 @@ import {
   type ReadinessDecision,
 } from "./candidate-api";
 
+import PromotionPanel from "./promotion-panel";
+
 const notReady: ReadinessDecision = "NOT_READY";
 const nonproduction: ReadinessDecision = "APPROVE_FOR_NONPRODUCTION_VALIDATION";
 
@@ -484,6 +486,10 @@ export default function CandidateWorkbench() {
             >
               <h2>Exact change candidate evidence</h2>
               <CandidateDetails candidate={selected} />
+              <PromotionPanel
+                key={selected.receipt.checksum}
+                id={selected.id}
+              />
               {selected.allowed_actions.includes("EVALUATE") && (
                 <button
                   className={css.button}

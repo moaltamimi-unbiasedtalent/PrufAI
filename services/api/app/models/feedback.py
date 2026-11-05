@@ -134,8 +134,14 @@ class FeedbackOperation(UUIDPrimaryKeyMixin, Base):
             "entity_kind", "entity_id", "revision", name="uq_feedback_operation_state"
         ),
         CheckConstraint(
-            "entity_kind IN ('FEEDBACK','PATTERN','PROPOSAL','CHANGE_CANDIDATE')",
+            "entity_kind IN ('FEEDBACK','PATTERN','PROPOSAL','CHANGE_CANDIDATE',"
+            "'PROMPT_SELECTION','PROMOTION_DENIAL','PROMPT_VALIDATE')",
             name="ck_feedback_operation_kind",
+        ),
+        CheckConstraint(
+            "entity_kind NOT IN ('PROMPT_SELECTION','PROMOTION_DENIAL','PROMPT_VALIDATE') "
+            "OR organisation_id IS NULL",
+            name="ck_feedback_operation_prompt_scope",
         ),
         CheckConstraint(
             "(revision = 1 AND previous_checksum IS NULL) OR "

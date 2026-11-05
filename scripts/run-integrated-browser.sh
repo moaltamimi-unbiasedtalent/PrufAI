@@ -14,6 +14,9 @@ REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPOSITORY_ROOT"
 export PYTHONPATH="$REPOSITORY_ROOT/services/api"
 python3 -c 'import os; from app.evaluation.disposable import assert_disposable_database; assert_disposable_database(os.environ["DATABASE_URL"])'
+# Only this guarded disposable target can resolve an isolated successor.
+export NONPRODUCTION_PROMPT_VALIDATION_ENABLED=1
+export NONPRODUCTION_PROMPT_VALIDATION_DATABASE="${PRUFAI_DISPOSABLE_DATABASE:?Set the exact owned browser database}"
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
 # Explicit synthetic technical execution only. Production refuses this adapter;
 # neither an external provider, authentic speech recognition, nor authentic

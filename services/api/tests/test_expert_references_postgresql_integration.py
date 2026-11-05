@@ -1646,3 +1646,79 @@ def test_receipt_backed_ai_reference_and_fixed_policy_ab_fail_closed(expert, ori
         with pytest.raises(ValueError):
             foundation.execute_run(session, expert.context(session), invalid)
         session.rollback()
+
+
+def test_manager_derives_from_exact_metadata_without_other_examiner_rationale(expert):
+    source, judgments, adjudication = expert.adjudicated()
+    with expert.factory() as session:
+        workbench = expert_service.workbench(session, expert.context(session), source.id)
+        assert "DERIVE_DATASET" in workbench["allowed_actions"]
+        assert workbench["qualifications"] == []
+        assert workbench["judgments"] == []
+        metadata = workbench["adjudications"][-1]
+        assert metadata == {
+            "id": str(adjudication.id),
+            "checksum": adjudication.checksum,
+            "version_number": adjudication.version_number,
+            "body": {},
+        }
+        rubric = session.get(RubricVersion, expert.rubric_id)
+        assert workbench["rubric"]["aggregation_policy"] == rubric.aggregation_policy
+        assert workbench["rubric"]["evidence_policy"] == rubric.evidence_policy
+        dataset = expert_service.derive_dataset(
+            session,
+            expert.context(session),
+            source.id,
+            ReferenceDatasetInput(
+                operation_id=uuid.uuid4(),
+                expected_checksum=source.checksum,
+                adjudication_id=metadata["id"],
+                adjudication_checksum=metadata["checksum"],
+            ),
+        )
+        session.commit()
+        assert dataset.status == "DRAFT"
+        assert dataset.provenance["adjudication_checksum"] == adjudication.checksum
+        role_ids = list(
+            session.scalars(
+                select(PlatformRoleAssignment.role_id).where(
+                    PlatformRoleAssignment.user_id == expert.actors["creator"]
+                )
+            )
+        )
+        grants = list(
+            session.scalars(
+                select(RolePermission)
+                .join(Permission)
+                .where(RolePermission.role_id.in_(role_ids), Permission.key == foundation.RUN)
+            )
+        )
+        assert grants
+        for grant in grants:
+            session.delete(grant)
+        session.flush()
+        limited = expert_service.workbench(session, expert.context(session), source.id)
+        assert "DERIVE_DATASET" not in limited["allowed_actions"]
+        assert limited["adjudications"][-1]["body"] == {}
+        session.rollback()
+        # The general run projection must preserve the actual array contract.
+        source, judgments, adjudication, published = _published_reference(expert)
+        run = expert_comparison.calibrate(
+            session,
+            expert.context(session),
+            CalibrationInput(
+                operation_id=uuid.uuid4(),
+                dataset_version_id=published.id,
+                dataset_checksum=published.checksum,
+                comparison_kind="HUMAN_A_VS_HUMAN_B",
+                left_id=judgments[0].id,
+                left_checksum=judgments[0].checksum,
+                right_id=judgments[1].id,
+                right_checksum=judgments[1].checksum,
+            ),
+        )
+        session.commit()
+        comparison = foundation.run_detail(session, expert.context(session), run.id)["comparison"]
+        distribution = comparison["criteria"][0]["disagreement_distribution"]
+        assert isinstance(distribution, list) and distribution
+        assert set(distribution[0]) == {"difference", "absolute_difference", "count", "rate"}

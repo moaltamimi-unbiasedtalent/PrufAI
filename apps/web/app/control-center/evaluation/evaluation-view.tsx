@@ -293,9 +293,11 @@ export function EvaluationRunDetails({
               ]}
               rows={detail.comparison.criteria.map((criterion) => ({
                 ...criterion,
-                disagreement_distribution: Object.entries(
-                  criterion.disagreement_distribution,
-                ).map(([difference, count]) => `${difference}: ${count}`),
+                disagreement_distribution:
+                  criterion.disagreement_distribution.map(
+                    ({ difference, absolute_difference, count, rate }) =>
+                      `Signed difference ${difference}; absolute difference ${absolute_difference}; count ${count}; rate ${rate}`,
+                  ),
               }))}
             />
           ) : (

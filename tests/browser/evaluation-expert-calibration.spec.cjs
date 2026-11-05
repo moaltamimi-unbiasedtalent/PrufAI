@@ -1,5 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const fs = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const { login, logout, screenshot } = require("./support.cjs");
 
 const prefix = "/api/v1/platform/evaluation/references";
@@ -158,6 +159,23 @@ test("SYNTHETIC_TEST reference uses real authenticated independent judgments, ad
       }),
     ).toBeVisible();
   const adjudication = await judgment(page, third, 2, true);
+  await logout(page);
+  const sourceOperator = await login(page, actor("source"));
+  const managerWorkbench = await openReference(page, referenceId);
+  expect(managerWorkbench.judgments).toHaveLength(0);
+  expect(managerWorkbench.adjudications).toHaveLength(1);
+  expect(managerWorkbench.adjudications[0]).toMatchObject({
+    id: adjudication.id,
+    checksum: adjudication.checksum,
+    body: {},
+  });
+  expect(managerWorkbench.adjudications[0].body).toEqual({});
+  expect(JSON.stringify(managerWorkbench)).not.toContain(
+    "SYNTHETIC_TEST technical rationale",
+  );
+  expect(JSON.stringify(managerWorkbench)).not.toContain(
+    "independent technical reconciliation",
+  );
   const deriveResponse = page.waitForResponse(
     (item) =>
       new URL(item.url()).pathname ===
@@ -176,6 +194,15 @@ test("SYNTHETIC_TEST reference uses real authenticated independent judgments, ad
   expect(dataset.status).toBe("DRAFT");
   expect(dataset.evidence_class).not.toBe("EXPERT_LABELLED");
   expect(dataset.evidence_class).not.toBe("PILOT_CALIBRATED");
+  const submitted = await page.request.post(
+    `/api/v1/platform/evaluation/dataset-versions/${dataset.id}/submit`,
+    {
+      headers: { Authorization: `Bearer ${sourceOperator.token}` },
+      data: { expected_checksum: dataset.checksum },
+    },
+  );
+  expect(submitted.status()).toBe(200);
+  expect((await submitted.json()).status).toBe("REVIEW_REQUIRED");
   await page.reload();
   await expect(
     page.getByText(adjudication.id, { exact: false }).first(),
@@ -216,6 +243,105 @@ test("SYNTHETIC_TEST reference uses real authenticated independent judgments, ad
     }),
   ).toBeVisible();
   await screenshot(page, "evaluation-synthetic-independent-reference.png");
+  await logout(page);
+
+  const reviewer = await login(page, actor("reviewer"));
+  const reviewHeaders = { Authorization: `Bearer ${reviewer.token}` };
+  const approved = await page.request.post(
+    `/api/v1/platform/evaluation/dataset-versions/${dataset.id}/approve`,
+    {
+      headers: reviewHeaders,
+      data: {
+        expected_checksum: dataset.checksum,
+        provenance_review_reference:
+          "synthetic:browser-independent-dataset-review",
+      },
+    },
+  );
+  expect(approved.status()).toBe(200);
+  expect((await approved.json()).status).toBe("APPROVED");
+  const published = await page.request.post(
+    `/api/v1/platform/evaluation/dataset-versions/${dataset.id}/publish`,
+    { headers: reviewHeaders, data: { expected_checksum: dataset.checksum } },
+  );
+  expect(published.status()).toBe(200);
+  expect((await published.json()).status).toBe("PUBLISHED");
+  const calibrated = await page.request.post(
+    "/api/v1/platform/evaluation/calibrations",
+    {
+      headers: reviewHeaders,
+      data: {
+        operation_id: randomUUID(),
+        dataset_version_id: dataset.id,
+        dataset_checksum: dataset.checksum,
+        comparison_kind: "HUMAN_A_VS_HUMAN_B",
+        left_id: receiptA.id,
+        left_checksum: receiptA.checksum,
+        right_id: receiptB.id,
+        right_checksum: receiptB.checksum,
+      },
+    },
+  );
+  expect(calibrated.status()).toBe(201);
+  const calibration = await calibrated.json();
+  expect(calibration.evidence_class).toBe("SYNTHETIC_TEST");
+  expect(calibration.execution_class).toBe("TEST_ONLY");
+  await page.getByRole("link", { name: "Evaluation", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Evaluation view", exact: true })
+    .selectOption("runs");
+  const detailsResponse = page.waitForResponse(
+    (item) =>
+      new URL(item.url()).pathname ===
+      `/api/v1/platform/control-center/evaluation/runs/${calibration.id}`,
+  );
+  await page
+    .getByRole("button", {
+      name: `Inspect evaluation run ${calibration.id}`,
+      exact: true,
+    })
+    .click();
+  const details = await detailsResponse;
+  expect(details.status()).toBe(200);
+  const computed = await details.json();
+  expect(computed.comparison.comparison_kind).toBe("HUMAN_A_VS_HUMAN_B");
+  expect(computed.comparison.empirical_thresholds).toBe("UNCONFIGURED");
+  expect(computed.comparison.production_activation).toBe(false);
+  expect(computed.comparison.criteria.length).toBe(
+    third.rubric.criteria.length,
+  );
+  for (const criterion of computed.comparison.criteria) {
+    expect(criterion.disagreement_distribution).toHaveLength(1);
+    const distribution = criterion.disagreement_distribution[0];
+    expect(Number(distribution.difference)).toBe(-1);
+    expect(Number(distribution.absolute_difference)).toBe(1);
+    expect(distribution.count).toBe(1);
+    expect(distribution.rate).toBe(1);
+  }
+  const comparison = page.getByRole("region", {
+    name: "Exact reference calibration comparison",
+    exact: true,
+  });
+  await expect(comparison).toContainText("HUMAN_A_VS_HUMAN_B");
+  await expect(comparison).toContainText("UNCONFIGURED");
+  await expect(comparison).toContainText(receiptA.id);
+  await expect(comparison).toContainText(receiptB.id);
+  const distribution =
+    computed.comparison.criteria[0].disagreement_distribution[0];
+  await expect(
+    page.getByRole("table", {
+      name: "Comparison criterion coverage",
+      exact: true,
+    }),
+  ).toContainText(
+    `Signed difference ${distribution.difference}; absolute difference ${distribution.absolute_difference}; count 1; rate 1`,
+  );
+  await expect(comparison).not.toContainText("[object Object]");
+  await expect(
+    page.getByRole("region", { name: "Evaluation run details", exact: true }),
+  ).toContainText("Evidence class: SYNTHETIC_TEST");
+  expect(JSON.stringify(computed)).not.toContain(privateText);
+  await screenshot(page, "evaluation-synthetic-comparison.png");
   await logout(page);
 
   const candidate = await login(page, "candidate@demo.prufai.local");

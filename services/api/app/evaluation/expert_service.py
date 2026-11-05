@@ -581,7 +581,7 @@ def workbench(session: Session, context: TenantContext, identifier: uuid.UUID) -
             .order_by(EvaluationAdjudication.version_number)
         )
     )
-    if manager and adjudications:
+    if manager and foundation.RUN in trusted.platform_permissions and adjudications:
         actions.append("DERIVE_DATASET")
     rubric = (
         session.get(RubricVersion, uuid.UUID(source.body["rubric_version_id"]))
@@ -591,7 +591,12 @@ def workbench(session: Session, context: TenantContext, identifier: uuid.UUID) -
     return {
         "reference": reference_summary(session, source),
         "source": source.body,
-        "rubric": {"criteria": rubric.criteria, "performance_levels": rubric.performance_levels}
+        "rubric": {
+            "criteria": rubric.criteria,
+            "performance_levels": rubric.performance_levels,
+            "aggregation_policy": rubric.aggregation_policy,
+            "evidence_policy": rubric.evidence_policy,
+        }
         if rubric
         else None,
         "qualifications": qualifications,
@@ -610,10 +615,10 @@ def workbench(session: Session, context: TenantContext, identifier: uuid.UUID) -
                 "id": str(a.id),
                 "checksum": a.checksum,
                 "version_number": a.version_number,
-                "body": a.body,
+                "body": a.body if independent or a.adjudicator_id == context.user_id else {},
             }
             for a in adjudications
-            if independent or a.adjudicator_id == context.user_id
+            if manager or independent or a.adjudicator_id == context.user_id
         ],
         "allowed_actions": actions,
     }

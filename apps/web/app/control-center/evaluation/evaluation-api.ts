@@ -42,7 +42,11 @@ export type EvaluationRun = {
   dataset_checksum: string;
   status: "COMPLETED" | "FAILED";
   hard_gate: "PASS" | "FAIL";
-  execution_class: "TEST_ONLY" | "REAL_PROVIDER" | "NOT_RUN";
+  execution_class:
+    | "TEST_ONLY"
+    | "REAL_PROVIDER"
+    | "HUMAN_REFERENCE"
+    | "NOT_RUN";
   evidence_class: EvaluationEvidenceClass;
   case_count: number;
   failure_count: number;
@@ -121,7 +125,12 @@ export type EvaluationRunDetail = {
       criterion_code: string;
       expected_count: number;
       sample_size: number;
-      disagreement_distribution: Record<string, number>;
+      disagreement_distribution: {
+        difference: string;
+        absolute_difference: string;
+        count: number;
+        rate: number;
+      }[];
     }[];
     limitations: string[];
     production_activation: false;

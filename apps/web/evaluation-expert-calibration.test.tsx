@@ -121,7 +121,14 @@ describe("expert reference UI preserves evidence boundaries", () => {
             criterion_code: "TASK",
             expected_count: 1,
             sample_size: 1,
-            disagreement_distribution: { "-1": 1 },
+            disagreement_distribution: [
+              {
+                difference: "-1.0000",
+                absolute_difference: "1.0000",
+                count: 1,
+                rate: 1,
+              },
+            ],
           },
         ],
         limitations: ["No expert calibration"],
@@ -145,7 +152,10 @@ describe("expert reference UI preserves evidence boundaries", () => {
     expect(html).toContain("exact-left");
     expect(html).toContain("exact-right");
     expect(html).toContain("One synthetic case");
-    expect(html).toContain("-1: 1");
+    expect(html).toContain(
+      "Signed difference -1.0000; absolute difference 1.0000; count 1; rate 1",
+    );
+    expect(html).not.toContain("[object Object]");
     expect(html).toContain("UNCONFIGURED");
     expect(html).toContain("NOT_ESTABLISHED");
     expect(html).toContain("Not authorized");

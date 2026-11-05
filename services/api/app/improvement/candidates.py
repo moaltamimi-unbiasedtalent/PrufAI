@@ -19,7 +19,7 @@ from app.evaluation.regression_registry import METHOD_KEYS, verify_regression_su
 from app.evaluation.replay import SOURCE_KEYS
 from app.feedback import common, proposals
 from app.feedback.common import FeedbackConflict, Pin
-from app.feedback.targets import TargetPin, resolve_target
+from app.feedback.targets import CURRENT, TargetPin, resolve_target
 from app.models import EvaluationDataset, EvaluationDatasetVersion, EvaluationRun, PromptVersion
 from app.models.enums import AIArtifactStatus
 from app.models.feedback import (
@@ -34,6 +34,7 @@ from app.writing_assessment.service import canonical_checksum
 KIND = "CHANGE_CANDIDATE"
 CREATED = "change_candidate_created"
 CHANGE = "CLEAR_LEGACY_INSTRUCTIONS"
+HYPOTHESIS = "PREVENT_RECORDED_FAILURE"
 PURPOSE = "WRITING_ASSESSMENT"
 ADAPTER = "OFFLINE_PROMPT_POLICY_EVAL_V1"
 SCOPE = ("assessment_family", "skill", "language", "cefr_level")
@@ -308,6 +309,18 @@ def require_current_candidate_authority(
         current=True,
         lock=lock,
     )
+    target = TargetPin.model_validate(
+        {key: row.body["target"][key] for key in ("type", "id", "checksum")}
+    )
+    if lock:
+        current_target = resolve_target(session, target)
+    else:
+        prompt = _read_prompt(session, target)
+        if prompt.status.value not in CURRENT:
+            raise FeedbackConflict("FEEDBACK_TARGET_VERSION_MISMATCH")
+        current_target = _target_projection(prompt)
+    if current_target != row.body["target"]:
+        raise FeedbackConflict("FEEDBACK_TARGET_VERSION_MISMATCH")
 
 
 def create_change_candidate(
@@ -333,6 +346,8 @@ def create_change_candidate(
         )
     ):
         raise FeedbackConflict("CHANGE_CANDIDATE_ALREADY_EXISTS")
+    if proposal.body["hypothesis_code"] != HYPOTHESIS:
+        raise FeedbackConflict("CHANGE_CANDIDATE_HYPOTHESIS_UNSUPPORTED")
     target = resolve_target(session, TargetPin.model_validate(payload.target.model_dump()))
     if target != proposal.body["target"] or proposal.body["change_category"] not in {
         "PROMPT_REVISION",

@@ -131,8 +131,8 @@ export function CandidateDetails({
       </p>
       {candidate.proposal_authority_current === false && (
         <p role="status" className={css.notice}>
-          The proposal approval or its confirmed feedback has changed. This
-          candidate remains available as history.
+          The proposal, its confirmed feedback, or the target prompt is no
+          longer current. This candidate remains available as history.
         </p>
       )}
       {evaluation && evaluation.case_differences.length > 0 && (
@@ -279,7 +279,9 @@ export default function CandidateWorkbench() {
 
   const eligibleProposal =
     proposal?.status === "APPROVED_FOR_EVALUATION" &&
-    proposal.target.type === "PROMPT_VERSION"
+    proposal.target.type === "PROMPT_VERSION" &&
+    proposal.hypothesis_code === "PREVENT_RECORDED_FAILURE" &&
+    ["PROMPT_REVISION", "VALIDATION_GUARD"].includes(proposal.change_category)
       ? proposal
       : null;
   const canApproveNonproduction =
@@ -351,7 +353,8 @@ export default function CandidateWorkbench() {
               </form>
               {proposal && !eligibleProposal && (
                 <p role="alert">
-                  This version must be an approved PromptVersion proposal.
+                  Use a PromptVersion proposal approved for evaluation to
+                  prevent a recorded failure.
                 </p>
               )}
               {eligibleProposal && (

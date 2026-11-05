@@ -7,7 +7,9 @@ feedback, target, draft, suite and baseline run are pinned by ID and checksum.
 Institution context and candidate accounts cannot access this workflow.
 
 The first supported change clears the optional legacy instruction block of a
-versioned Writing prompt. The service creates a real draft in the same prompt
+versioned Writing prompt to prevent a recorded request-policy failure. Proposals
+about reference agreement, evidence grounding or recovery are outside this
+lane. A retired baseline blocks new evaluation and review but preserves history. The service creates a real draft in the same prompt
 definition, preserves its system template, schemas and configuration, and
 never accepts a prompt body or instructions from feedback. The source prompt
 stays unchanged. PostgreSQL seals the linked draft against edits, deletion and
@@ -21,6 +23,9 @@ digest and the measured checks for channel isolation, user input identity,
 strict schema configuration and tool/storage authority. The existing
 EvaluationRun, EvaluationCaseResult and dynamic regression suite preserve
 the paired evidence, its denominators, missing coverage and safe differences.
+The promotion path supports measured failing cases. If the published suite
+cannot include the entire pinned cohort, including any already passing controls,
+the comparison remains `NOT_COMPARABLE`.
 
 The evidence is `TECHNICAL_TEST`, `TEST_ONLY`, with `model_execution=NOT_RUN`.
 It measures request construction. Model output schema compliance, actual

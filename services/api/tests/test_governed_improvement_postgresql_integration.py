@@ -122,7 +122,9 @@ class Scenario:
     cases: list[dict]
 
 
-def _setup(expert, *, retained_canary=False, partial_suite=False):
+def _setup(
+    expert, *, retained_canary=False, partial_suite=False, hypothesis="PREVENT_RECORDED_FAILURE"
+):
     cases = [_case(), _case()]
     tokens = [case["input"]["text"] for case in cases]
     settings = Settings(_env_file=None, environment="test", writing_test_adapter_enabled=True)
@@ -203,7 +205,7 @@ def _setup(expert, *, retained_canary=False, partial_suite=False):
                     "pattern": _summary_pin(pattern),
                     "target": target,
                     "change_category": "PROMPT_REVISION",
-                    "hypothesis_code": "PREVENT_RECORDED_FAILURE",
+                    "hypothesis_code": hypothesis,
                     "suite_version": _pin(suite),
                     "baseline_run": _pin(baseline),
                 }
@@ -710,3 +712,45 @@ def test_existing_execution_profile_qualification_rejects_sealed_draft(expert):
         assert workflow.status == scenario.prompt.status == AIArtifactStatus.PUBLISHED
         assert draft.approved_at is None and draft.published_at is None
         assert writing_registry.approved_profile_record(session, snapshot) is None
+
+
+@pytest.mark.parametrize("transition", ["evaluate", "review"])
+def test_retired_baseline_blocks_new_transitions_but_preserves_history(expert, transition):
+    scenario = _setup(expert)
+    with expert.factory() as session:
+        row = _create(expert, session, scenario)
+        receipt = None
+        if transition == "review":
+            receipt, _ = _evaluate(expert, session, row)
+        baseline = session.get(PromptVersion, scenario.prompt.id)
+        assert baseline is not None and baseline.checksum == scenario.prompt.checksum
+        baseline.status = AIArtifactStatus.DEPRECATED
+        session.commit()
+        reviewer = expert.context(session, "adjudicator")
+        before = readiness.candidate_detail(session, reviewer, row)
+        assert before["proposal_authority_current"] is False and before["allowed_actions"] == []
+        with pytest.raises(FeedbackConflict, match="TARGET_VERSION_MISMATCH"):
+            if receipt is None:
+                _evaluate(expert, session, row)
+            else:
+                readiness.review_candidate(session, reviewer, row.id, _approve(receipt))
+        session.rollback()
+        after = readiness.candidate_detail(session, reviewer, row)
+        assert before["receipt"] == after["receipt"] and before["history"] == after["history"]
+
+
+def test_expert_agreement_proposal_cannot_use_offline_prompt_policy_lane(expert):
+    scenario = _setup(expert, hypothesis="IMPROVE_REFERENCE_AGREEMENT")
+    with expert.factory() as session:
+        creator = expert.context(session)
+        with pytest.raises(FeedbackConflict, match="HYPOTHESIS_UNSUPPORTED"):
+            candidates.create_change_candidate(session, creator, scenario.payload)
+        session.rollback()
+        assert (
+            session.scalar(
+                select(GovernedChangeCandidate.id).where(
+                    GovernedChangeCandidate.proposal_version_id == scenario.payload.proposal.id
+                )
+            )
+            is None
+        )

@@ -2,6 +2,7 @@ import { authenticatedFetch } from "../../../lib/api";
 import { PlatformApiError } from "../control-api";
 
 export type EvaluationEvidenceClass =
+  | "SYNTHETIC_TEST"
   | "TECHNICAL_TEST"
   | "SYNTHETIC_REGRESSION"
   | "EXPERT_LABELLED"
@@ -53,7 +54,7 @@ export type EvaluationRun = {
 export type EvaluationPins = {
   dataset_version_id: string;
   dataset_checksum: string;
-  dataset_split: "TRAIN" | "CALIBRATION" | "TEST";
+  dataset_split: "TRAIN" | "CALIBRATION" | "TEST" | "VALIDATION" | "HELD_OUT";
   standard_pack_version_id: string;
   standard_pack_checksum: string;
   rubric_version_id: string | null;
@@ -99,6 +100,32 @@ export type EvaluationRunDetail = {
     created_at: string;
   }[];
   limitations: string[];
+  comparison?: {
+    comparison_kind: string;
+    left: {
+      kind: string;
+      version_id: string;
+      checksum: string;
+      execution_class: string;
+    };
+    right: {
+      kind: string;
+      version_id: string;
+      checksum: string;
+      execution_class: string;
+    };
+    empirical_thresholds: string;
+    quality_claim: string;
+    uncertainty: Record<string, unknown>;
+    criteria: {
+      criterion_code: string;
+      expected_count: number;
+      sample_size: number;
+      disagreement_distribution: Record<string, number>;
+    }[];
+    limitations: string[];
+    production_activation: false;
+  };
 };
 
 const prefix = "/api/v1/platform/control-center/evaluation";

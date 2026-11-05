@@ -13,6 +13,7 @@ fi
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPOSITORY_ROOT"
 export PYTHONPATH="$REPOSITORY_ROOT/services/api"
+python3 -c 'import os; from app.evaluation.disposable import assert_disposable_database; assert_disposable_database(os.environ["DATABASE_URL"])'
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
 # Explicit synthetic technical execution only. Production refuses this adapter;
 # neither an external provider, authentic speech recognition, nor authentic
@@ -65,12 +66,10 @@ PY
 export PRUFAI_API_BASE_URL="http://127.0.0.1:$INTEGRATED_API_PORT"
 export PRUFAI_E2E_BASE_URL="http://127.0.0.1:$INTEGRATED_WEB_PORT"
 
-(
-  cd services/api
-  python3 -c 'from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config("alembic.ini")).get_heads(); assert len(heads)==1, heads; print("Dynamic Alembic head:", heads[0])'
-  python3 -m alembic upgrade head
-)
+python3 scripts/migrate-evaluation-disposable.py
 python3 -m app.scripts.seed_demo
+export PRUFAI_E2E_REFERENCE_MANIFEST="$PRUFAI_E2E_ARTIFACT_DIR/evaluation-reference.json"
+python3 scripts/seed-evaluation-browser.py
 # Next.js records rewrites at build time. Build with this runner's exact API
 # target so a prior build cannot silently proxy to another local environment.
 npm run build --prefix apps/web >"$PRUFAI_E2E_ARTIFACT_DIR/build.log" 2>&1 || {

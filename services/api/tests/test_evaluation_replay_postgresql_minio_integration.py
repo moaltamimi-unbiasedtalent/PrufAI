@@ -13,6 +13,9 @@ import pytest
 from sqlalchemy import func, select
 
 from app.auth.service import AuthenticationService
+from app.authorization import AuthorizationError, build_tenant_context
+from app.evaluation.expert_evidence import validate_reference_source
+from app.evaluation.expert_schemas import SourceInput
 from app.models import (
     AIRun,
     CandidateExamAttempt,
@@ -230,6 +233,8 @@ def test_actual_existing_worker_receipt_is_replayed_with_private_authority(
             model.__name__: session.scalar(select(func.count()).select_from(model))
             for model in (AIRun, HumanReviewRequest)
         }
+        if pinned.kind == "WRITING":
+            _assert_submitted_writing_reference(pinned, session)
     # A platform reviewer has no institution membership: existing private worker
     # evidence cannot be read merely by holding global evaluation authority.
     scenario.request("POST", PREFIX + "/runs", actor="reviewer", json=run_request, expected=403)
@@ -249,6 +254,75 @@ def test_actual_existing_worker_receipt_is_replayed_with_private_authority(
             model.__name__: session.scalar(select(func.count()).select_from(model))
             for model in (AIRun, HumanReviewRequest)
         }
+
+
+def _assert_submitted_writing_reference(pinned: PinnedScenario, session: Any) -> None:
+    """Read the existing submitted fixture through the new human-reference resolver."""
+    scenario = pinned.evaluator
+    payload = SourceInput(
+        operation_id=uuid.uuid4(),
+        code="synthetic-submitted-writing-reference",
+        organisation_id=pinned.organisation_id,
+        kind="WRITING",
+        split="VALIDATION",
+        origin="ORIGINAL_SYNTHETIC",
+        language="de",
+        assessment_family="LANGUAGE",
+        cefr_level="B1",
+        retention_classification="SYNTHETIC_TEST",
+        source_reference="synthetic:existing-writing-receipt",
+        rights_approval_reference="synthetic:owned-original",
+        processing_approval_reference="synthetic:submitted-fixture-processing",
+        known_lineage_reference="synthetic:writing:" + str(pinned.job_id),
+        input=pinned.case["input"],
+        **{
+            key: pinned.configuration[key]
+            for key in (
+                "standard_pack_version_id",
+                "standard_pack_checksum",
+                "rubric_version_id",
+                "rubric_checksum",
+                "question_bank_item_version_id",
+                "item_checksum",
+            )
+        },
+    )
+    creator = build_tenant_context(session, scenario.actors["creator"])
+    resolved = validate_reference_source(session, creator, payload)
+    assert resolved["evidence_class"] == "SYNTHETIC_TEST"
+    assert resolved["body"]["input"]["text"] == pinned.case["input"]["text"]
+    assert (
+        resolved["body"]["input"]["evidence_identity"] == pinned.case["input"]["evidence_identity"]
+    )
+    for changed, reason in (
+        ({"text": payload.input.text + " tampered"}, "REFERENCE_WRITING_TEXT_MISMATCH"),
+        (
+            {
+                "evidence_identity": {
+                    **payload.input.evidence_identity,
+                    "response_checksum": "0" * 64,
+                }
+            },
+            "REFERENCE_SUBMITTED_RESPONSE_PIN_MISMATCH",
+        ),
+        (
+            {
+                "evidence_identity": {
+                    **payload.input.evidence_identity,
+                    "response_revision_id": str(uuid.uuid4()),
+                }
+            },
+            "REFERENCE_RESPONSE_UNAVAILABLE",
+        ),
+    ):
+        tampered = payload.model_copy(update={"input": payload.input.model_copy(update=changed)})
+        with pytest.raises(ValueError, match=reason):
+            validate_reference_source(session, creator, tampered)
+    with pytest.raises(AuthorizationError):
+        validate_reference_source(
+            session, build_tenant_context(session, scenario.actors["reviewer"]), payload
+        )
+    assert not session.new and not session.dirty
 
 
 def _assert_source_drift_rejected(pinned: PinnedScenario, detail: dict[str, Any]) -> None:

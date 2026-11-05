@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Iterable, Sequence, cast
 
 from app.evaluation.retrieval import (
-    QualityGate,
     mean_reciprocal_rank,
     ndcg_at_k,
     precision_at_k,
@@ -22,11 +21,11 @@ class EvaluationSummary:
     precision_at_5: float
     mrr: float
     ndcg_at_5: float
-    provider_contamination_rate: float
-    assessment_contamination_rate: float
-    scope_compliance_rate: float
-    citation_validity_rate: float
-    historical_version_accuracy: float
+    provider_contamination_rate: float | None
+    assessment_contamination_rate: float | None
+    scope_compliance_rate: float | None
+    citation_validity_rate: float | None
+    historical_version_accuracy: float | None
     gate: str
 
 
@@ -85,7 +84,6 @@ def evaluate_ranked_cases(
         values
     )
     ndcg = sum(ndcg_at_k(expected, retrieved, 5) for expected, retrieved in values) / len(values)
-    gate = QualityGate().passed()
     return EvaluationSummary(
         dataset=dataset,
         version=version,
@@ -93,12 +91,12 @@ def evaluate_ranked_cases(
         precision_at_5=precision,
         mrr=mrr,
         ndcg_at_5=ndcg,
-        provider_contamination_rate=0.0,
-        assessment_contamination_rate=0.0,
-        scope_compliance_rate=1.0,
-        citation_validity_rate=1.0,
-        historical_version_accuracy=1.0,
-        gate="PASS" if gate else "FAIL",
+        provider_contamination_rate=None,
+        assessment_contamination_rate=None,
+        scope_compliance_rate=None,
+        citation_validity_rate=None,
+        historical_version_accuracy=None,
+        gate="NOT_AVAILABLE",
     )
 
 

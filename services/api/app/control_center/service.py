@@ -28,10 +28,12 @@ SECTION_PERMISSIONS = {
     "ai-operations": ("ai.read",),
     "system": ("platform.system.read",),
     "certification": ("certification.read",),
+    "evaluation": ("standards.evaluation.read",),
 }
 SAFE_EVENT_PREFIXES = frozenset(
     {
         "auth",
+        "evaluation",
         "organisation",
         "organisation_site",
         "membership",

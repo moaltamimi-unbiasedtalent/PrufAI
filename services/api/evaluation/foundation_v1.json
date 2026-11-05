@@ -1,0 +1,468 @@
+[
+  {
+    "code": "foundation-transcription-v1",
+    "organisation_id": null,
+    "assessment_family": "LANGUAGE",
+    "language": "de",
+    "cefr_level": "B1",
+    "exam_scope": "ORIGINAL_SYNTHETIC_TECHNICAL_ONLY",
+    "skill": "TRANSCRIPTION",
+    "purpose": "TECHNICAL_CORRECTNESS_NOT_LANGUAGE_VALIDITY",
+    "origin": "ORIGINAL_SYNTHETIC",
+    "source_legal_status": "OWNED_ORIGINAL",
+    "source_reference": "repository:evaluation/foundation_v1.json",
+    "label_provenance": "SYNTHETIC_EXPECTATION",
+    "expert_review_status": "NOT_EXPERT_REVIEWED",
+    "retention_classification": "SYNTHETIC_TEST",
+    "cases": [
+      {
+        "case_id": "transcription-identity-positive",
+        "kind": "TRANSCRIPTION",
+        "split": "TEST",
+        "input": {
+          "language": "de",
+          "modality": "AUDIO",
+          "audio_kind": "TECHNICAL_TONE",
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "duration_ms": 1000,
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "text": "Guten Tag",
+          "language": "de",
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "synthetic_observation": {
+          "text": "Guten Tag",
+          "language": "de",
+          "modality": "AUDIO",
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      },
+      {
+        "case_id": "transcription-identity-negative",
+        "kind": "TRANSCRIPTION",
+        "split": "TEST",
+        "input": {
+          "language": "de",
+          "modality": "AUDIO",
+          "audio_kind": "TECHNICAL_TONE",
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "duration_ms": 1000,
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "adversarial": true
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "text": "Guten Tag",
+          "language": "de",
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "synthetic_observation": {
+          "text": "Guten guten Tag",
+          "language": "en",
+          "modality": "AUDIO",
+          "audio_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "evidence_identity": {
+            "fixture_reference": "audio-identity-only-no-recording",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "actions": [
+            "APPROVE_ASSESSMENT"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "code": "foundation-writing-v1",
+    "organisation_id": null,
+    "assessment_family": "LANGUAGE",
+    "language": "de",
+    "cefr_level": "B1",
+    "exam_scope": "ORIGINAL_SYNTHETIC_TECHNICAL_ONLY",
+    "skill": "WRITING",
+    "purpose": "TECHNICAL_CORRECTNESS_NOT_LANGUAGE_VALIDITY",
+    "origin": "ORIGINAL_SYNTHETIC",
+    "source_legal_status": "OWNED_ORIGINAL",
+    "source_reference": "repository:evaluation/foundation_v1.json",
+    "label_provenance": "SYNTHETIC_EXPECTATION",
+    "expert_review_status": "NOT_EXPERT_REVIEWED",
+    "retention_classification": "SYNTHETIC_TEST",
+    "cases": [
+      {
+        "case_id": "writing-criterion-positive",
+        "kind": "WRITING",
+        "split": "TEST",
+        "input": {
+          "text": "Ich möchte am Samstag die Bibliothek besuchen.",
+          "language": "de",
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "criteria": [
+            {
+              "code": "CONTENT",
+              "points": "2",
+              "max_points": "4"
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          }
+        },
+        "synthetic_observation": {
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          },
+          "criteria": [
+            {
+              "criterion_code": "CONTENT",
+              "proposed_points": "2",
+              "evidence": [
+                {
+                  "start": 26,
+                  "end": 36,
+                  "quote": "Bibliothek"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "case_id": "writing-criterion-negative",
+        "kind": "WRITING",
+        "split": "TEST",
+        "input": {
+          "text": "Ich möchte am Samstag die Bibliothek besuchen.",
+          "language": "de",
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "criteria": [
+            {
+              "code": "CONTENT",
+              "points": "2",
+              "max_points": "4"
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          }
+        },
+        "synthetic_observation": {
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-writing-text"
+          },
+          "criteria": [
+            {
+              "criterion_code": "CONTENT",
+              "proposed_points": "5",
+              "evidence": [
+                {
+                  "start": 26,
+                  "end": 36,
+                  "quote": "nicht vorhandenes Zitat"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "code": "foundation-speaking-v1",
+    "organisation_id": null,
+    "assessment_family": "LANGUAGE",
+    "language": "de",
+    "cefr_level": "B1",
+    "exam_scope": "ORIGINAL_SYNTHETIC_TECHNICAL_ONLY",
+    "skill": "SPEAKING",
+    "purpose": "TECHNICAL_CORRECTNESS_NOT_LANGUAGE_VALIDITY",
+    "origin": "ORIGINAL_SYNTHETIC",
+    "source_legal_status": "OWNED_ORIGINAL",
+    "source_reference": "repository:evaluation/foundation_v1.json",
+    "label_provenance": "SYNTHETIC_EXPECTATION",
+    "expert_review_status": "NOT_EXPERT_REVIEWED",
+    "retention_classification": "SYNTHETIC_TEST",
+    "cases": [
+      {
+        "case_id": "speaking-span-positive",
+        "kind": "SPEAKING",
+        "split": "TEST",
+        "input": {
+          "language": "de",
+          "modality": "AUDIO",
+          "audio_kind": "TECHNICAL_TONE",
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "duration_ms": 1000,
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "criteria": [
+            {
+              "code": "CONTENT",
+              "points": "2",
+              "max_points": "4"
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "synthetic_observation": {
+          "modality": "AUDIO",
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "criteria": [
+            {
+              "criterion_code": "CONTENT",
+              "proposed_points": "2",
+              "evidence": [
+                {
+                  "type": "AUDIO",
+                  "candidate_media_asset_id": "synthetic-asset-identity-only",
+                  "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "start_ms": 0,
+                  "end_ms": 500
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "case_id": "speaking-span-negative",
+        "kind": "SPEAKING",
+        "split": "TEST",
+        "input": {
+          "language": "de",
+          "modality": "AUDIO",
+          "audio_kind": "TECHNICAL_TONE",
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "duration_ms": 1000,
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "criteria": [
+            {
+              "code": "CONTENT",
+              "points": "2",
+              "max_points": "4"
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "synthetic_observation": {
+          "modality": "TRANSCRIPT",
+          "evidence_identity": {
+            "fixture_reference": "audio-span-only-no-recording",
+            "candidate_media_asset_id": "synthetic-asset-identity-only",
+            "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "criteria": [
+            {
+              "criterion_code": "CONTENT",
+              "proposed_points": "2",
+              "evidence": [
+                {
+                  "type": "AUDIO",
+                  "candidate_media_asset_id": "synthetic-asset-identity-only",
+                  "audio_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                  "start_ms": 0,
+                  "end_ms": 1001
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "code": "foundation-retrieval-v1",
+    "organisation_id": null,
+    "assessment_family": "LANGUAGE",
+    "language": "de",
+    "cefr_level": "B1",
+    "exam_scope": "ORIGINAL_SYNTHETIC_TECHNICAL_ONLY",
+    "skill": "RETRIEVAL",
+    "purpose": "TECHNICAL_CORRECTNESS_NOT_LANGUAGE_VALIDITY",
+    "origin": "ORIGINAL_SYNTHETIC",
+    "source_legal_status": "OWNED_ORIGINAL",
+    "source_reference": "repository:evaluation/foundation_v1.json",
+    "label_provenance": "SYNTHETIC_EXPECTATION",
+    "expert_review_status": "NOT_EXPERT_REVIEWED",
+    "retention_classification": "SYNTHETIC_TEST",
+    "cases": [
+      {
+        "case_id": "retrieval-source-positive",
+        "kind": "RETRIEVAL",
+        "split": "TEST",
+        "input": {
+          "text": "Wann öffnet die Bibliothek in diesem Originalbeispiel?",
+          "language": "de",
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "sources": [
+            {
+              "id": "original-synthetic-library-source",
+              "version_id": "original-synthetic-version-1",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "organisation_id": null,
+              "authorized": true,
+              "text": "Dieses Originalbeispiel beschreibt eine Bibliothek. Die Bibliothek öffnet um neun Uhr.",
+              "relevant": true
+            }
+          ],
+          "citation_support": [
+            {
+              "source_id": "original-synthetic-library-source",
+              "quote": "Die Bibliothek öffnet um neun Uhr.",
+              "supported": true
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          }
+        },
+        "synthetic_observation": {
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          },
+          "retrieved": [
+            {
+              "id": "original-synthetic-library-source",
+              "version_id": "original-synthetic-version-1",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "organisation_id": null,
+              "text": "Dieses Originalbeispiel beschreibt eine Bibliothek. Die Bibliothek öffnet um neun Uhr."
+            }
+          ],
+          "citations": [
+            {
+              "source_id": "original-synthetic-library-source",
+              "version_id": "original-synthetic-version-1",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "quote": "Die Bibliothek öffnet um neun Uhr."
+            }
+          ]
+        }
+      },
+      {
+        "case_id": "retrieval-source-negative",
+        "kind": "RETRIEVAL",
+        "split": "TEST",
+        "input": {
+          "text": "Wann öffnet die Bibliothek in diesem Originalbeispiel?",
+          "language": "de",
+          "modality": "TEXT",
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          }
+        },
+        "reference": {
+          "label_kind": "SYNTHETIC_EXPECTATION",
+          "sources": [
+            {
+              "id": "original-synthetic-library-source",
+              "version_id": "original-synthetic-version-1",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "organisation_id": null,
+              "authorized": true,
+              "text": "Dieses Originalbeispiel beschreibt eine Bibliothek. Die Bibliothek öffnet um neun Uhr.",
+              "relevant": true
+            }
+          ],
+          "citation_support": [
+            {
+              "source_id": "original-synthetic-library-source",
+              "quote": "Die Bibliothek öffnet um neun Uhr.",
+              "supported": true
+            }
+          ],
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          }
+        },
+        "synthetic_observation": {
+          "evidence_identity": {
+            "fixture_reference": "original-synthetic-library-catalog"
+          },
+          "retrieved": [
+            {
+              "id": "original-synthetic-library-source",
+              "version_id": "unapproved-stale-version",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "organisation_id": null,
+              "text": "Dieses Originalbeispiel beschreibt eine Bibliothek. Die Bibliothek öffnet um neun Uhr."
+            }
+          ],
+          "citations": [
+            {
+              "source_id": "original-synthetic-library-source",
+              "version_id": "original-synthetic-version-1",
+              "checksum": "89ea5af8805ddab1880aa43acde17b95368408d0e6ad6facd01e1dc4e4f6d613",
+              "quote": "Die Bibliothek ist geschlossen."
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

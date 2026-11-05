@@ -68,7 +68,8 @@ def test_retrieval_metrics_and_quality_gate() -> None:
     assert precision_at_k({"a"}, ["a", "c"], 2) == 0.5
     assert mean_reciprocal_rank({"b"}, ["a", "b"]) == 0.5
     assert ndcg_at_k({"a"}, ["a"], 1) == 1.0
-    assert QualityGate().passed()
+    assert not QualityGate().passed()
+    assert QualityGate(0.0, 0.0, 1.0, 1.0, 1.0).passed()
     assert not QualityGate(provider_contamination_rate=0.1).passed()
     assert not QualityGate(assessment_contamination_rate=0.1).passed()
     assert not QualityGate(scope_compliance_rate=0.99).passed()
@@ -85,4 +86,6 @@ def test_synthetic_baseline_is_reproducible() -> None:
     assert baseline.after.mrr == 0.9166666666666666
     assert baseline.before.ndcg_at_5 == 0.6616856074405029
     assert baseline.after.ndcg_at_5 == 1.0
-    assert baseline.after.gate == "PASS"
+    assert baseline.after.gate == "NOT_AVAILABLE"
+    assert baseline.after.citation_validity_rate is None
+    assert baseline.after.historical_version_accuracy is None

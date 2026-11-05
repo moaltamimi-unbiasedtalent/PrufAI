@@ -165,8 +165,8 @@ export type FeedbackRecords = {
   proposals: Proposal;
 };
 
-const readPrefix = "/api/v1/platform/control-center/feedback";
-const writePrefix = "/api/v1/platform/feedback";
+export const feedbackReadPrefix = "/api/v1/platform/control-center/feedback";
+export const feedbackWritePrefix = "/api/v1/platform/feedback";
 const tenantPath = (id: string) =>
   `/api/v1/organisations/${encodeURIComponent(id)}/feedback`;
 
@@ -184,7 +184,10 @@ export class FeedbackApiError extends Error {
   }
 }
 
-async function request<T>(path: string, data?: object): Promise<T> {
+export async function feedbackRequest<T>(
+  path: string,
+  data?: object,
+): Promise<T> {
   const response = await authenticatedFetch(
     path,
     data ? { method: "POST", body: JSON.stringify(data) } : undefined,
@@ -196,38 +199,38 @@ async function request<T>(path: string, data?: object): Promise<T> {
 type Operation = { operation_id: string };
 export const feedbackApi = {
   list: <K extends FeedbackSection>(section: K, offset: number) =>
-    request<EvaluationPage<FeedbackRecords[K]>>(
-      `${readPrefix}/${section}?${new URLSearchParams({ offset: String(offset), limit: "20" })}`,
+    feedbackRequest<EvaluationPage<FeedbackRecords[K]>>(
+      `${feedbackReadPrefix}/${section}?${new URLSearchParams({ offset: String(offset), limit: "20" })}`,
     ),
   detail: <K extends FeedbackSection>(section: K, id: string) =>
-    request<FeedbackRecords[K]>(
-      `${readPrefix}/${section}/${encodeURIComponent(id)}`,
+    feedbackRequest<FeedbackRecords[K]>(
+      `${feedbackReadPrefix}/${section}/${encodeURIComponent(id)}`,
     ),
   intake: (data: Intake & Operation) =>
-    request<FeedbackItem>(`${writePrefix}/items`, data),
+    feedbackRequest<FeedbackItem>(`${feedbackWritePrefix}/items`, data),
   decide: (
     id: string,
     data: Decision<FeedbackAction> & Partial<Classification> & Operation,
   ) =>
-    request<FeedbackItem>(
-      `${writePrefix}/items/${encodeURIComponent(id)}/decision`,
+    feedbackRequest<FeedbackItem>(
+      `${feedbackWritePrefix}/items/${encodeURIComponent(id)}/decision`,
       data,
     ),
   pattern: (data: { anchor: Pin } & Operation) =>
-    request<Pattern>(`${writePrefix}/patterns`, data),
+    feedbackRequest<Pattern>(`${feedbackWritePrefix}/patterns`, data),
   propose: (data: ProposalInput & Operation) =>
-    request<Proposal>(`${writePrefix}/proposals`, data),
+    feedbackRequest<Proposal>(`${feedbackWritePrefix}/proposals`, data),
   review: (id: string, data: Decision<ProposalAction> & Operation) =>
-    request<Proposal>(
-      `${writePrefix}/proposals/${encodeURIComponent(id)}/decision`,
+    feedbackRequest<Proposal>(
+      `${feedbackWritePrefix}/proposals/${encodeURIComponent(id)}/decision`,
       data,
     ),
   tenantList: (organisation: string, version: string) =>
-    request<EvaluationPage<FeedbackItem>>(
+    feedbackRequest<EvaluationPage<FeedbackItem>>(
       `${tenantPath(organisation)}?${new URLSearchParams({ source_id: version, limit: "20" })}`,
     ),
   tenantFlag: (organisation: string, data: Intake & Operation) =>
-    request<FeedbackItem>(tenantPath(organisation), data),
+    feedbackRequest<FeedbackItem>(tenantPath(organisation), data),
 };
 
 export function pinOf({ id, checksum }: Pin): Pin {

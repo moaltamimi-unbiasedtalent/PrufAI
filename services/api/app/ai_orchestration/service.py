@@ -30,6 +30,7 @@ from app.models import (
     WritingExecutionJob,
 )
 from app.models.enums import AIArtifactStatus, AIRunStatus, HumanReviewStatus
+from app.models.feedback import GovernedChangeCandidate
 
 
 def _checksum(payload: dict[str, Any]) -> str:
@@ -120,6 +121,17 @@ class AIOrchestrationService:
             or human is not None
             or session.get(RubricVersion, entity_id) is not None
             or session.get(AssessmentRubric, entity_id) is not None
+            or session.scalar(
+                select(GovernedChangeCandidate.id)
+                .where(
+                    or_(
+                        GovernedChangeCandidate.id == entity_id,
+                        GovernedChangeCandidate.draft_prompt_version_id == entity_id,
+                    )
+                )
+                .limit(1)
+            )
+            is not None
         ):
             raise ValueError("review target requires a domain governed decision")
 

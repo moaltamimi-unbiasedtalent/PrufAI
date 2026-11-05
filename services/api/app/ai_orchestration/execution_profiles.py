@@ -30,6 +30,7 @@ from app.models import (
     User,
 )
 from app.models.enums import ActorType, AIArtifactStatus
+from app.models.feedback import GovernedChangeCandidate
 from app.writing_assessment.service import canonical_checksum
 
 
@@ -357,6 +358,16 @@ def _qualify(
     test: bool,
     spec: ExecutionProfileSpec,
 ) -> dict[str, Any]:
+    if (
+        session.scalar(
+            select(GovernedChangeCandidate.id).where(
+                GovernedChangeCandidate.draft_prompt_version_id
+                == uuid.UUID(snapshot["prompt_version_id"])
+            )
+        )
+        is not None
+    ):
+        raise ValueError("GOVERNED_CHANGE_CANDIDATE_CANNOT_BE_QUALIFIED")
     for cls, key in (
         (AIModelProfile, "model_profile_id"),
         (PromptVersion, "prompt_version_id"),

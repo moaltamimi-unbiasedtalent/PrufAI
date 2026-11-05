@@ -139,6 +139,9 @@ def create_reference(
             raise foundation.EvaluationConflict("EVALUATION_OPERATION_CONFLICT")
         _access(session, context, old)
         return old
+    from app.evaluation.split_integrity import guard_reference, lock_splits
+
+    lock_splits(session)
     dataset = session.scalar(
         select(EvaluationDataset).where(EvaluationDataset.code == payload.code).with_for_update()
     )
@@ -157,10 +160,6 @@ def create_reference(
         )
         session.add(dataset)
         session.flush()
-    if session.bind and session.bind.dialect.name == "postgresql":
-        session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended('evaluation-split',0))")
-        )
     if session.scalar(
         select(EvaluationReference.id).where(
             EvaluationReference.split != payload.split,
@@ -171,9 +170,13 @@ def create_reference(
         )
     ):
         raise foundation.EvaluationConflict("EVALUATION_SPLIT_LEAKAGE")
-    from app.evaluation.split_integrity import guard_reference
-
-    guard_reference(session, resolved["content_checksum"], payload.split)
+    guard_reference(
+        session,
+        resolved["content_checksum"],
+        payload.split,
+        lineage_checksum=resolved["lineage_checksum"],
+        input_value=body["input"],
+    )
     row = EvaluationReference(
         operation_id=payload.operation_id,
         dataset_id=dataset.id,
@@ -319,6 +322,8 @@ def _qualification(
     source: EvaluationReference,
     identifier: uuid.UUID,
     checksum: str,
+    *,
+    lock: bool = True,
 ) -> EvaluationExaminerQualification:
     _access(session, context, source)
     actual = build_tenant_context(session, context.user_id)
@@ -326,7 +331,14 @@ def _qualification(
     user = session.get(User, actual.user_id)
     if user is None or user.status.value != "ACTIVE":
         raise AuthorizationError("EVALUATION_ACTIVE_EXAMINER_REQUIRED")
-    row = _locked(session, EvaluationExaminerQualification, identifier)
+    row: EvaluationExaminerQualification
+    if lock:
+        row = _locked(session, EvaluationExaminerQualification, identifier)
+    else:
+        loaded = session.get(EvaluationExaminerQualification, identifier, populate_existing=True)
+        if loaded is None:
+            raise ValueError("EVALUATION_REFERENCE_NOT_FOUND")
+        row = loaded
     _expected(row, checksum)
     if (
         row.examiner_id != context.user_id

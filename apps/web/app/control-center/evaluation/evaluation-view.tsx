@@ -6,6 +6,8 @@ import { displayMetadata } from "../control-api";
 import css from "../control-center.module.css";
 import { ErrorNotice, MetadataTable, Pagination } from "../metadata";
 import ReferenceSummaryView from "./references/reference-summary";
+import { RegressionComparisonDetails } from "./regressions/regression-details";
+import RegressionSummaryView from "./regressions/regression-summary";
 import {
   evaluationApi,
   type EvaluationDataset,
@@ -16,7 +18,7 @@ import {
   type EvaluationRunDetail,
 } from "./evaluation-api";
 
-type View = "datasets" | "runs" | "references";
+type View = "datasets" | "runs" | "references" | "regressions";
 const evidenceNotice =
   "Technical correctness is separate from German language assessment validity. Synthetic or TEST ONLY results do not establish CEFR validity, calibrated accuracy, fairness or production approval.";
 
@@ -328,6 +330,9 @@ export function EvaluationRunDetails({
           </ul>
         </section>
       ) : null}
+      {detail.regression && (
+        <RegressionComparisonDetails report={detail.regression} />
+      )}
       <EvaluationMetricsTable metrics={detail.metrics} />
       <h3>Failed-case references</h3>
       {detail.failures.length ? (
@@ -399,7 +404,7 @@ export default function EvaluationPageView() {
     setDatasets(null);
     setRuns(null);
     setError(null);
-    if (!allowed || view === "references") return;
+    if (!allowed || view === "references" || view === "regressions") return;
     const request =
       view === "datasets"
         ? evaluationApi.datasets(offset)
@@ -475,10 +480,20 @@ export default function EvaluationPageView() {
               <option value="datasets">Dataset versions</option>
               <option value="runs">Evaluation runs</option>
               <option value="references">Reference governance</option>
+              <option value="regressions">Regression suites</option>
             </select>
           </label>
           {view === "references" ? (
             <ReferenceSummaryView key={user?.id} />
+          ) : view === "regressions" ? (
+            <RegressionSummaryView
+              key={user?.id}
+              inspectRun={(id) => {
+                setView("runs");
+                setOffset(0);
+                setSelectedRun(id);
+              }}
+            />
           ) : error ? (
             <ErrorNotice
               message={error}

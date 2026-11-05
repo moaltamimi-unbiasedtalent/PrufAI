@@ -30,6 +30,7 @@ from app.models import (
     RubricVersion,
     StandardPackVersion,
 )
+from app.models.evaluation import REGRESSION_ADAPTER, REGRESSION_ORIGINS
 from app.question_bank.service import validate_item_payload
 from app.standard_packs.service import StandardPackService
 from app.writing_assessment.service import RubricService, canonical_checksum
@@ -153,6 +154,15 @@ def create_dataset_version(
         if existing_dataset is None:
             raise ValueError("EVALUATION_DATASET_NOT_FOUND")
         dataset = existing_dataset
+        if session.scalar(
+            select(EvaluationDatasetVersion.id)
+            .where(
+                EvaluationDatasetVersion.dataset_id == dataset.id,
+                EvaluationDatasetVersion.provenance["origin"].as_string().in_(REGRESSION_ORIGINS),
+            )
+            .limit(1)
+        ):
+            raise EvaluationConflict("EVALUATION_REGRESSION_REGISTRY_REQUIRED")
         if dataset.code != payload.code or dataset.organisation_id != payload.organisation_id:
             raise EvaluationConflict("EVALUATION_DATASET_IDENTITY_CONFLICT")
     provenance = {key: item for key, item in value.items() if key != "cases"}
@@ -197,6 +207,8 @@ def transition_dataset(
     permissions = (READ, MANAGE, REVIEW) if action == "approve" else (RUN, MANAGE)
     trusted = require(session, context, *permissions)
     row = _version(session, identifier, lock=True)
+    if row.provenance.get("origin") in REGRESSION_ORIGINS:
+        raise EvaluationConflict("EVALUATION_REGRESSION_REGISTRY_REQUIRED")
     if row.checksum != expected_checksum:
         raise EvaluationConflict("EVALUATION_DATASET_CHECKSUM_MISMATCH")
     source, target = {
@@ -407,9 +419,17 @@ def _run_checksum(run: EvaluationRun, results: list[EvaluationCaseResult]) -> st
 
 def verify_run(session: Session, run: EvaluationRun) -> list[EvaluationCaseResult]:
     version = _version(session, run.dataset_version_id)
-    if canonical_checksum(run.configuration) != run.configuration_checksum:
+    if (
+        version.checksum != run.dataset_checksum
+        or canonical_checksum(run.configuration) != run.configuration_checksum
+    ):
         raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
-    if run.configuration.get("execution_adapter") == "GOVERNED_REFERENCE_CALIBRATION_V1":
+    adapter = run.configuration.get("execution_adapter")
+    if adapter == REGRESSION_ADAPTER:
+        from app.evaluation.regression_comparison import verify_regression_configuration
+
+        verify_regression_configuration(session, run, version)
+    elif adapter == "GOVERNED_REFERENCE_CALIBRATION_V1":
         from app.evaluation.expert_comparison import verify_calibration_configuration
 
         verify_calibration_configuration(session, run, version)
@@ -466,6 +486,8 @@ def execute_run(session: Session, context: TenantContext, request: RunRequest) -
         verify_run(session, previous)
         return previous
     dataset = _version(session, request.dataset_version_id, lock=True)
+    if dataset.provenance.get("origin") in REGRESSION_ORIGINS:
+        raise EvaluationConflict("EVALUATION_REGRESSION_COMPARISON_REQUIRED")
     if dataset.status != "PUBLISHED" or dataset.checksum != request.dataset_checksum:
         raise EvaluationConflict("EVALUATION_PUBLISHED_DATASET_REQUIRED")
     pins = validate_configuration(session, dataset, request.configuration)
@@ -582,6 +604,8 @@ def review_run(
 ) -> EvaluationReview:
     trusted = require(session, context, READ, MANAGE, REVIEW)
     row = _get_run(session, identifier)
+    if row.configuration.get("execution_adapter") == REGRESSION_ADAPTER:
+        raise EvaluationConflict("EVALUATION_REGRESSION_REVIEW_REQUIRED")
     version = _version(session, row.dataset_version_id)
     if row.checksum != expected_checksum:
         raise EvaluationConflict("EVALUATION_RUN_CHECKSUM_MISMATCH")
@@ -635,6 +659,17 @@ def run_summary(session: Session, row: EvaluationRun) -> dict[str, Any]:
 def run_detail(session: Session, context: TenantContext, identifier: uuid.UUID) -> dict[str, Any]:
     require(session, context, READ)
     row = _get_run(session, identifier)
+    if row.configuration.get("execution_adapter") == REGRESSION_ADAPTER:
+        from app.evaluation.regression_review import comparison_detail
+
+        return {
+            **comparison_detail(session, context, row),
+            "comparison": None,
+            "pins": {"execution_adapter": REGRESSION_ADAPTER},
+            "metrics": [],
+            "failures": [],
+            "limitations": row.limitations,
+        }
     results = verify_run(session, row)
     metrics = [
         {
@@ -707,7 +742,15 @@ def run_detail(session: Session, context: TenantContext, identifier: uuid.UUID) 
         "pins": pins,
         "metrics": metrics,
         "failures": [
-            {"case_id": r.case_id, "failure_categories": r.result["failure_categories"]}
+            {
+                "case_id": r.case_id,
+                "result_id": str(r.id),
+                "result_checksum": r.checksum,
+                "failed_checks": sorted(
+                    name for name, status in r.result.get("checks", {}).items() if status == "FAIL"
+                ),
+                "failure_categories": r.result["failure_categories"],
+            }
             for r in results
             if r.result["hard_fail"]
         ],
@@ -749,6 +792,10 @@ def compare_runs(
 ) -> dict[str, Any]:
     require(session, context, READ)
     left, right = _get_run(session, left_id), _get_run(session, right_id)
+    if any(
+        run.configuration.get("execution_adapter") == REGRESSION_ADAPTER for run in (left, right)
+    ):
+        raise EvaluationConflict("EVALUATION_REGRESSION_COMPARISON_REQUIRED")
     left_dataset, right_dataset = (
         _version(session, left.dataset_version_id),
         _version(session, right.dataset_version_id),

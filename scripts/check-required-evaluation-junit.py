@@ -17,7 +17,7 @@ def main() -> None:
     root = ET.parse(sys.argv[1]).getroot()
     cases = root.findall(".//testcase")
     counts = {}
-    for module in MODULES:
+    for module in sys.argv[2:] or MODULES:
         selected = [
             case for case in cases if module in case.get("classname", "").split(".")
         ]

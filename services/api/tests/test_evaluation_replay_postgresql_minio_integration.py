@@ -245,10 +245,16 @@ def test_actual_existing_worker_receipt_is_replayed_with_private_authority(
     assert detail["pins"]["profile_version"] == pinned.configuration["profile_version"]
     scenario.request("GET", PREFIX + "/dataset-versions/" + version["id"] + "/cases", expected=403)
     _assert_source_drift_rejected(pinned, detail)
-    mismatched = copy.deepcopy(run_request)
-    mismatched["operation_id"] = str(uuid.uuid4())
-    mismatched["configuration"]["profile_version"] = "f" * 64
-    scenario.request("POST", PREFIX + "/runs", json=mismatched, expected=422)
+    stale_pins = [("profile_version", "f" * 64, 422)]
+    if pinned.configuration["prompt_version_id"]:
+        stale_pins.append(("prompt_version_id", str(uuid.uuid4()), 422))
+    if pinned.configuration["rubric_version_id"]:
+        stale_pins.append(("rubric_checksum", "e" * 64, 409))
+    for pin, changed, expected in stale_pins:
+        mismatched = copy.deepcopy(run_request)
+        mismatched["operation_id"] = str(uuid.uuid4())
+        mismatched["configuration"][pin] = changed
+        scenario.request("POST", PREFIX + "/runs", json=mismatched, expected=expected)
     with scenario.factory() as session:
         assert counts == {
             model.__name__: session.scalar(select(func.count()).select_from(model))

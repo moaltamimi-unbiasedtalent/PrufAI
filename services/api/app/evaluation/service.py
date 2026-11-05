@@ -424,6 +424,8 @@ def verify_run(session: Session, run: EvaluationRun) -> list[EvaluationCaseResul
         or canonical_checksum(run.configuration) != run.configuration_checksum
     ):
         raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
+    from app.evaluation import prompt_policy
+
     adapter = run.configuration.get("execution_adapter")
     if adapter == REGRESSION_ADAPTER:
         from app.evaluation.regression_comparison import verify_regression_configuration
@@ -433,7 +435,7 @@ def verify_run(session: Session, run: EvaluationRun) -> list[EvaluationCaseResul
         from app.evaluation.expert_comparison import verify_calibration_configuration
 
         verify_calibration_configuration(session, run, version)
-    else:
+    elif adapter != prompt_policy.ADAPTER:
         configured = RunConfiguration.model_validate(
             {
                 key: value
@@ -463,7 +465,12 @@ def verify_run(session: Session, run: EvaluationRun) -> list[EvaluationCaseResul
         or _run_checksum(run, results) != run.checksum
     ):
         raise EvaluationConflict("EVALUATION_RUN_PROVENANCE_BROKEN")
+    if adapter == prompt_policy.ADAPTER:
+        prompt_policy.verify_prompt_policy_run(session, run, version, results)
     return results
+
+
+PreparedCase = tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
 
 
 def execute_run(session: Session, context: TenantContext, request: RunRequest) -> EvaluationRun:
@@ -497,8 +504,7 @@ def execute_run(session: Session, context: TenantContext, request: RunRequest) -
     )
     if not cases:
         raise ValueError("EVALUATION_SELECTED_SPLIT_EMPTY")
-    measurements: list[dict[str, Any]] = []
-    prepared: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    prepared: list[PreparedCase] = []
     execution_classes: set[str] = set()
     edit_budget = 0
     for case in cases:
@@ -533,27 +539,53 @@ def execute_run(session: Session, context: TenantContext, request: RunRequest) -
             evidence_class=dataset.evidence_class,
             metric_configuration=pins["metric_configuration"],
         )
-        measurements.append(result)
         prepared.append((case, observation, receipt, result))
     if len(execution_classes) != 1:
         raise ValueError("EVALUATION_MIXED_EXECUTION_CLASSES")
+    return persist_prepared_run(
+        session,
+        trusted,
+        request.operation_id,
+        request_checksum,
+        dataset,
+        pins,
+        prepared,
+        execution_class=execution_classes.pop(),
+        limitations=LIMITATIONS,
+    )
+
+
+def persist_prepared_run(
+    session: Session,
+    context: TenantContext,
+    operation_id: uuid.UUID,
+    request_checksum: str,
+    dataset: EvaluationDatasetVersion,
+    pins: dict[str, Any],
+    prepared: list[PreparedCase],
+    *,
+    execution_class: str,
+    limitations: list[str],
+) -> EvaluationRun:
+    """Seal already measured observations through the existing append-only run path."""
+    measurements = [result for _, _, _, result in prepared]
     aggregate = aggregate_case_results(measurements)
     row = EvaluationRun(
-        operation_id=request.operation_id,
+        operation_id=operation_id,
         dataset_version_id=dataset.id,
         dataset_checksum=dataset.checksum,
         request_checksum=request_checksum,
         configuration=pins,
         configuration_checksum=canonical_checksum(pins),
         metrics={},
-        limitations=list(LIMITATIONS),
-        execution_class=execution_classes.pop(),
+        limitations=list(limitations),
+        execution_class=execution_class,
         evidence_class=dataset.evidence_class,
         status="RUNNING",
         hard_gate="PENDING",
-        case_count=len(cases),
+        case_count=len(prepared),
         failure_count=0,
-        created_by=trusted.user_id,
+        created_by=context.user_id,
         created_at=utcnow(),
     )
     session.add(row)
@@ -582,7 +614,7 @@ def execute_run(session: Session, context: TenantContext, request: RunRequest) -
     row.status, row.completed_at = "COMPLETED", utcnow()
     row.checksum = _run_checksum(row, rows)
     session.flush()
-    _audit(session, trusted, "run_completed", row)
+    _audit(session, context, "run_completed", row)
     return row
 
 
@@ -602,8 +634,12 @@ def review_run(
     decision: str,
     review_reference: str,
 ) -> EvaluationReview:
+    from app.evaluation.prompt_policy import ADAPTER as PROMPT_POLICY_ADAPTER
+
     trusted = require(session, context, READ, MANAGE, REVIEW)
     row = _get_run(session, identifier)
+    if row.configuration.get("execution_adapter") == PROMPT_POLICY_ADAPTER:
+        raise EvaluationConflict("EVALUATION_GOVERNED_IMPROVEMENT_REVIEW_REQUIRED")
     if row.configuration.get("execution_adapter") == REGRESSION_ADAPTER:
         raise EvaluationConflict("EVALUATION_REGRESSION_REVIEW_REQUIRED")
     version = _version(session, row.dataset_version_id)
@@ -790,10 +826,13 @@ def list_metadata(
 def compare_runs(
     session: Session, context: TenantContext, left_id: uuid.UUID, right_id: uuid.UUID
 ) -> dict[str, Any]:
+    from app.evaluation.prompt_policy import ADAPTER as PROMPT_POLICY_ADAPTER
+
     require(session, context, READ)
     left, right = _get_run(session, left_id), _get_run(session, right_id)
     if any(
-        run.configuration.get("execution_adapter") == REGRESSION_ADAPTER for run in (left, right)
+        run.configuration.get("execution_adapter") in {REGRESSION_ADAPTER, PROMPT_POLICY_ADAPTER}
+        for run in (left, right)
     ):
         raise EvaluationConflict("EVALUATION_REGRESSION_COMPARISON_REQUIRED")
     left_dataset, right_dataset = (

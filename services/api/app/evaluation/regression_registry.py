@@ -16,6 +16,8 @@ from app.evaluation import service as foundation
 from app.evaluation.contracts import Contract, EvaluationCase, validate_case_collection
 from app.evaluation.expert_service import _operation
 from app.evaluation.metrics import evaluate_case
+from app.evaluation.prompt_policy import ADAPTER as PROMPT_POLICY_ADAPTER
+from app.evaluation.prompt_policy import CHECK_FAILURES as PROMPT_POLICY_CHECK_FAILURES
 from app.evaluation.replay import SOURCE_KEYS, load_pinned_observation
 from app.evaluation.split_integrity import case_split_keys, guard_regression, lock_splits
 from app.models import (
@@ -48,6 +50,7 @@ METHOD_KEYS = (
 
 # These are measured Phase 1 checks and their corresponding failure categories.
 TECHNICAL_FAILURES = {
+    **{check: {category} for check, category in PROMPT_POLICY_CHECK_FAILURES.items()},
     "schema_compliance": {"INVALID_OUTPUT_SCHEMA"},
     "evidence_identity": {"EVIDENCE_IDENTITY_MISMATCH"},
     "immutable_provenance": {"STALE_OR_MISMATCHED_PROVENANCE"},
@@ -68,6 +71,10 @@ TECHNICAL_FAILURES = {
     "citation_labelled_support": {"REFERENCE_LABEL_REJECTS_CITATION"},
 }
 TechnicalCheck = Literal[
+    "prompt_channel_isolation",
+    "prompt_request_schema",
+    "prompt_request_authority",
+    "prompt_request_input_integrity",
     "schema_compliance",
     "evidence_identity",
     "immutable_provenance",
@@ -236,9 +243,12 @@ def _source(
     origin = version.provenance.get("origin")
     if (origin, adapter) not in {
         ("ORIGINAL_SYNTHETIC", "SYNTHETIC_OBSERVATION_REPLAY_V1"),
+        ("ORIGINAL_SYNTHETIC", PROMPT_POLICY_ADAPTER),
         ("GOVERNED_REFERENCE", "PINNED_EXECUTION_REPLAY_V1"),
     }:
         raise AuthorizationError("REGRESSION_APPROVED_SOURCE_PROCESSING_REQUIRED")
+    if adapter == PROMPT_POLICY_ADAPTER and run.configuration.get("change_candidate") is not None:
+        raise AuthorizationError("REGRESSION_PROMPT_POLICY_BASELINE_REQUIRED")
     if failed_check is not None and run.hard_gate != "FAIL":
         raise foundation.EvaluationConflict("REGRESSION_COMPLETED_FAILED_RUN_REQUIRED")
     if failed_check is None and (
@@ -275,12 +285,16 @@ def _source(
             or version.provenance.get("retention_classification") != "SYNTHETIC_TEST"
             or parsed.reference.label_kind != "SYNTHETIC_EXPECTATION"
             or parsed.execution_job_id is not None
-            or parsed.synthetic_observation is None
+            or (parsed.synthetic_observation is None) != (adapter == PROMPT_POLICY_ADAPTER)
             or _contains_candidate_binding(parsed.model_dump(mode="json"))
         ):
             raise AuthorizationError("REGRESSION_APPROVED_SOURCE_PROCESSING_REQUIRED")
         observation = parsed.synthetic_observation
-        receipt = {"execution_class": "TEST_ONLY", "model_execution": "NOT_RUN", "adapter": adapter}
+        receipt = (
+            result.execution_reference  # Foundation verified the actual native request measurement.
+            if adapter == PROMPT_POLICY_ADAPTER
+            else {"execution_class": "TEST_ONLY", "model_execution": "NOT_RUN", "adapter": adapter}
+        )
         maturity = "SYNTHETIC_TEST"
         rights = {
             key: version.provenance.get(key)
@@ -337,6 +351,8 @@ def _source(
 
 
 def _required_checks(source: _PromotionSource, failed_check: str | None) -> list[str]:
+    if source.run.configuration.get("execution_adapter") == PROMPT_POLICY_ADAPTER:
+        return sorted(PROMPT_POLICY_CHECK_FAILURES)
     case = EvaluationCase.model_validate(source.case)
     checks = {"schema_compliance", "evidence_identity", "immutable_provenance", "authority_policy"}
     if case.input.adversarial:

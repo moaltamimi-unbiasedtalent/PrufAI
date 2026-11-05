@@ -16,6 +16,7 @@ from app.authorization import AuthorizationError, TenantContext, build_tenant_co
 from app.authorization.membership import require_active_tenant_permission
 from app.evaluation import service as evaluation
 from app.evaluation.contracts import Contract
+from app.evaluation.prompt_policy import ADAPTER as PROMPT_POLICY_ADAPTER
 from app.evaluation.regression_registry import TECHNICAL_FAILURES, measured_failure_keys
 from app.feedback.common import FeedbackConflict, Pin, require_platform
 from app.models import (
@@ -218,7 +219,7 @@ def _authorized_replay_job(
 ) -> ExecutionJob | None:
     execution = receipt.get("execution_job_id")
     if execution is None:
-        if receipt.get("adapter") != "SYNTHETIC_OBSERVATION_REPLAY_V1":
+        if receipt.get("adapter") not in {"SYNTHETIC_OBSERVATION_REPLAY_V1", PROMPT_POLICY_ADAPTER}:
             raise FeedbackConflict("FEEDBACK_EVALUATION_EXECUTION_PIN_MISMATCH")
         return None
     model = JOBS_BY_SKILL.get(skill)

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../../lib/auth";
 import css from "../control-center.module.css";
@@ -357,6 +358,11 @@ export default function FeedbackWorkspace() {
         </p>
       ) : (
         <>
+          <p>
+            <Link href="/control-center/feedback/change-candidates">
+              Inspect change candidates
+            </Link>
+          </p>
           <p className={css.intro}>
             Inspect recorded observations, confirmed patterns and proposals for
             future evaluation. Feedback actions preserve the published target
@@ -521,6 +527,16 @@ export default function FeedbackWorkspace() {
             >
               <h2>Improvement proposal review</h2>
               <ProposalDetails proposal={proposal} />
+              {proposal.status === "APPROVED_FOR_EVALUATION" &&
+                proposal.target.type === "PROMPT_VERSION" && (
+                  <p>
+                    <Link
+                      href={`/control-center/feedback/change-candidates?proposal=${encodeURIComponent(proposal.id)}`}
+                    >
+                      Open change candidate workbench
+                    </Link>
+                  </p>
+                )}
               <DecisionForm
                 title="Proposal"
                 actions={proposal.allowed_actions}

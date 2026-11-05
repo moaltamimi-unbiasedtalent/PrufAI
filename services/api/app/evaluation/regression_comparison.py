@@ -16,6 +16,7 @@ from app.authorization import TenantContext, build_tenant_context
 from app.authorization.membership import require_active_tenant_permission
 from app.evaluation import service as foundation
 from app.evaluation.contracts import Contract, EvaluationCase
+from app.evaluation.prompt_policy import ADAPTER as PROMPT_POLICY_ADAPTER
 from app.evaluation.regression_registry import ArtifactPin
 from app.evaluation.replay import SOURCE_KEYS, load_pinned_observation
 from app.models import (
@@ -31,7 +32,7 @@ from app.writing_assessment.service import RubricService, canonical_checksum
 METHOD_VERSION = "governed-regression-v1"
 SYNTHETIC_ADAPTER = "SYNTHETIC_OBSERVATION_REPLAY_V1"
 REPLAY_ADAPTER = "PINNED_EXECUTION_REPLAY_V1"
-SOURCE_ADAPTERS = {SYNTHETIC_ADAPTER, REPLAY_ADAPTER}
+SOURCE_ADAPTERS = {SYNTHETIC_ADAPTER, REPLAY_ADAPTER, PROMPT_POLICY_ADAPTER}
 ARTIFACT_KEYS = (
     *SOURCE_KEYS,
     "model_profile_id",
@@ -281,6 +282,10 @@ def _load_side(
                 or canonical_checksum(observation) != result.observation_checksum
             ):
                 raise foundation.EvaluationConflict("REGRESSION_SYNTHETIC_RECEIPT_MISMATCH")
+        elif adapter == PROMPT_POLICY_ADAPTER:
+            # verify_run recomputed the sealed native request and all policy measures.
+            if run.execution_class != "TEST_ONLY" or receipt.get("model_execution") != "NOT_RUN":
+                raise foundation.EvaluationConflict("REGRESSION_PROMPT_POLICY_RECEIPT_MISMATCH")
         elif context is not None:
             case, observation, verified, execution_class = load_pinned_observation(
                 session, context, dataset, case, run.configuration
@@ -449,6 +454,25 @@ def _comparison_reason(
         "execution_adapter"
     ) != right.get("execution_adapter"):
         return "EXECUTION_CLASS_OR_ADAPTER_MISMATCH"
+    if left["execution_adapter"] == PROMPT_POLICY_ADAPTER:
+        if (
+            dimension != "PROMPT"
+            or len(baseline.components) != 1
+            or len(candidate.components) != 1
+            or left.get("change_candidate") is not None
+            or right.get("change_candidate") is None
+            or right.get("baseline_run") != _pin(baseline.primary.run)
+            or right.get("suite_version") != _pin(suite)
+            or baseline.primary.dataset.id != candidate.primary.dataset.id
+            or baseline.primary.dataset.checksum != candidate.primary.dataset.checksum
+        ):
+            return "PROMPT_POLICY_CHANGE_CANDIDATE_PIN_MISMATCH"
+        if any(
+            not left.get(key) or not right.get(key) or left[key] == right[key]
+            for key in ("prompt_version_id", "prompt_checksum")
+        ):
+            return "DISTINCT_COMPARISON_ARTIFACT_REQUIRED"
+        return None
     if dimension == "TECHNICAL_FIXTURE":
         return (
             None
@@ -859,13 +883,16 @@ def execute_regression_comparison(
             "paired_case_count": paired_count,
         }
     empirical_status = threshold["status"]
+    artifact_keys: tuple[str, ...] = ARTIFACT_KEYS
+    if baseline_run.configuration.get("execution_adapter") == PROMPT_POLICY_ADAPTER:
+        artifact_keys = (*artifact_keys, "prompt_checksum")
     changed = [
         {
             "name": key,
             "baseline": baseline_run.configuration.get(key),
             "candidate": candidate_run.configuration.get(key),
         }
-        for key in ARTIFACT_KEYS
+        for key in artifact_keys
         if baseline_run.configuration.get(key) != candidate_run.configuration.get(key)
     ]
     summary = {
@@ -890,8 +917,8 @@ def execute_regression_comparison(
         "complete": complete,
         "paired_metrics": metrics,
         "changed_pins": changed,
-        "baseline_artifacts": {key: baseline_run.configuration.get(key) for key in ARTIFACT_KEYS},
-        "candidate_artifacts": {key: candidate_run.configuration.get(key) for key in ARTIFACT_KEYS},
+        "baseline_artifacts": {key: baseline_run.configuration.get(key) for key in artifact_keys},
+        "candidate_artifacts": {key: candidate_run.configuration.get(key) for key in artifact_keys},
         "empirical": threshold,
         "reference_maturity": metadata["evidence_maturity"],
         "reference_quality_status": "DESCRIPTIVE_ONLY"

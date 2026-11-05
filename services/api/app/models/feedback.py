@@ -89,6 +89,42 @@ class ImprovementProposal(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class GovernedChangeCandidate(UUIDPrimaryKeyMixin, Base):
+    """An exact proposal-to-draft linkage; evaluations and reviews append receipts."""
+
+    __tablename__ = "governed_change_candidates"
+    __table_args__ = (
+        CheckConstraint("organisation_id IS NULL", name="ck_improvement_platform_scope"),
+        CheckConstraint(
+            "baseline_prompt_version_id <> draft_prompt_version_id",
+            name="ck_improvement_distinct_prompt_versions",
+        ),
+        Index("ix_improvement_candidate_created", "created_at"),
+    )
+
+    organisation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organisations.id", ondelete="RESTRICT")
+    )
+    proposal_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("improvement_proposal_versions.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    baseline_prompt_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    draft_prompt_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("prompt_versions.id", ondelete="RESTRICT"), unique=True, nullable=False
+    )
+    suite_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("evaluation_dataset_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    body: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class FeedbackOperation(UUIDPrimaryKeyMixin, Base):
     """The caller's operation ID identifies a single immutable state receipt."""
 
@@ -98,7 +134,7 @@ class FeedbackOperation(UUIDPrimaryKeyMixin, Base):
             "entity_kind", "entity_id", "revision", name="uq_feedback_operation_state"
         ),
         CheckConstraint(
-            "entity_kind IN ('FEEDBACK','PATTERN','PROPOSAL')",
+            "entity_kind IN ('FEEDBACK','PATTERN','PROPOSAL','CHANGE_CANDIDATE')",
             name="ck_feedback_operation_kind",
         ),
         CheckConstraint(
@@ -123,7 +159,13 @@ class FeedbackOperation(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-_MODELS = (GovernedFeedback, FeedbackPattern, ImprovementProposal, FeedbackOperation)
+_MODELS = (
+    GovernedFeedback,
+    FeedbackPattern,
+    ImprovementProposal,
+    GovernedChangeCandidate,
+    FeedbackOperation,
+)
 
 
 def _protect_history(session: Session) -> None:

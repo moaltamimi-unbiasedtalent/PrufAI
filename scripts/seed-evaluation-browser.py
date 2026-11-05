@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def main() -> None:
         )
 
     # All DB-capable imports and connections follow the fail-closed target check.
+    from app.ai_orchestration.execution_profiles import qualify_test_execution_profile
     from app.auth.service import AuthenticationService
     from app.authorization import build_tenant_context
     from app.config import Settings
@@ -70,6 +72,14 @@ def main() -> None:
     )
     from app.writing_assessment.governance import RubricGovernanceService
     from app.writing_assessment.service import RubricService
+    from app.writing_execution.registry import (
+        SPEC as WRITING_PROFILE_SPEC,
+    )
+    from app.writing_execution.registry import (
+        approved_profile_record,
+        create_execution_profile,
+        snapshot_execution_profile,
+    )
     from sqlalchemy import select
 
     settings = Settings(database_url=url)
@@ -272,7 +282,63 @@ def main() -> None:
                 "id": str(qualification.id),
                 "checksum": qualification.checksum,
             }
+        # A separate technical-only profile supplies a genuine registry baseline.
+        # Its old optional instructions deliberately contain original synthetic
+        # canaries. The profile is never attached to an exam or deployed worker.
+        canaries = [
+            f"PRUFAI_SYNTHETIC_CANARY_{identifier(f'prompt-canary-{index}').hex}"
+            for index in (1, 2)
+        ]
+        profile = create_execution_profile(
+            session,
+            context=contexts["source"],
+            code="prufai.browser.synthetic.prompt-policy-baseline.v1",
+            name="TEST ONLY prompt channel isolation fixture",
+            provider="DETERMINISTIC_TEST",
+            model_name="writing-fixture-v1",
+            configuration={
+                "schema_version": "1",
+                "adapter_version": "1",
+                "scenario": "success",
+            },
+            system_template="Return the structured technical Writing proposal. Human review is required.",
+            instruction_template="Original synthetic legacy instruction fixture: "
+            + " ".join(canaries),
+        )
+        snapshot = snapshot_execution_profile(
+            session,
+            **{
+                key: uuid.UUID(str(profile[key]))
+                for key in (
+                    "model_profile_id",
+                    "prompt_version_id",
+                    "agent_version_id",
+                    "workflow_version_id",
+                )
+            },
+        )
+        snapshot = qualify_test_execution_profile(
+            session,
+            snapshot=snapshot,
+            operator=users["source"],
+            settings=settings,
+            spec=replace(
+                WRITING_PROFILE_SPEC,
+                approval_event="evaluation.prompt_policy.fixture_qualified",
+            ),
+        )
+        if approved_profile_record(session, snapshot) is not None:
+            raise RuntimeError(
+                "The offline prompt fixture must not qualify for Writing execution."
+            )
         manifest = {
+            "prompt_policy_fixture": {
+                "prompt": {
+                    "id": snapshot["prompt_version_id"],
+                    "checksum": snapshot["prompt_checksum"],
+                },
+                "canaries": canaries,
+            },
             "reference_id": str(source.id),
             "reference_checksum": source.checksum,
             "actor_ids": {actor: str(user.id) for actor, user in users.items()},

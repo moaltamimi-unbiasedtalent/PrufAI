@@ -53,14 +53,24 @@ def _regression_run(session: Session, identifier: uuid.UUID) -> EvaluationRun:
     return run
 
 
+def _governed_improvement(run: EvaluationRun) -> bool:
+    from app.evaluation.prompt_policy import METHOD
+
+    return run.configuration.get("evaluation_method") == METHOD
+
+
 def record_review(
     session: Session,
     context: TenantContext,
     identifier: uuid.UUID,
     payload: ComparisonReviewInput,
+    *,
+    governed_improvement: bool = False,
 ) -> EvaluationReview:
     trusted = foundation.require(session, context, *REVIEW_PERMISSIONS)
     run = _regression_run(session, identifier)
+    if _governed_improvement(run) != governed_improvement:
+        raise foundation.EvaluationConflict("EVALUATION_GOVERNED_IMPROVEMENT_REVIEW_REQUIRED")
     if run.checksum != payload.expected_checksum:
         raise foundation.EvaluationConflict("EVALUATION_RUN_CHECKSUM_MISMATCH")
     foundation.verify_run(session, run)
@@ -128,7 +138,9 @@ def comparison_detail(
         "run": foundation.run_summary(session, run),
         "regression": regression,
         "reviews": [review_summary(row) for row in rows],
-        "allowed_actions": ["review"] if _can_review(session, trusted, run) else [],
+        "allowed_actions": ["review"]
+        if not _governed_improvement(run) and _can_review(session, trusted, run)
+        else [],
         "release_recommendation": "ELIGIBLE_FOR_HUMAN_PUBLICATION_REVIEW" if ready else "NOT_READY",
         "production_activation": False,
     }

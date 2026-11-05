@@ -307,16 +307,14 @@ def create_pattern(
     return pattern_summary(session, trusted, row)
 
 
-def _current_members(session: Session, pattern: FeedbackPattern) -> None:
+def _current_members(session: Session, pattern: FeedbackPattern, *, lock: bool = True) -> None:
     members = {uuid.UUID(pin["id"]): pin for pin in pattern.body["members"]}
-    rows = list(
-        session.scalars(
-            select(GovernedFeedback)
-            .where(GovernedFeedback.id.in_(members))
-            .order_by(GovernedFeedback.id)
-            .with_for_update()
-        )
+    statement = (
+        select(GovernedFeedback)
+        .where(GovernedFeedback.id.in_(members))
+        .order_by(GovernedFeedback.id)
     )
+    rows = list(session.scalars(statement.with_for_update() if lock else statement))
     if not members or len(rows) != len(members) or len(rows) != pattern.body["member_count"]:
         raise FeedbackConflict("FEEDBACK_PATTERN_MEMBERSHIP_STALE")
     for row in rows:

@@ -20,6 +20,9 @@ from app.exams.api import router as exam_router
 from app.feedback.api import router as feedback_router
 from app.feedback.api import summary_router as feedback_summary_router
 from app.feedback.api import tenant_router as institution_feedback_router
+from app.improvement.api import evaluation_router as prompt_policy_router
+from app.improvement.api import router as improvement_router
+from app.improvement.api import summary_router as improvement_summary_router
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.retrieval_api import router as retrieval_router
 from app.memory.api import router as memory_router
@@ -99,6 +102,9 @@ app.include_router(evaluation_summary_router)
 app.include_router(regression_router)
 app.include_router(regression_summary_router)
 app.include_router(feedback_router)
+app.include_router(prompt_policy_router)
+app.include_router(improvement_router)
+app.include_router(improvement_summary_router)
 app.include_router(feedback_summary_router)
 app.include_router(institution_feedback_router)
 

@@ -39,6 +39,7 @@ from app.models.expert_evaluation import (
 from app.models.feedback import (
     FeedbackOperation,
     FeedbackPattern,
+    GovernedChangeCandidate,
     GovernedFeedback,
     ImprovementProposal,
 )
@@ -151,6 +152,7 @@ from app.models.writing_assessment import (
 __all__ = [
     "FeedbackOperation",
     "FeedbackPattern",
+    "GovernedChangeCandidate",
     "GovernedFeedback",
     "ImprovementProposal",
     "EvaluationReference",

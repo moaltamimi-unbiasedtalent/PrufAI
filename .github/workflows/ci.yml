@@ -497,6 +497,18 @@ jobs:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
           WRITING_TEST_ADAPTER_ENABLED: "1"
+      - name: Evaluation-backed draft improvement and independent readiness (required PostgreSQL)
+        run: |
+          python -m pytest tests/test_governed_improvement_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/governed-improvement-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/governed-improvement-required.xml" test_governed_improvement_postgresql_integration
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          WRITING_TEST_ADAPTER_ENABLED: "1"
       - run: python -m pytest tests/test_object_storage_integration.py
         working-directory: services/api
         env:

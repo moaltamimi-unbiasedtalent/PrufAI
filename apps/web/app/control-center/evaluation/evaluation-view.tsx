@@ -5,6 +5,7 @@ import { useAuth } from "../../../lib/auth";
 import { displayMetadata } from "../control-api";
 import css from "../control-center.module.css";
 import { ErrorNotice, MetadataTable, Pagination } from "../metadata";
+import ReferenceSummaryView from "./references/reference-summary";
 import {
   evaluationApi,
   type EvaluationDataset,
@@ -15,7 +16,7 @@ import {
   type EvaluationRunDetail,
 } from "./evaluation-api";
 
-type View = "datasets" | "runs";
+type View = "datasets" | "runs" | "references";
 const evidenceNotice =
   "Technical correctness is separate from German language assessment validity. Synthetic or TEST ONLY results do not establish CEFR validity, calibrated accuracy, fairness or production approval.";
 
@@ -251,6 +252,82 @@ export function EvaluationRunDetails({
           </React.Fragment>
         ))}
       </dl>
+      {detail.comparison ? (
+        <section aria-label="Exact reference calibration comparison">
+          <h3>Exact reference calibration comparison</h3>
+          <p>Comparison: {detail.comparison.comparison_kind}</p>
+          <dl className={css.health}>
+            {(["left", "right"] as const).map((side) => (
+              <React.Fragment key={side}>
+                <dt>{side === "left" ? "Left" : "Right"} exact version</dt>
+                <dd>
+                  {detail.comparison?.[side].kind} ·{" "}
+                  {detail.comparison?.[side].version_id} ·{" "}
+                  {detail.comparison?.[side].checksum} ·{" "}
+                  {detail.comparison?.[side].execution_class}
+                </dd>
+              </React.Fragment>
+            ))}
+          </dl>
+          <p className={css.notice}>
+            Quality claim: {detail.comparison.quality_claim}. Empirical
+            thresholds: {detail.comparison.empirical_thresholds}. Production
+            activation:{" "}
+            {detail.comparison.production_activation
+              ? "Unavailable configuration"
+              : "Not authorized"}
+            .
+          </p>
+          <h4>Measured comparison coverage</h4>
+          {detail.comparison.criteria.length ? (
+            <MetadataTable
+              caption="Comparison criterion coverage"
+              columns={[
+                ["criterion_code", "Criterion"],
+                ["expected_count", "Expected paired observations"],
+                ["sample_size", "Measured paired observations"],
+                [
+                  "disagreement_distribution",
+                  "Observed signed difference distribution",
+                ],
+              ]}
+              rows={detail.comparison.criteria.map((criterion) => ({
+                ...criterion,
+                disagreement_distribution:
+                  criterion.disagreement_distribution.map(
+                    ({ difference, absolute_difference, count, rate }) =>
+                      `Signed difference ${difference}; absolute difference ${absolute_difference}; count ${count}; rate ${rate}`,
+                  ),
+              }))}
+            />
+          ) : (
+            <p>No criterion-level comparison observations are available.</p>
+          )}
+          <h4>Uncertainty and assumptions</h4>
+          <dl className={css.health}>
+            {Object.entries(detail.comparison.uncertainty).map(
+              ([key, value]) => (
+                <React.Fragment key={key}>
+                  <dt>{key.replaceAll("_", " ")}</dt>
+                  <dd>
+                    {typeof value === "string" ||
+                    typeof value === "number" ||
+                    typeof value === "boolean" ||
+                    value === null
+                      ? displayMetadata(value)
+                      : JSON.stringify(value)}
+                  </dd>
+                </React.Fragment>
+              ),
+            )}
+          </dl>
+          <ul>
+            {detail.comparison.limitations.map((limitation, index) => (
+              <li key={index}>{limitation}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <EvaluationMetricsTable metrics={detail.metrics} />
       <h3>Failed-case references</h3>
       {detail.failures.length ? (
@@ -322,7 +399,7 @@ export default function EvaluationPageView() {
     setDatasets(null);
     setRuns(null);
     setError(null);
-    if (!allowed) return;
+    if (!allowed || view === "references") return;
     const request =
       view === "datasets"
         ? evaluationApi.datasets(offset)
@@ -397,9 +474,12 @@ export default function EvaluationPageView() {
             >
               <option value="datasets">Dataset versions</option>
               <option value="runs">Evaluation runs</option>
+              <option value="references">Reference governance</option>
             </select>
           </label>
-          {error ? (
+          {view === "references" ? (
+            <ReferenceSummaryView key={user?.id} />
+          ) : error ? (
             <ErrorNotice
               message={error}
               retry={() => setReload((value) => value + 1)}

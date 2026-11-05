@@ -119,6 +119,8 @@ jobs:
       - name: Real three-application browser acceptance
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai_browser
+          PRUFAI_DISPOSABLE_DATABASE: prufai_browser
+          CI: "true"
           PRUFAI_BROWSER_TOOL_DIR: ${{ runner.temp }}/prufai-browser-tool
           PRUFAI_E2E_ARTIFACT_DIR: ${{ runner.temp }}/prufai-browser-evidence
           AUDIO_MEDIA_RUNTIME: docker
@@ -450,15 +452,16 @@ jobs:
           OBJECT_STORAGE_ACCESS_KEY: prufai_ci
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
-      - name: Existing execution evaluation replay (required PostgreSQL and real MinIO)
+      - name: Governed expert references and existing execution replay (required PostgreSQL and real MinIO)
         run: |
-          python -m pytest tests/test_evaluation_replay_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/evaluation-replay-required.xml"
-          python -c "import os,xml.etree.ElementTree as E; suites=E.parse(os.environ['RUNNER_TEMP']+'/evaluation-replay-required.xml').getroot().findall('.//testsuite'); tests=sum(int(s.get('tests','0')) for s in suites); skipped=sum(int(s.get('skipped','0')) for s in suites); print({'required_evaluation_replay_tests':tests,'required_skips':skipped}); assert tests>0 and skipped==0, 'Required existing-execution replay tests must execute without skips'"
+          python -m pytest tests/test_evaluation_replay_postgresql_minio_integration.py tests/test_expert_references_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/evaluation-replay-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/evaluation-replay-required.xml"
         working-directory: services/api
         env:
           CI: true
           PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
           PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
           WRITING_TEST_ADAPTER_ENABLED: "1"
           SPEAKING_TEST_ADAPTER_ENABLED: "1"

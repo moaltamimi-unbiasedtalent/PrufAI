@@ -36,6 +36,12 @@ from app.models.expert_evaluation import (
     EvaluationExpertJudgment,
     EvaluationReference,
 )
+from app.models.feedback import (
+    FeedbackOperation,
+    FeedbackPattern,
+    GovernedFeedback,
+    ImprovementProposal,
+)
 from app.models.identity import (
     AuthSession,
     MembershipRole,
@@ -143,6 +149,10 @@ from app.models.writing_assessment import (
 )
 
 __all__ = [
+    "FeedbackOperation",
+    "FeedbackPattern",
+    "GovernedFeedback",
+    "ImprovementProposal",
     "EvaluationReference",
     "EvaluationExaminerQualification",
     "EvaluationExpertJudgment",

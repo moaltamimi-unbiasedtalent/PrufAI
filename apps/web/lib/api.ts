@@ -93,7 +93,9 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
       path === "/api/v1/platform/control-center" ||
       path.startsWith("/api/v1/platform/control-center/") ||
       path === "/api/v1/platform/evaluation" ||
-      path.startsWith("/api/v1/platform/evaluation/")
+      path.startsWith("/api/v1/platform/evaluation/") ||
+      path === "/api/v1/platform/feedback" ||
+      path.startsWith("/api/v1/platform/feedback/")
     )
       headers.delete("X-PrufAI-Organisation-ID");
     else if (organisationId)

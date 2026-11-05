@@ -497,6 +497,44 @@ test("three applications complete an independently approved human Writing result
     ).toBe(true);
     await page.setViewportSize({ width: 1280, height: 900 });
     await screenshot(page, "writing-human-approved.png");
+    const feedbackPanel = page.getByRole("region", {
+      name: "Writing assessment feedback",
+    });
+    await expect(feedbackPanel).toContainText(
+      "No feedback is recorded for this assessment version.",
+    );
+    await feedbackPanel
+      .getByRole("combobox", { name: "Feedback category", exact: true })
+      .selectOption("RUBRIC_ALIGNMENT");
+    await feedbackPanel
+      .getByRole("combobox", { name: "Feedback severity", exact: true })
+      .selectOption("LOW");
+    const flag = apiResponse(page, `/organisations/${org}/feedback`, "POST");
+    await feedbackPanel
+      .getByRole("button", { name: "Record Writing feedback", exact: true })
+      .click();
+    const flagResponse = await flag;
+    expect(flagResponse.status()).toBe(201);
+    const feedback = await flagResponse.json();
+    expect(feedback).toMatchObject({
+      source_kind: "REVIEWER_FLAG",
+      source_id: versionId,
+      organisation_id: org,
+      category: "RUBRIC_ALIGNMENT",
+      evidence_class: "UNLABELLED_OBSERVATION",
+      status: "RECEIVED",
+    });
+    expect(flagResponse.request().postDataJSON().source.artifact).toEqual({
+      id: feedback.source_id,
+      checksum: feedback.source_checksum,
+    });
+    expect(JSON.stringify(feedback)).not.toContain(SUBMITTED_TEXT);
+    await expect(feedbackPanel.getByRole("list")).toContainText(feedback.id);
+    await page.reload();
+    await expect(feedbackPanel.getByRole("list")).toContainText(feedback.id);
+    await expect(
+      page.locator("p").filter({ hasText: /^Assessment status:/ }),
+    ).toContainText("APPROVED");
     expect(aiRequests).toEqual([]);
   });
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../../../lib/auth";
+import WritingFeedbackPanel from "../feedback-panel";
 import { writingReviewApi, type WritingReview } from "../review-api";
 import {
   writingFoundationApi,
@@ -323,6 +324,10 @@ export default function WritingReviewWorkspacePage({
                 <dd>{review.review?.reviewed_checksum ?? "Not requested"}</dd>
               </dl>
               {review.rubric && <RubricEvidenceView rubric={review.rubric} />}
+              <WritingFeedbackPanel
+                artifact={{ id: review.version_id, checksum: review.checksum }}
+                status={review.status}
+              />
               {canPropose && review.rubric && (
                 <form
                   className={css.form}

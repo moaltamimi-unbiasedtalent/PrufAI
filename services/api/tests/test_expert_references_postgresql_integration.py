@@ -1722,3 +1722,31 @@ def test_manager_derives_from_exact_metadata_without_other_examiner_rationale(ex
         distribution = comparison["criteria"][0]["disagreement_distribution"]
         assert isinstance(distribution, list) and distribution
         assert set(distribution[0]) == {"difference", "absolute_difference", "count", "rate"}
+
+
+def test_blank_adjudication_rationale_cannot_append_history(expert):
+    source, judgments, previous = expert.adjudicated()
+    with expert.factory() as session:
+        before = session.scalar(
+            text("SELECT count(*) FROM evaluation_adjudications WHERE reference_id=:reference"),
+            {"reference": source.id},
+        )
+        payload = AdjudicationInput.model_validate(previous.body).model_copy(
+            update={
+                "operation_id": uuid.uuid4(),
+                "supersedes_id": previous.id,
+                "rationale": " \t\n\u00a0",
+            }
+        )
+        with pytest.raises(ValueError, match="EVALUATION_ADJUDICATION_RATIONALE_REQUIRED"):
+            expert_service.adjudicate(
+                session, expert.context(session, "adjudicator"), source.id, payload
+            )
+        assert not session.new and not session.dirty
+        assert (
+            session.scalar(
+                text("SELECT count(*) FROM evaluation_adjudications WHERE reference_id=:reference"),
+                {"reference": source.id},
+            )
+            == before
+        )

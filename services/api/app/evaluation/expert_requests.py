@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.evaluation.contracts import Contract
 from app.evaluation.expert_schemas import CriterionJudgmentInput
@@ -60,6 +60,14 @@ class AdjudicationInput(JudgmentInput):
     judgment_pins: list[JudgmentPin] = Field(min_length=2, max_length=2)
     rationale: str = Field(min_length=1, max_length=4000)
     supersedes_id: uuid.UUID | None = None
+
+    @field_validator("rationale")
+    @classmethod
+    def documented_rationale(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("EVALUATION_ADJUDICATION_RATIONALE_REQUIRED")
+        return normalized
 
 
 class ReferenceDatasetInput(Contract):

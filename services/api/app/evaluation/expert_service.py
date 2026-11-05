@@ -432,6 +432,8 @@ def _judgments(session: Session, identifier: uuid.UUID) -> list[EvaluationExpert
 def adjudicate(
     session: Session, context: TenantContext, identifier: uuid.UUID, payload: AdjudicationInput
 ) -> EvaluationAdjudication:
+    if not payload.rationale.strip():
+        raise ValueError("EVALUATION_ADJUDICATION_RATIONALE_REQUIRED")
     _operation(session, payload.operation_id)
     source = _reference(session, context, identifier)
     _expected(source, payload.expected_checksum)
@@ -448,6 +450,7 @@ def adjudicate(
     if {(str(pin.id), pin.checksum) for pin in payload.judgment_pins} != expected:
         raise foundation.EvaluationConflict("EVALUATION_EXACT_JUDGMENTS_REQUIRED")
     body = _decision_body(source, payload, session)
+    body["rationale"] = payload.rationale.strip()
     checksum = canonical_checksum(body)
     old = session.scalar(
         select(EvaluationAdjudication).where(

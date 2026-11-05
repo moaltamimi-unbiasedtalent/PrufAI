@@ -44,3 +44,37 @@ def test_genuine_claim_with_known_synthetic_provenance_is_rejected(field, prefix
     }
     with pytest.raises(ValidationError, match="cannot claim synthetic provenance"):
         SourceInput.model_validate(value)
+
+
+def _adjudication_payload(rationale):
+    import uuid
+
+    return {
+        "operation_id": str(uuid.uuid4()),
+        "expected_checksum": "a" * 64,
+        "qualification_id": str(uuid.uuid4()),
+        "qualification_checksum": "b" * 64,
+        "review_reference": "synthetic:unit-adjudication-review",
+        "judgment_pins": [
+            {"id": str(uuid.uuid4()), "checksum": "c" * 64},
+            {"id": str(uuid.uuid4()), "checksum": "d" * 64},
+        ],
+        "rationale": rationale,
+    }
+
+
+@pytest.mark.parametrize("rationale", [" ", "\t", "\n\r", "\u00a0"])
+def test_adjudication_requires_documented_nonblank_rationale(rationale):
+    from app.evaluation.expert_requests import AdjudicationInput
+
+    with pytest.raises(ValueError, match="RATIONALE_REQUIRED"):
+        AdjudicationInput.model_validate(_adjudication_payload(rationale))
+
+
+def test_adjudication_normalizes_documented_rationale_without_changing_meaning():
+    from app.evaluation.expert_requests import AdjudicationInput
+
+    value = AdjudicationInput.model_validate(
+        _adjudication_payload("  SYNTHETIC_TEST documented disagreement rationale.\n")
+    )
+    assert value.rationale == "SYNTHETIC_TEST documented disagreement rationale."

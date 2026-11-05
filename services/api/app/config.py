@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # These are exact immutable profile fingerprints, never API credentials.
     speech_transcription_approved_profile_fingerprints: list[str] = []
     writing_test_adapter_enabled: bool = False
+    nonproduction_prompt_validation_enabled: bool = False
+    nonproduction_prompt_validation_database: str = ""
     writing_provider_timeout_seconds: int = Field(default=60, ge=1, le=120)
     writing_approved_profile_fingerprints: list[str] = []
     speaking_test_adapter_enabled: bool = False
@@ -71,6 +73,8 @@ class Settings(BaseSettings):
 
         if self.environment == "production" and self.speech_transcription_test_adapter_enabled:
             raise ValueError("TEST ONLY speech transcription is forbidden in production")
+        if self.environment == "production" and self.nonproduction_prompt_validation_enabled:
+            raise ValueError("Nonproduction prompt validation is forbidden in production")
         if self.environment == "production" and self.writing_test_adapter_enabled:
             raise ValueError("TEST ONLY Writing execution is forbidden in production")
         if self.environment == "production" and self.speaking_test_adapter_enabled:

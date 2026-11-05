@@ -257,8 +257,21 @@ def _snapshot(
         raise ValueError(f"{spec.error_prefix}_PROFILE_INVALID") from exc
 
 
+def _governed_draft(session: Session, prompt_version_id: uuid.UUID) -> bool:
+    return (
+        session.scalar(
+            select(GovernedChangeCandidate.id).where(
+                GovernedChangeCandidate.draft_prompt_version_id == prompt_version_id
+            )
+        )
+        is not None
+    )
+
+
 def _executable(session: Session, snapshot: dict[str, Any]) -> bool:
     try:
+        if _governed_draft(session, uuid.UUID(snapshot["prompt_version_id"])):
+            return False
         for cls, key in (
             (AIModelProfile, "model_profile_id"),
             (PromptVersion, "prompt_version_id"),
@@ -333,10 +346,10 @@ def snapshot_registry_valid(
     session: Session, snapshot: dict[str, Any], spec: ExecutionProfileSpec
 ) -> bool:
     try:
+        if not _executable(session, snapshot):
+            return False
         current = _snapshot(session, snapshot, spec)
-        if current != {
-            key: value for key, value in snapshot.items() if key != "approval"
-        } or not _executable(session, current):
+        if current != {key: value for key, value in snapshot.items() if key != "approval"}:
             return False
         approval = snapshot.get("approval", {})
         record = session.get(AuditEvent, uuid.UUID(str(approval.get("id"))))
@@ -358,15 +371,7 @@ def _qualify(
     test: bool,
     spec: ExecutionProfileSpec,
 ) -> dict[str, Any]:
-    if (
-        session.scalar(
-            select(GovernedChangeCandidate.id).where(
-                GovernedChangeCandidate.draft_prompt_version_id
-                == uuid.UUID(snapshot["prompt_version_id"])
-            )
-        )
-        is not None
-    ):
+    if _governed_draft(session, uuid.UUID(snapshot["prompt_version_id"])):
         raise ValueError("GOVERNED_CHANGE_CANDIDATE_CANNOT_BE_QUALIFIED")
     for cls, key in (
         (AIModelProfile, "model_profile_id"),

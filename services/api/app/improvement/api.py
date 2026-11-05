@@ -6,10 +6,12 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.authorization import TenantContext
+from app.config import Settings, get_settings
 from app.control_center.api import platform_context
 from app.db import get_db_session
 from app.evaluation.api import _call as call_evaluation
@@ -18,7 +20,7 @@ from app.evaluation.prompt_policy import PromptPolicyBaselineInput, execute_prom
 from app.evaluation.service import READ, run_summary
 from app.feedback.api import _call
 from app.feedback.common import require_platform
-from app.improvement import candidates, readiness
+from app.improvement import candidates, promotion, readiness, validation
 from app.models.feedback import GovernedChangeCandidate
 
 router = APIRouter(prefix="/api/v1/platform/feedback/change-candidates", tags=["feedback"])
@@ -86,6 +88,90 @@ def review(
         ),
         commit=True,
     )
+
+
+def _promotion_http(result: dict[str, Any]) -> Any:
+    if result["status"] != "DENIED":
+        return result
+    reason = result["reason_code"]
+    forbidden = {
+        "EMPIRICAL_GATE_UNCONFIGURED",
+        "PROMOTION_INDEPENDENT_AUTHORITY_REQUIRED",
+        "PROMOTION_VALIDATION_ENVIRONMENT_REQUIRED",
+    }
+    return JSONResponse(
+        status_code=403 if reason in forbidden else 409,
+        content={"detail": reason, "receipt": result},
+    )
+
+
+@router.post("/{identifier}/promotion")
+def authorize_promotion(
+    identifier: uuid.UUID,
+    payload: promotion.PromotionInput,
+    context: TenantContext = Depends(evaluation_context),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> Any:
+    return _promotion_http(
+        _call(
+            session,
+            lambda: promotion.selection_summary(
+                promotion.promote(session, context, settings, identifier, payload)
+            ),
+            commit=True,
+        )
+    )
+
+
+@router.post("/{identifier}/revert")
+def revert_promotion(
+    identifier: uuid.UUID,
+    payload: promotion.RevertInput,
+    context: TenantContext = Depends(evaluation_context),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> Any:
+    return _promotion_http(
+        _call(
+            session,
+            lambda: promotion.selection_summary(
+                promotion.revert(session, context, settings, identifier, payload)
+            ),
+            commit=True,
+        )
+    )
+
+
+@router.post("/{identifier}/nonproduction-validations")
+def validate_prompt_selection(
+    identifier: uuid.UUID,
+    payload: validation.ValidationInput,
+    context: TenantContext = Depends(evaluation_context),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    return _call(
+        session,
+        lambda: validation.validation_summary(
+            validation.validate_selection(session, context, settings, identifier, payload)
+        ),
+        commit=True,
+    )
+
+
+@summary_router.get("/{identifier}/promotion")
+def promotion_overview(
+    identifier: uuid.UUID,
+    context: TenantContext = Depends(platform_context),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    def read() -> dict[str, Any]:
+        result = promotion.promotion_detail(session, context, settings, identifier)
+        return {**result, "validations": validation.validation_history(session, identifier)}
+
+    return _call(session, read)
 
 
 @summary_router.get("")

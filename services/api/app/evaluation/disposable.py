@@ -12,7 +12,9 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 
-def assert_disposable_database(url: str, expected_name: str | None = None) -> str:
+def assert_disposable_database(
+    url: str, expected_name: str | None = None, *, report: bool = True
+) -> str:
     expected = expected_name or os.environ.get("PRUFAI_DISPOSABLE_DATABASE", "")
     target = urlsplit(url)
     try:
@@ -45,9 +47,10 @@ def assert_disposable_database(url: str, expected_name: str | None = None) -> st
     if not (local or ci):
         raise ValueError("DISPOSABLE_DATABASE_REQUIRED")
     environment = "github-actions-ephemeral" if ci else "local-isolated"
-    print(
-        f"Verified disposable PostgreSQL target: host={target.hostname} "
-        f"port={port} database={name} environment={environment}",
-        flush=True,
-    )
+    if report:
+        print(
+            f"Verified disposable PostgreSQL target: host={target.hostname} "
+            f"port={port} database={name} environment={environment}",
+            flush=True,
+        )
     return name

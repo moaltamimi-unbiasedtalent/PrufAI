@@ -30,6 +30,11 @@ export const controlLinks = [
   ["Audit evidence", "/control-center/audit", "platform.audit.read"],
   ["AI operations", "/control-center/ai-operations", "ai.read"],
   ["Evaluation", "/control-center/evaluation", "standards.evaluation.read"],
+  [
+    "Feedback & Improvements",
+    "/control-center/feedback",
+    "standards.evaluation.read",
+  ],
   ["System health", "/control-center/system", "platform.system.read"],
   ["Certification", "/control-center/certification", "certification.read"],
 ] as const;

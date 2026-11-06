@@ -478,6 +478,37 @@ class KnowledgeRegistryService:
     ) -> KnowledgeLegalMetadata:
         self._review_context(context)
         version = _version(session, version_id, lock=True)
+        legal = self._record_rights_decision(
+            session,
+            version,
+            actor_id=context.user_id,
+            expected_metadata_checksum=expected_metadata_checksum,
+            decision=decision,
+            basis_reference=basis_reference,
+            rights_holder=rights_holder,
+            licence_type=licence_type,
+            retention_policy=retention_policy,
+            expected_sha256=expected_sha256,
+        )
+        session.commit()
+        return legal
+
+    @staticmethod
+    def _record_rights_decision(
+        session: Session,
+        version: KnowledgeDocumentVersion,
+        *,
+        actor_id: uuid.UUID,
+        expected_metadata_checksum: str,
+        decision: str,
+        basis_reference: str,
+        rights_holder: str,
+        licence_type: str,
+        retention_policy: str,
+        expected_sha256: str | None = None,
+        scoped_grant_id: uuid.UUID | None = None,
+    ) -> KnowledgeLegalMetadata:
+        """Write the canonical decision after caller authorization and version locking."""
         legal = version.legal_metadata
         if (
             legal is None
@@ -485,7 +516,7 @@ class KnowledgeRegistryService:
             or source_metadata_checksum(version) != expected_metadata_checksum
         ):
             raise SourceConflict("SOURCE_METADATA_CHECKSUM_MISMATCH")
-        if context.user_id == version.created_by_user_id:
+        if actor_id == version.created_by_user_id:
             raise AuthorizationError("SOURCE_INDEPENDENT_RIGHTS_REVIEW_REQUIRED")
         values = {
             "basis_reference": basis_reference.strip(),
@@ -510,14 +541,13 @@ class KnowledgeRegistryService:
                     event_type="standards.source_rights.withdrawn",
                     entity_type="knowledge_document_version",
                     entity_id=str(version.id),
-                    actor_id=context.user_id,
+                    actor_id=actor_id,
                     metadata={
                         "metadata_checksum": version.metadata_checksum,
                         "prior_decision_checksum": legal.decision_checksum,
                         "withdrawal_basis_checksum": canonical_checksum(values),
                     },
                 )
-                session.commit()
             return legal
         if not _source_available(version):
             raise SourceConflict("SOURCE_VERSION_UNAVAILABLE")
@@ -540,7 +570,7 @@ class KnowledgeRegistryService:
         )
         if legal.decision_checksum is not None:
             if (
-                legal.legal_reviewed_by_user_id == context.user_id
+                legal.legal_reviewed_by_user_id == actor_id
                 and legal.legal_review_status == review_status
                 and legal.ingestion_allowed is allow
                 and legal.approved_sha256 == expected_sha256
@@ -569,7 +599,7 @@ class KnowledgeRegistryService:
         legal.commercial_use_allowed = False
         legal.citation_required = True
         legal.legal_review_status = review_status
-        legal.legal_reviewed_by_user_id = context.user_id
+        legal.legal_reviewed_by_user_id = actor_id
         legal.legal_reviewed_at = utcnow()
         legal.decision_checksum = _decision_checksum(version, legal)
         AuditService.record_security(
@@ -577,15 +607,15 @@ class KnowledgeRegistryService:
             event_type="standards.source_rights.reviewed",
             entity_type="knowledge_document_version",
             entity_id=str(version.id),
-            actor_id=context.user_id,
+            actor_id=actor_id,
             metadata={
                 "decision": decision,
                 "decision_checksum": legal.decision_checksum,
                 "metadata_checksum": version.metadata_checksum,
                 "approved_sha256": expected_sha256,
+                **({"scoped_grant_id": str(scoped_grant_id)} if scoped_grant_id else {}),
             },
         )
-        session.commit()
         return legal
 
     def _verified_file(self, version: KnowledgeDocumentVersion) -> bytes:

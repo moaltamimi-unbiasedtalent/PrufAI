@@ -350,7 +350,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav aria-label="Primary navigation" style={styles.nav}>
         {workspaceLinks
           .filter(([, href]) =>
-            canViewRoute(href, membership, user.platform_permissions),
+            canViewRoute(
+              href,
+              membership,
+              user.platform_permissions,
+              user.scoped_source_review,
+            ),
           )
           .map(([label, href]) => (
             <Link
@@ -374,14 +379,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </p>
       )}
       <div style={styles.content} key={`${user.id}:${organisationId}`}>
-        {canViewRoute(pathname, membership, user.platform_permissions) ? (
+        {canViewRoute(
+          pathname,
+          membership,
+          user.platform_permissions,
+          user.scoped_source_review,
+        ) ? (
           children
         ) : (
           <section role="alert">
             <h1>Access restricted</h1>
             <p>
-              Your current organisation role does not provide this workspace.
-              API permissions are enforced by the server.
+              Your account does not have access to this workspace. API
+              permissions are enforced by the server.
             </p>
             <Link href="/">Return to your overview</Link>
           </section>

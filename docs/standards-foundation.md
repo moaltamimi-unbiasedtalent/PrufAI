@@ -56,3 +56,80 @@ runs the Alembic-backed HTTP integration suite, and rejects skipped tests. The
 authenticated browser acceptance runs against disposable services and verifies
 persistence after restarting the test API process. Neither workflow should be
 pointed at the default development database.
+
+## Temporary scoped source review
+
+Scoped review is separate from platform Standards RBAC. The reviewer signs in
+normally and opens `/source-review`. The grant itself binds the account to one
+organisation and a sealed allowlist of exact SourceVersion UUIDs and metadata
+SHA-256 values. No membership or role is created by a grant. An active platform
+role disqualifies the account from the scoped path. The page offers the approved
+bibliographic fields and decision actions. A source with unresolved evidence
+can remain `NOT_REVIEWED`.
+
+| Existing capability | Scope and affected surfaces |
+| --- | --- |
+| `platform.control_center.read` | Platform shell and overview. Sections require their own platform permissions. |
+| `standards.source.read` | Platform-shared source listings and version histories. |
+| `standards.document.read` | Platform-shared version detail, page and provenance metadata, eligible file integrity, and rights-filtered retrieval and citations. |
+| `standards.document.review` | Platform-shared source rights decisions and document approval and rejection. |
+| `platform.role.assign` | Platform-only role assignment through the existing service. Scoped grant issuance, suspension and revocation require this same capability. |
+| Tenant roles | Existing role permissions apply within an active membership's selected organisation. They cannot authorize these platform actions. |
+
+The scoped paths never populate any of those capabilities. They only read
+eligible `DRAFT`, `METADATA_ONLY` versions and call the existing rights writer for
+an allowed `METADATA_ONLY` or `DENY` decision. Canonical source metadata and
+separately pinned display metadata are rechecked. Versions with a live successor,
+withdrawn versions, and sources registered or versioned by the reviewer fail
+closed. The paths have no ingestion, retrieval, download or publication
+operation.
+
+### Grant contract
+
+The administrative API uses `POST /api/v1/scoped-source-review/orgs/{organisation_id}/grants`.
+An existing authenticated platform authority must confirm the independently
+approved private manifest and its qualification, independence, rationale and
+suspension-owner evidence before calling the API. The API checks the issuer's
+current role, rejects self-grants, binds the request to
+`approved_scope_checksum`, and records the single-use
+`business_approval_reference` as `sha256:<manifest digest>`. A manifest
+digest alone cannot establish that a human approved it. A proposed planning
+manifest cannot be used as approval evidence.
+
+To compute the scope checksum for a manifest, serialize the following as UTF-8
+JSON with recursively sorted object keys, compact separators and no ASCII
+escaping, then take the SHA-256.
+
+- Include `schema_version` equal to 1, the canonical UUID strings
+  `organisation_id`, `reviewer_user_id` and `authorized_by`, the trimmed
+  `purpose`, and `starts_at` and `expires_at` as UTC ISO timestamps with
+  `+00:00`. Omit fractional seconds when zero and use six digits when present.
+- Include `resources` sorted by version UUID. Each element contains
+  `version_id`, `metadata_checksum`, a sorted `metadata_fields` array and a
+  sorted `allowed_decisions` array. Specify these arrays in the manifest.
+  The API defaults the former to `effective_from`, `effective_until`,
+  `publication_date`, `publisher`, `rights_status`, `title` and
+  `version_label`. It defaults the latter to `DENY` and `METADATA_ONLY`.
+
+Supply a unique `operation_id` with grant issuance, suspension, revocation and
+review decisions. Exact replays preserve the original transition. Reusing a
+manifest digest for a different grant or changing input for an existing operation
+is rejected. An extension needs a new grant and separately approved manifest.
+The immutable grant ID identifies that authorization for its entire lifetime.
+
+The grant is available at its start time and expires at its end time. Activation
+and expiration are audited when first observed. The issuer can call
+`POST .../grants/{grant_id}/suspend` or `POST .../grants/{grant_id}/revoke`.
+Suspension ends reviewer access immediately and may be followed by revocation.
+A grant can never be reactivated. Grant state and a decision are serialized in
+the same PostgreSQL transaction, and an old bearer session cannot bypass
+expiration or revocation. Scoped audit events contain identifiers, pins,
+operations and safe outcome codes. The original rights service retains the
+canonical decision and private evidence.
+
+Initial platform administrator recovery and reviewer account enrollment require
+separate authorized procedures. The feature provides no bootstrap or account
+creation route. A deployment without an eligible administrator cannot issue
+grants. Provisioning in a real workspace requires a verified backup and explicit
+operator approval of the final named manifest. Browser and PostgreSQL tests use
+synthetic actors in disposable databases.

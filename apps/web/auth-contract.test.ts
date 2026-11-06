@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { canViewRoute, type Membership } from "./lib/access";
+import { canViewRoute, workspaceLanding, type Membership } from "./lib/access";
 import { developmentDemoEnabled } from "./lib/demo";
 
 const json = (data: unknown, status = 200) =>
@@ -169,6 +169,7 @@ describe("same-origin session contract", () => {
       "/api/v1/platform/standards/catalogue/cefr-companion-2020/register",
       "/api/v1/platform/standard-packs/cefr-b1-foundation",
       "/api/v1/platform/standard-pack-versions/example/validate",
+      "/api/v1/scoped-source-review/grants",
     ];
     for (const path of paths) {
       await api.authenticatedFetch(path, { method: "POST", headers });
@@ -300,5 +301,24 @@ describe("workspace boundaries", () => {
     expect(developmentDemoEnabled("production", "1")).toBe(false);
     expect(developmentDemoEnabled("development", undefined)).toBe(false);
     expect(developmentDemoEnabled("development", "1")).toBe(true);
+  });
+
+  it("opens scoped review without granting platform or tenant navigation", () => {
+    const reviewer = {
+      id: "reviewer",
+      email: "reviewer@example.test",
+      display_name: null,
+      memberships: [],
+      platform_scope: false,
+      platform_permissions: [],
+      scoped_source_review: true,
+    };
+    expect(workspaceLanding(reviewer)).toBe("/source-review");
+    expect(canViewRoute("/source-review", undefined)).toBe(false);
+    expect(canViewRoute("/source-review", undefined, [], true)).toBe(true);
+    expect(canViewRoute("/control-center", undefined, [], true)).toBe(false);
+    expect(canViewRoute("/institution/overview", undefined, [], true)).toBe(
+      false,
+    );
   });
 });

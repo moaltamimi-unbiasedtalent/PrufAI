@@ -122,6 +122,7 @@ from app.models.runtime import (
     CandidateResponse,
     CandidateResponseRevision,
 )
+from app.models.scoped_source_review import ScopedSourceReviewGrant, ScopedSourceReviewOperation
 from app.models.scoring import (
     AssessmentResult,
     ItemScore,
@@ -257,6 +258,8 @@ __all__ = [
     "StatementOfResults",
     "CertificationAuthorization",
     "CertificateRecord",
+    "ScopedSourceReviewGrant",
+    "ScopedSourceReviewOperation",
     "ScoringRun",
     "ScoringResponseSnapshot",
     "ItemScore",

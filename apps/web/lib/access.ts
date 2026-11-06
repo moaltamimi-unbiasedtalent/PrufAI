@@ -13,6 +13,7 @@ export type DemoUser = {
   memberships: Membership[];
   platform_scope: boolean;
   platform_permissions: string[];
+  scoped_source_review?: boolean;
 };
 
 export function candidateMembership(membership: Membership | undefined) {
@@ -26,11 +27,13 @@ export function canViewRoute(
   path: string,
   membership: Membership | undefined,
   platformPermissions: string[] = [],
+  scopedSourceReview = false,
 ) {
   const permissions =
     membership?.status === "ACTIVE" ? membership.permissions : [];
   if (path === "/control-center" || path.startsWith("/control-center/"))
     return platformPermissions.includes("platform.control_center.read");
+  if (path === "/source-review") return scopedSourceReview;
   if (path.startsWith("/candidate")) return candidateMembership(membership);
   if (path.startsWith("/institution/overview"))
     return permissions.includes("exam_assignment.read");
@@ -85,11 +88,13 @@ export function workspaceLanding(
     ([, href]) => href !== "/" && canViewRoute(href, selected),
   );
   if (first) return first[1];
+  if (user.scoped_source_review) return "/source-review";
   return "/";
 }
 
 export const workspaceLinks = [
   ["Overview", "/"],
+  ["Scoped source review", "/source-review"],
   ["My exams", "/candidate"],
   ["My released results", "/candidate/results"],
   ["Institution inspection", "/institution/overview"],

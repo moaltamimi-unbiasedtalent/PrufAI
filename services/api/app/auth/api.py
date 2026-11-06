@@ -23,7 +23,14 @@ from app.auth.service import AuthenticationError, AuthenticationService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
 from app.config import Settings, get_settings
 from app.db import get_db_session
-from app.models import AuthSession, MembershipRole, OrganisationMembership, Role, User
+from app.models import (
+    AuthSession,
+    MembershipRole,
+    OrganisationMembership,
+    Role,
+    ScopedSourceReviewGrant,
+    User,
+)
 from app.models.enums import AuthSessionStatus, MembershipStatus, RoleScope
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -330,6 +337,12 @@ def me(
         "memberships": membership_payloads,
         "platform_scope": bool(platform_permissions),
         "platform_permissions": platform_permissions,
+        "scoped_source_review": session.scalar(
+            select(ScopedSourceReviewGrant.id)
+            .where(ScopedSourceReviewGrant.reviewer_user_id == principal.user.id)
+            .limit(1)
+        )
+        is not None,
     }
 
 

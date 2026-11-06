@@ -24,6 +24,8 @@ export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
 export SPEECH_TRANSCRIPTION_TEST_ADAPTER_ENABLED=1
 export WRITING_TEST_ADAPTER_ENABLED=1
 export SPEAKING_TEST_ADAPTER_ENABLED=1
+export KNOWLEDGE_EMBEDDING_BACKEND=deterministic
+export KNOWLEDGE_RERANKER_BACKEND=deterministic
 export AUTH_RATE_LIMIT_BACKEND=memory
 # Recorded evidence acceptance must use durable private storage. This preflight
 # never replaces a configured bucket or falls back to the standards memory mode.
@@ -82,22 +84,32 @@ npm run build --prefix apps/web >"$PRUFAI_E2E_ARTIFACT_DIR/build.log" 2>&1 || {
 
 INTEGRATED_API_PID=""
 INTEGRATED_WEB_PID=""
+INTEGRATED_BROWSER_PID=""
+export PRUFAI_E2E_API_RESTART_DIR
+PRUFAI_E2E_API_RESTART_DIR="$(mktemp -d /tmp/prufai-browser-restart.XXXXXX)"
 cleanup() {
-  for process_id in "$INTEGRATED_API_PID" "$INTEGRATED_WEB_PID"; do
+  for process_id in "$INTEGRATED_BROWSER_PID" "$INTEGRATED_API_PID" "$INTEGRATED_WEB_PID"; do
     if [[ -n "$process_id" ]]; then
       kill "$process_id" 2>/dev/null || true
       wait "$process_id" 2>/dev/null || true
     fi
   done
+  rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/request" "$PRUFAI_E2E_API_RESTART_DIR/complete" "$PRUFAI_E2E_API_RESTART_DIR/complete.tmp"
+  rmdir -- "$PRUFAI_E2E_API_RESTART_DIR"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # The test-only launcher permits scoped negative fault injection for recovery
 # acceptance; production still starts app.main directly and has no fault path.
 # All journeys share one loopback IP and intentionally restore/switch
 # sessions. Give only this guarded development child a bounded test capacity;
 # product authentication defaults and security-test settings stay unchanged.
-AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
-INTEGRATED_API_PID=$!
+start_api() {
+  AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >>"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
+  INTEGRATED_API_PID=$!
+}
+start_api
 (
   cd apps/web
   exec npm run start -- --hostname 127.0.0.1 --port "$INTEGRATED_WEB_PORT"
@@ -128,4 +140,21 @@ wait_ready() {
 wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"
 wait_ready "$PRUFAI_E2E_BASE_URL/login" "$INTEGRATED_WEB_PID" "$PRUFAI_E2E_ARTIFACT_DIR/web.log"
 
-node "$PRUFAI_BROWSER_TOOL_DIR/node_modules/@playwright/test/cli.js" test --config tests/browser/playwright.config.cjs
+node "$PRUFAI_BROWSER_TOOL_DIR/node_modules/@playwright/test/cli.js" test --config tests/browser/playwright.config.cjs &
+INTEGRATED_BROWSER_PID=$!
+while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
+  if [[ -f "$PRUFAI_E2E_API_RESTART_DIR/request" && ! -e "$PRUFAI_E2E_API_RESTART_DIR/complete" ]]; then
+    # The request contains no target PID, command, database, or network input.
+    # Restart only the API child launched by this guarded runner, exactly once.
+    old_api_pid="$INTEGRATED_API_PID"
+    kill "$old_api_pid"
+    wait "$old_api_pid" || true
+    start_api
+    [[ "$INTEGRATED_API_PID" != "$old_api_pid" ]]
+    wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"
+    printf '%s %s\n' "$old_api_pid" "$INTEGRATED_API_PID" >"$PRUFAI_E2E_API_RESTART_DIR/complete.tmp"
+    mv -- "$PRUFAI_E2E_API_RESTART_DIR/complete.tmp" "$PRUFAI_E2E_API_RESTART_DIR/complete"
+  fi
+  sleep 0.2
+done
+wait "$INTEGRATED_BROWSER_PID"

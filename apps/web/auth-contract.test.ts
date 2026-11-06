@@ -157,27 +157,32 @@ describe("same-origin session contract", () => {
     );
   });
 
-  it("keeps platform feedback mutations unscoped and institution feedback scoped", async () => {
+  it("keeps platform governance unscoped and institution feedback scoped", async () => {
     const api = await import("./lib/api");
     api.setSessionToken("valid");
     api.setOrganisationContext("org-a");
     const fetch = vi.fn().mockResolvedValue(json({}));
     vi.stubGlobal("fetch", fetch);
     const headers = { "X-PrufAI-Organisation-ID": "stale" };
-    await api.authenticatedFetch("/api/v1/platform/feedback/items", {
-      method: "POST",
-      headers,
-    });
+    const paths = [
+      "/api/v1/platform/feedback/items",
+      "/api/v1/platform/standards/catalogue/cefr-companion-2020/register",
+      "/api/v1/platform/standard-packs/cefr-b1-foundation",
+      "/api/v1/platform/standard-pack-versions/example/validate",
+    ];
+    for (const path of paths) {
+      await api.authenticatedFetch(path, { method: "POST", headers });
+    }
     await api.authenticatedFetch("/api/v1/organisations/org-a/feedback", {
       method: "POST",
       headers,
     });
-    expect(fetch.mock.calls[0][1].headers.has("X-PrufAI-Organisation-ID")).toBe(
-      false,
-    );
-    expect(fetch.mock.calls[1][1].headers.get("X-PrufAI-Organisation-ID")).toBe(
-      "org-a",
-    );
+    for (const [, request] of fetch.mock.calls.slice(0, paths.length)) {
+      expect(request.headers.has("X-PrufAI-Organisation-ID")).toBe(false);
+    }
+    expect(
+      fetch.mock.calls[paths.length][1].headers.get("X-PrufAI-Organisation-ID"),
+    ).toBe("org-a");
   });
 
   it("coordinates cookie rotation through the browser's same-origin lock", async () => {

@@ -1,4 +1,6 @@
+import hashlib
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -6,28 +8,22 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.authorization import TenantContext
+from app.authorization import AuthorizationError, TenantContext
 from app.config import Settings
 from app.knowledge.chunking import CHUNKER_NAME, CHUNKER_VERSION, chunk_page
 from app.knowledge.embeddings import DeterministicTestEmbeddingProvider
+from app.knowledge.storage import InMemoryObjectStorage
 from app.models import (
     Base,
-    KnowledgeAuthority,
     KnowledgeDocumentPage,
     KnowledgeDocumentVersion,
-    KnowledgeIngestionJob,
-    KnowledgeLegalMetadata,
-    KnowledgeSource,
 )
 from app.models.enums import (
     AssessmentFamily,
-    ExtractionStatus,
     KnowledgeAuthorityType,
     KnowledgeDocumentType,
-    KnowledgeIngestionStatus,
-    KnowledgeScope,
-    KnowledgeVersionStatus,
 )
+from app.services.knowledge import KnowledgeRegistryService
 from app.services.retrieval import KnowledgeIndexService, RetrievalScope, RetrievalService
 
 
@@ -54,76 +50,77 @@ def platform_context() -> TenantContext:
         user_id=uuid.uuid4(),
         organisation_id=None,
         membership_id=None,
-        platform_permissions=frozenset({"standards.document.manage", "standards.document.read"}),
+        platform_permissions=frozenset(
+            {
+                "standards.authority.manage",
+                "standards.source.manage",
+                "standards.document.manage",
+                "standards.document.read",
+                "standards.document.review",
+            }
+        ),
     )
 
 
-def _indexed_fixture(
-    session: Session, context: TenantContext, provider: str
+def _approved_fixture(
+    session: Session,
+    context: TenantContext,
+    provider: str,
+    *,
+    previous: KnowledgeDocumentVersion | None = None,
 ) -> KnowledgeDocumentVersion:
-    now = datetime.now(timezone.utc)
-    authority = KnowledgeAuthority(
-        code=provider,
-        name=provider,
-        authority_type=KnowledgeAuthorityType.EXAM_PROVIDER,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(authority)
-    session.flush()
-    source = KnowledgeSource(
-        authority_id=authority.id,
-        source_code=f"{provider}_TEST",
-        title="TEST FIXTURE — NOT OFFICIAL MATERIAL",
-        document_type=KnowledgeDocumentType.STANDARD,
-        scope=KnowledgeScope.PLATFORM_SHARED,
-        status="ACTIVE",
-        assessment_family=AssessmentFamily.LANGUAGE,
-        provider_code=provider,
-        language="de",
-        cefr_level="B1",
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(source)
-    session.flush()
-    version = KnowledgeDocumentVersion(
-        source_id=source.id,
-        version_label="1",
-        status=KnowledgeVersionStatus.APPROVED,
-        created_at=now,
-        created_by_user_id=context.user_id,
-        approved_at=now,
-        approved_by_user_id=context.user_id,
-    )
-    session.add(version)
-    session.flush()
-    session.add(KnowledgeLegalMetadata(document_version_id=version.id))
-    job = KnowledgeIngestionJob(
-        document_version_id=version.id,
-        status=KnowledgeIngestionStatus.SUCCEEDED,
-        created_by_user_id=context.user_id,
-        created_at=now,
-    )
-    session.add(job)
-    session.flush()
-    session.add(
-        KnowledgeDocumentPage(
-            document_version_id=version.id,
-            ingestion_job_id=job.id,
-            page_number=1,
-            text_content=f"TEST FIXTURE — NOT OFFICIAL MATERIAL {provider} reading",
-            normalized_text=f"TEST FIXTURE — NOT OFFICIAL MATERIAL {provider} reading",
-            content_hash=(provider.lower() * 64)[:64],
-            character_count=50,
-            extraction_status=ExtractionStatus.EXTRACTED,
-            parser_name="test",
-            parser_version="1",
-            created_at=now,
+    registry = KnowledgeRegistryService(storage=InMemoryObjectStorage())
+    if previous is None:
+        authority = registry.create_authority(
+            session,
+            context,
+            code=f"{provider}_SYNTHETIC",
+            name="PrüfAI synthetic testing authority",
+            authority_type=KnowledgeAuthorityType.INTERNAL,
         )
+        source_id = registry.create_source(
+            session,
+            context,
+            authority_id=authority.id,
+            source_code=f"{provider}_SYNTHETIC_TEST",
+            title="Original synthetic test material",
+            document_type=KnowledgeDocumentType.STANDARD,
+            assessment_family=AssessmentFamily.LANGUAGE,
+            provider_code=provider,
+            language="de",
+            cefr_level="B1",
+        ).id
+    else:
+        source_id = previous.source_id
+    version = registry.create_version(
+        session,
+        context,
+        source_id=source_id,
+        version_label="2" if previous else "1",
+        content_mode="ORIGINAL_SYNTHETIC",
+        supersedes_document_version_id=previous.id if previous else None,
     )
-    session.commit()
-    return version
+    content = f"Original synthetic fixture for {provider} reading {version.version_label}".encode()
+    digest = hashlib.sha256(content).hexdigest()
+    reviewer = replace(context, user_id=uuid.uuid4())
+    assert version.metadata_checksum is not None
+    registry.review_rights(
+        session,
+        reviewer,
+        version_id=version.id,
+        expected_metadata_checksum=version.metadata_checksum,
+        decision="ALLOW_SYNTHETIC_INGESTION",
+        basis_reference="Unit test original synthetic fixture",
+        rights_holder="PrüfAI synthetic testing authority",
+        licence_type="Internal test use",
+        retention_policy="Discard with unit test",
+        expected_sha256=digest,
+    )
+    registry.register_file(
+        session, context, version_id=version.id, filename="synthetic.txt", content=content
+    )
+    registry.ingest(session, context, version_id=version.id)
+    return registry.approve(session, reviewer, version_id=version.id, expected_sha256=digest)
 
 
 def test_page_local_chunking_is_deterministic_and_non_transforming() -> None:
@@ -157,20 +154,25 @@ def test_retrieval_scope_rejects_cefr_for_lid() -> None:
 def test_provider_isolation_and_idempotent_indexing(
     retrieval_session: Session, platform_context: TenantContext
 ) -> None:
-    telc = _indexed_fixture(retrieval_session, platform_context, "TELC")
-    _indexed_fixture(retrieval_session, platform_context, "GOETHE")
+    telc = _approved_fixture(retrieval_session, platform_context, "TELC")
+    goethe = _approved_fixture(retrieval_session, platform_context, "GOETHE")
     settings = Settings(environment="test", knowledge_embedding_backend="deterministic")
     indexer = KnowledgeIndexService(settings)
     first = indexer.index(retrieval_session, platform_context, version_id=telc.id)
+    first_results = RetrievalService(indexer).search_hybrid(
+        retrieval_session, "reading", RetrievalScope(document_version_ids=(telc.id,))
+    )
     second = indexer.index(retrieval_session, platform_context, version_id=telc.id)
+    indexer.index(retrieval_session, platform_context, version_id=goethe.id)
     assert first.index_status.value == "READY"
     assert second.index_status.value == "READY"
+    assert first.id == second.id
     results = RetrievalService(indexer).search_lexical(
         retrieval_session,
         "reading",
         RetrievalScope(provider_codes=("TELC",)),
     )
-    assert results and {result.authority_code for result in results} == {"TELC"}
+    assert results and {result.authority_code for result in results} == {"TELC_SYNTHETIC"}
     hybrid = RetrievalService(indexer).search_hybrid(
         retrieval_session,
         "reading",
@@ -178,7 +180,47 @@ def test_provider_isolation_and_idempotent_indexing(
     )
     assert hybrid and hybrid[0].hybrid_rank == 1
     assert hybrid[0].matched_lexical and hybrid[0].matched_vector
+    assert hybrid[0].chunk_id == first_results[0].chunk_id
     assert len(list(retrieval_session.scalars(select(KnowledgeDocumentPage)))) == 2
+
+
+def test_exact_pin_never_substitutes_a_successor_or_uses_external_embedding(
+    retrieval_session: Session, platform_context: TenantContext
+) -> None:
+    old = _approved_fixture(retrieval_session, platform_context, "SYNTHETIC")
+    indexer = KnowledgeIndexService(Settings(environment="test"))
+    indexer.index(retrieval_session, platform_context, version_id=old.id)
+    historic = datetime.now(timezone.utc)
+    current = _approved_fixture(retrieval_session, platform_context, "SYNTHETIC", previous=old)
+    indexer.index(retrieval_session, platform_context, version_id=current.id)
+    service = RetrievalService(indexer)
+    assert (
+        service.search_hybrid(
+            retrieval_session, "reading", RetrievalScope(document_version_ids=(old.id,))
+        )
+        == []
+    )
+    assert (
+        service.search_hybrid(
+            retrieval_session,
+            "reading",
+            RetrievalScope(document_version_ids=(current.id,), expected_document_checksum="0" * 64),
+        )
+        == []
+    )
+    results = service.search_hybrid(
+        retrieval_session,
+        "reading",
+        RetrievalScope(document_version_ids=(old.id,), as_of_date=historic),
+    )
+    assert [result.document_version_id for result in results] == [old.id]
+    external = KnowledgeIndexService(
+        Settings(environment="test", knowledge_embedding_backend="openai")
+    )
+    with pytest.raises(AuthorizationError, match="TEST_EMBEDDINGS_REQUIRED"):
+        RetrievalService(external).search_vector(
+            retrieval_session, "reading", RetrievalScope(document_version_ids=(current.id,))
+        )
 
 
 def test_shared_authorities_are_explicit() -> None:

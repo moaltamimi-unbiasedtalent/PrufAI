@@ -24,6 +24,7 @@ from app.improvement.api import evaluation_router as prompt_policy_router
 from app.improvement.api import router as improvement_router
 from app.improvement.api import summary_router as improvement_summary_router
 from app.knowledge.api import router as knowledge_router
+from app.knowledge.catalogue import router as standards_catalogue_router
 from app.knowledge.retrieval_api import router as retrieval_router
 from app.memory.api import router as memory_router
 from app.question_bank.api import router as question_bank_router
@@ -76,6 +77,7 @@ _configure_cors()
 app.include_router(auth_router)
 app.include_router(org_router)
 app.include_router(knowledge_router)
+app.include_router(standards_catalogue_router)
 app.include_router(retrieval_router)
 app.include_router(standard_packs_router)
 app.include_router(rules_router)

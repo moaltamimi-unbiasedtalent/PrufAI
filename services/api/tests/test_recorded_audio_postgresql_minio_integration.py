@@ -24,7 +24,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg import sql
-from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy import MetaData, Table, create_engine, event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,7 +32,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.auth.api import auth_settings_dependency
 from app.auth.service import AuthenticationService
 from app.authorization import build_tenant_context
-from app.authorization.seed import seed_defaults
 from app.config import Settings, get_settings
 from app.db import get_db_session
 from app.knowledge.storage import S3CompatibleObjectStorage, build_object_storage
@@ -53,15 +52,9 @@ from app.models import (
     User,
 )
 from app.models.enums import CandidateMediaStatus, OrganisationType, RoleScope
-from app.runtime.service import CandidateRuntimeService, _payload_checksum
-from app.scripts.seed_audio_demo import AUDIO_POLICY, reconcile_audio_demo
-from app.scripts.seed_demo import (
-    PASSWORD,
-    PLATFORM_ADMIN_EMAIL,
-    _platform_user,
-    _users,
-    reconcile_demo,
-)
+from app.runtime.service import _payload_checksum
+from app.scripts.seed_audio_demo import AUDIO_POLICY
+from app.scripts.seed_demo import PASSWORD, PLATFORM_ADMIN_EMAIL, reconcile_demo
 from app.services.identity import IdentityService
 from app.services.organisations import OrganisationService
 from app.speaking_audio.media import MAX_INSPECTION_OUTPUT, validate_recorded_media
@@ -1314,6 +1307,201 @@ def test_real_policy_length_decode_folds_large_frame_metadata_without_losing_dur
     assert validated.validation_provenance["duration_source"] == "decoded_pcm_frame_samples"
 
 
+def _insert_0025_audio_prerequisites(
+    session: Session, now: datetime
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Insert one attempt and its FK prerequisites against the 0025 schema."""
+    connection = session.connection()
+    metadata = MetaData()
+
+    def insert(table_name: str, /, **values: Any) -> uuid.UUID:
+        table = Table(table_name, metadata, autoload_with=connection, resolve_fks=False)
+        row_id = uuid.uuid4()
+        connection.execute(table.insert().values(id=row_id, **values))
+        return row_id
+
+    candidate = insert(
+        "users",
+        email="candidate@legacy-audio.example.test",
+        normalized_email="candidate@legacy-audio.example.test",
+        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+    )
+    organisation = insert(
+        "organisations",
+        slug="legacy-audio",
+        name="Owned legacy migration fixture",
+        organisation_type="LANGUAGE_SCHOOL",
+        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "organisation_memberships",
+        organisation_id=organisation,
+        user_id=candidate,
+        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+    )
+    pack = insert(
+        "standard_packs",
+        code="LEGACY_AUDIO",
+        name="Original recorded audio practice fixture",
+        assessment_family="LANGUAGE",
+        language="de",
+        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+    )
+    pack_version = insert(
+        "standard_pack_versions",
+        standard_pack_id=pack,
+        version_label="legacy-1",
+        status="ACTIVE",
+        configuration_schema_version="1",
+        supported_levels=["B1"],
+        allowed_classifications=["PRACTICE"],
+        created_at=now,
+    )
+    pack_module = insert(
+        "standard_pack_modules",
+        standard_pack_version_id=pack_version,
+        code="SPEAKING",
+        name="Speaking",
+        skill="SPEAKING",
+        sequence=1,
+        required=True,
+        navigation_mode="LINEAR",
+        created_at=now,
+    )
+    pack_section = insert(
+        "standard_pack_sections",
+        module_id=pack_module,
+        code="RECORDING",
+        name="Recording",
+        sequence=1,
+        navigation_mode="LINEAR",
+        created_at=now,
+    )
+    pack_task = insert(
+        "standard_pack_task_specs",
+        section_id=pack_section,
+        code="ORAL_RESPONSE",
+        name="Oral response",
+        sequence=1,
+        task_type="ORAL_RESPONSE",
+        min_items=1,
+        max_items=1,
+        response_mode="AUDIO",
+        media_requirement="NONE",
+        generation_allowed=False,
+        selection_allowed=False,
+        rubric_required=False,
+        metadata_json={},
+        created_at=now,
+    )
+    scope = {"scope_type": "ORGANISATION_PRIVATE", "organisation_id": organisation}
+    question = insert(
+        "question_bank_items",
+        code="LEGACY_AUDIO_ITEM",
+        status="ACTIVE",
+        created_at=now,
+        updated_at=now,
+        **scope,
+    )
+    content = {"prompt": "Describe a familiar activity."}
+    question_version = insert(
+        "question_bank_item_versions",
+        item_id=question,
+        version_label="legacy-1",
+        status="ACTIVE",
+        assessment_family="LANGUAGE",
+        skill="SPEAKING",
+        task_type="ORAL_RESPONSE",
+        response_mode="AUDIO",
+        media_requirement="NONE",
+        content_schema_version="1",
+        content=content,
+        scoring_policy="NON_SCORED",
+        scoring_metadata={},
+        accessibility={},
+        rights_status="PRUFAI_ORIGINAL",
+        origin_type="SYNTHETIC",
+        checksum=_payload_checksum(content),
+        created_at=now,
+    )
+    exam = insert("exams", code="LEGACY_AUDIO", name="Audio history", created_at=now, **scope)
+    exam_version = insert(
+        "exam_versions",
+        exam_id=exam,
+        version_label="legacy-1",
+        status="ACTIVE",
+        standard_pack_version_id=pack_version,
+        classification="PRACTICE",
+        origin_type="HUMAN_AUTHORED",
+        timing_override={},
+        navigation_override={},
+        checksum=_payload_checksum({"exam_id": str(exam), "version_label": "legacy-1"}),
+        created_at=now,
+    )
+    module = insert(
+        "exam_version_modules",
+        exam_version_id=exam_version,
+        standard_pack_module_id=pack_module,
+        ordinal=1,
+    )
+    section = insert(
+        "exam_version_sections",
+        exam_version_module_id=module,
+        standard_pack_section_id=pack_section,
+        ordinal=1,
+    )
+    task = insert(
+        "exam_version_tasks",
+        exam_version_section_id=section,
+        standard_pack_task_spec_id=pack_task,
+        ordinal=1,
+    )
+    binding = insert(
+        "exam_version_item_bindings",
+        exam_version_task_id=task,
+        slot_index=0,
+        question_bank_item_version_id=question_version,
+        origin_type="HUMAN_AUTHORED",
+        created_at=now,
+    )
+    ownership = {
+        "candidate_user_id": candidate,
+        "organisation_id": organisation,
+        "exam_version_id": exam_version,
+    }
+    assignment = insert(
+        "candidate_exam_assignments",
+        status="ASSIGNED",
+        maximum_attempts=1,
+        metadata_json={},
+        created_at=now,
+        **ownership,
+    )
+    item = {"binding_id": str(binding)}
+    runtime_plan = {"modules": [{"sections": [{"tasks": [{"items": [item]}]}]}]}
+    attempt = insert(
+        "candidate_exam_attempts",
+        assignment_id=assignment,
+        attempt_number=1,
+        status="IN_PROGRESS",
+        delivery_manifest_checksum=_payload_checksum(item),
+        runtime_plan_checksum=_payload_checksum(runtime_plan),
+        runtime_plan=runtime_plan,
+        started_at=now,
+        created_at=now,
+        **ownership,
+    )
+    return organisation, candidate, attempt, binding
+
+
 def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history(audio):
     """Only a newly allocated DB is migrated; no existing database is reset."""
     base_url = make_url(os.environ["POSTGRES_INTEGRATION_URL"])
@@ -1345,45 +1533,10 @@ def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history
     storage_key = "integration/legacy-owned-audio/" + asset_id.hex
     audio.storage.put(storage_key, payload, "audio/wav")
     with session_factory() as session:
-        # Build only original AUDIO prerequisites at the legacy schema. The full
-        # demo's current objective submit service correctly requires the current
-        # schema and is not a historical migration fixture.
-        settings = Settings(_env_file=None, environment="development")
-        seed_defaults(session)
-        operator = _platform_user(session, settings, PASSWORD)
-        organisation = Organisation(
-            slug="legacy-audio",
-            name="Owned legacy migration fixture",
-            organisation_type=OrganisationType.LANGUAGE_SCHOOL,
-        )
-        session.add(organisation)
-        session.flush()
-        users = _users(session, settings, organisation, PASSWORD)
-        admin = users["admin@demo.prufai.local"]
-        ids = reconcile_audio_demo(
-            session,
-            settings,
-            enabled=True,
-            organisation=organisation,
-            administrator=admin,
-            platform_operator=operator,
-            password=PASSWORD,
-        )
-        org_id = organisation.id
-        candidate_id = uuid.UUID(ids["audio_candidate_user_id"])
-        administrator = build_tenant_context(session, admin.id, org_id)
-        candidate = build_tenant_context(session, candidate_id, org_id)
-        assignment = CandidateRuntimeService.create_assignment(
-            session,
-            administrator,
-            candidate_user_id=candidate_id,
-            exam_version_id=uuid.UUID(ids["audio_exam_version_id"]),
-        )
-        attempt = CandidateRuntimeService.create_attempt(session, candidate, assignment.id)
-        CandidateRuntimeService.start(session, candidate, attempt.id)
-        item = attempt.runtime_plan["modules"][0]["sections"][0]["tasks"][0]["items"][0]
-        item_binding = uuid.UUID(item["binding_id"])
         now = datetime.now(timezone.utc)
+        org_id, candidate_id, attempt_id, item_binding = _insert_0025_audio_prerequisites(
+            session, now
+        )
         session.execute(
             text("""INSERT INTO candidate_audio_recording_sessions
             (id,attempt_id,exam_version_item_binding_id,candidate_user_id,organisation_id,
@@ -1391,7 +1544,7 @@ def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history
             VALUES (:id,:attempt,:binding,:candidate,:org,1,:now,:now,'READY',:operation,'{}')"""),
             {
                 "id": recording_id,
-                "attempt": attempt.id,
+                "attempt": attempt_id,
                 "binding": item_binding,
                 "candidate": candidate_id,
                 "org": org_id,
@@ -1409,7 +1562,7 @@ def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history
                 "id": asset_id,
                 "org": org_id,
                 "candidate": candidate_id,
-                "attempt": attempt.id,
+                "attempt": attempt_id,
                 "binding": item_binding,
                 "recording": recording_id,
                 "size": len(payload),
@@ -1419,35 +1572,45 @@ def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history
             },
         )
         response_payload = {"media_asset_id": str(asset_id)}
-        response = CandidateResponse(
-            attempt_id=attempt.id,
-            exam_version_item_binding_id=item_binding,
-            current_revision=1,
-            current_payload=response_payload,
-            first_saved_at=now,
-            last_saved_at=now,
+        response_id, revision_id = uuid.uuid4(), uuid.uuid4()
+        response_checksum = _payload_checksum(response_payload)
+        response_json = json.dumps(response_payload)
+        session.execute(
+            text("""INSERT INTO candidate_responses
+            (id,attempt_id,exam_version_item_binding_id,current_revision,response_schema_version,
+             current_payload,first_saved_at,last_saved_at)
+            VALUES (:id,:attempt,:binding,1,'1',CAST(:payload AS json),:now,:now)"""),
+            {
+                "id": response_id,
+                "attempt": attempt_id,
+                "binding": item_binding,
+                "payload": response_json,
+                "now": now,
+            },
         )
-        session.add(response)
-        session.flush()
-        revision = CandidateResponseRevision(
-            candidate_response_id=response.id,
-            attempt_id=attempt.id,
-            revision_number=1,
-            client_operation_id=uuid.uuid4(),
-            payload=response_payload,
-            payload_checksum=_payload_checksum(response_payload),
-            received_at=now,
+        session.execute(
+            text("""INSERT INTO candidate_response_revisions
+            (id,candidate_response_id,attempt_id,revision_number,client_operation_id,
+             payload,payload_checksum,received_at)
+            VALUES (:id,:response,:attempt,1,:operation,CAST(:payload AS json),:checksum,:now)"""),
+            {
+                "id": revision_id,
+                "response": response_id,
+                "attempt": attempt_id,
+                "operation": uuid.uuid4(),
+                "payload": response_json,
+                "checksum": response_checksum,
+                "now": now,
+            },
         )
-        session.add(revision)
-        session.flush()
         session.execute(
             text("""INSERT INTO candidate_response_media_bindings
             (id,candidate_response_revision_id,candidate_media_asset_id,binding_role,created_at)
             VALUES (:id,:revision,:asset,'PRIMARY_AUDIO',:now)"""),
-            {"id": binding_id, "revision": revision.id, "asset": asset_id, "now": now},
+            {"id": binding_id, "revision": revision_id, "asset": asset_id, "now": now},
         )
         session.commit()
-        before = (attempt.id, revision.id, revision.payload_checksum, response_payload)
+        before = (attempt_id, revision_id, response_checksum, response_payload)
     engine.dispose()
     migrate("head")
     engine = create_engine(legacy_url)
@@ -1473,6 +1636,8 @@ def test_alembic_upgrade_preserves_legacy_owned_asset_binding_object_and_history
                 and asset.duration_ms == 1000
             )
             assert asset.storage_key == recording.storage_key == storage_key
+            assert asset.organisation_id == recording.organisation_id == org_id
+            assert asset.candidate_user_id == recording.candidate_user_id == candidate_id
             assert asset.validation_provenance == recording.validation_provenance == {}
             assert recording.evidence_identity == {} and recording.upload_sha256 is None
             assert (

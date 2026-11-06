@@ -1,3 +1,6 @@
+import hashlib
+import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -23,7 +26,7 @@ from app.models.enums import (
     KnowledgeScope,
     KnowledgeVersionStatus,
 )
-from app.services.knowledge import KnowledgeRegistryService
+from app.services.knowledge import KnowledgeRegistryService, SourceConflict
 
 
 def test_pdf_parser_contract() -> None:
@@ -120,8 +123,6 @@ def knowledge_session() -> Session:
 
 @pytest.fixture
 def platform_context() -> TenantContext:
-    import uuid
-
     return TenantContext(
         user_id=uuid.uuid4(),
         organisation_id=None,
@@ -141,7 +142,12 @@ def platform_context() -> TenantContext:
 
 
 def create_fixture(
-    session: Session, context: TenantContext, storage: InMemoryObjectStorage
+    session: Session,
+    context: TenantContext,
+    storage: InMemoryObjectStorage,
+    *,
+    effective_from: datetime | None = None,
+    effective_until: datetime | None = None,
 ) -> tuple[KnowledgeRegistryService, object, object, object]:
     service = KnowledgeRegistryService(storage=storage)
     authority = service.create_authority(
@@ -167,9 +173,77 @@ def create_fixture(
         context,
         source_id=source.id,
         version_label="2026.1",
-        effective_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        content_mode="ORIGINAL_SYNTHETIC",
+        effective_from=effective_from or datetime(2026, 1, 1, tzinfo=timezone.utc),
+        effective_until=effective_until,
     )
     return service, authority, source, version
+
+
+def allow_source(service, session, context, version, content):
+    reviewer = replace(context, user_id=uuid.uuid4())
+    service.review_rights(
+        session,
+        reviewer,
+        version_id=version.id,
+        expected_metadata_checksum=version.metadata_checksum,
+        decision="ALLOW_SYNTHETIC_INGESTION",
+        basis_reference="fixture:original-synthetic",
+        rights_holder="PrüfAI synthetic fixture author",
+        licence_type="INTERNAL_SYNTHETIC_TEST_ONLY",
+        retention_policy="ISOLATED_TEST_FIXTURE",
+        expected_sha256=hashlib.sha256(content).hexdigest(),
+    )
+    return reviewer
+
+
+def test_metadata_only_rights_are_independent_exact_and_withdrawable(
+    knowledge_session: Session, platform_context: TenantContext
+) -> None:
+    storage = InMemoryObjectStorage()
+    service, _, source, _ = create_fixture(knowledge_session, platform_context, storage)
+    version = service.create_version(
+        knowledge_session, platform_context, source_id=source.id, version_label="metadata-only"
+    )
+    reviewer = replace(platform_context, user_id=uuid.uuid4())
+    request = {
+        "version_id": version.id,
+        "expected_metadata_checksum": version.metadata_checksum,
+        "decision": "METADATA_ONLY",
+        "basis_reference": "fixture:metadata-review",
+        "rights_holder": "Synthetic fixture owner",
+        "licence_type": "REFERENCE_ONLY",
+        "retention_policy": "ISOLATED_TEST_FIXTURE",
+    }
+    with pytest.raises(AuthorizationError, match="INDEPENDENT_RIGHTS"):
+        service.review_rights(knowledge_session, platform_context, **request)
+    with pytest.raises(SourceConflict, match="METADATA_CHECKSUM_MISMATCH"):
+        service.review_rights(
+            knowledge_session, reviewer, **{**request, "expected_metadata_checksum": "0" * 64}
+        )
+    decision = service.review_rights(knowledge_session, reviewer, **request)
+    assert decision.legal_review_status.value == "APPROVED" and not decision.ingestion_allowed
+    assert service.review_rights(knowledge_session, reviewer, **request).id == decision.id
+    with pytest.raises(SourceConflict, match="RIGHTS_DECISION_IMMUTABLE"):
+        service.set_legal_metadata(
+            knowledge_session, platform_context, version_id=version.id, rights_holder="changed"
+        )
+    with pytest.raises(SourceConflict, match="CONTENT_RIGHTS_REQUIRED"):
+        service.register_file(
+            knowledge_session,
+            platform_context,
+            version_id=version.id,
+            filename="denied.txt",
+            content=b"Original synthetic denial fixture",
+        )
+    assert not storage.objects and version.sha256 is None
+    checksum = decision.decision_checksum
+    service.review_rights(knowledge_session, reviewer, **{**request, "decision": "WITHDRAW"})
+    assert version.status == KnowledgeVersionStatus.RETIRED
+    assert (
+        decision.decision_checksum == checksum
+        and decision.legal_reviewed_by_user_id == reviewer.user_id
+    )
 
 
 def test_text_ingestion_provenance_and_approval_boundary(
@@ -177,12 +251,22 @@ def test_text_ingestion_provenance_and_approval_boundary(
 ) -> None:
     storage = InMemoryObjectStorage()
     service, _, source, version = create_fixture(knowledge_session, platform_context, storage)
+    content = b"TEST FIXTURE\nNot an official examination standard."
+    with pytest.raises(SourceConflict, match="SOURCE_CONTENT_RIGHTS_REQUIRED"):
+        service.register_file(
+            knowledge_session,
+            platform_context,
+            version_id=version.id,
+            filename="policy.txt",
+            content=content,
+        )
+    reviewer = allow_source(service, knowledge_session, platform_context, version, content)
     service.register_file(
         knowledge_session,
         platform_context,
         version_id=version.id,
         filename="policy.txt",
-        content=b"TEST FIXTURE\nNot an official examination standard.",
+        content=content,
         declared_mime_type="text/plain",
     )
     job = service.ingest(knowledge_session, platform_context, version_id=version.id)
@@ -201,12 +285,17 @@ def test_text_ingestion_provenance_and_approval_boundary(
         )
         == []
     )
-    approved = service.approve(knowledge_session, platform_context, version_id=version.id)
+    approved = service.approve(
+        knowledge_session,
+        reviewer,
+        version_id=version.id,
+        expected_sha256=version.sha256,
+    )
     assert approved.status is KnowledgeVersionStatus.APPROVED
     assert service.approved_at(
         knowledge_session, source_id=source.id, at=datetime(2026, 5, 1, tzinfo=timezone.utc)
     ) == [approved]
-    with pytest.raises(ValueError, match="immutable"):
+    with pytest.raises(ValueError, match="IMMUTABLE"):
         service.register_file(
             knowledge_session,
             platform_context,
@@ -302,15 +391,19 @@ def test_current_and_historical_approved_resolution(
     knowledge_session: Session, platform_context: TenantContext
 ) -> None:
     storage = InMemoryObjectStorage()
-    service, _, source, first = create_fixture(knowledge_session, platform_context, storage)
-    first.effective_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    first.effective_until = datetime(2025, 12, 31, tzinfo=timezone.utc)
-    knowledge_session.commit()
+    service, _, source, first = create_fixture(
+        knowledge_session,
+        platform_context,
+        storage,
+        effective_from=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        effective_until=datetime(2025, 12, 31, tzinfo=timezone.utc),
+    )
     second = service.create_version(
         knowledge_session,
         platform_context,
         source_id=source.id,
         version_label="2026.2",
+        content_mode="ORIGINAL_SYNTHETIC",
         effective_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
         supersedes_document_version_id=first.id,
     )
@@ -318,6 +411,7 @@ def test_current_and_historical_approved_resolution(
         (first, "v1.txt", b"synthetic knowledge v1"),
         (second, "v2.txt", b"synthetic knowledge v2"),
     ):
+        reviewer = allow_source(service, knowledge_session, platform_context, version, content)
         service.register_file(
             knowledge_session,
             platform_context,
@@ -327,7 +421,9 @@ def test_current_and_historical_approved_resolution(
             declared_mime_type="text/plain",
         )
         service.ingest(knowledge_session, platform_context, version_id=version.id)
-        service.approve(knowledge_session, platform_context, version_id=version.id)
+        service.approve(
+            knowledge_session, reviewer, version_id=version.id, expected_sha256=version.sha256
+        )
     service.supersede(
         knowledge_session,
         platform_context,
@@ -363,19 +459,30 @@ def test_failed_ingestion_is_not_approvable_and_can_retry(
     storage = InMemoryObjectStorage()
     service, _, _, version = create_fixture(knowledge_session, platform_context, storage)
     service.parsers = ParserRegistry([FailingParser()])
+    content = b"TEST FIXTURE"
+    reviewer = allow_source(service, knowledge_session, platform_context, version, content)
     service.register_file(
         knowledge_session,
         platform_context,
         version_id=version.id,
         filename="bad.txt",
-        content=b"TEST FIXTURE",
+        content=content,
         declared_mime_type="text/plain",
     )
     job = service.ingest(knowledge_session, platform_context, version_id=version.id)
     assert job.status.value == "FAILED"
     assert version.status is KnowledgeVersionStatus.REJECTED
     with pytest.raises(ValueError, match="only successfully ingested"):
-        service.approve(knowledge_session, platform_context, version_id=version.id)
+        service.approve(
+            knowledge_session, reviewer, version_id=version.id, expected_sha256=version.sha256
+        )
     assert knowledge_session.scalar(
         select(KnowledgeIngestionJob).where(KnowledgeIngestionJob.id == job.id)
+    )
+    service.parsers = ParserRegistry()
+    recovered = service.ingest(knowledge_session, platform_context, version_id=version.id)
+    assert recovered.status.value == "SUCCEEDED" and recovered.id != job.id
+    assert (
+        service.ingest(knowledge_session, platform_context, version_id=version.id).id
+        == recovered.id
     )

@@ -5,15 +5,15 @@ import json
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, cast
 
-from sqlalchemy import delete, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, func, or_, select, text
+from sqlalchemy.orm import Session, aliased
 
 from app.audit import AuditService
 from app.auth.security import utcnow
-from app.authorization import AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, TenantContext
 from app.config import Settings, get_settings
 from app.knowledge.chunking import CHUNKER_NAME, CHUNKER_VERSION, chunk_page
 from app.knowledge.embeddings import (
@@ -38,8 +38,10 @@ from app.models.enums import (
     AssessmentFamily,
     KnowledgeIndexJobStatus,
     KnowledgeIndexStatus,
+    KnowledgeScope,
     KnowledgeVersionStatus,
 )
+from app.services.knowledge import content_rights_permit
 
 
 def _typed_score_map(rows: Iterable[tuple[object, object]]) -> dict[uuid.UUID, float]:
@@ -67,12 +69,16 @@ class RetrievalScope:
     document_type: Optional[str] = None
     as_of_date: Optional[datetime] = None
     include_shared_authorities: tuple[str, ...] = ()
+    document_version_ids: tuple[uuid.UUID, ...] = ()
+    expected_document_checksum: str | None = None
 
     def __post_init__(self) -> None:
         if self.cefr_level and self.cefr_level not in {"A1", "A2", "B1", "B2", "C1", "C2"}:
             raise ValueError("unsupported CEFR level")
         if self.assessment_family is AssessmentFamily.INTEGRATION_KNOWLEDGE and self.cefr_level:
             raise ValueError("LiD/integration knowledge cannot use a CEFR filter")
+        if self.expected_document_checksum is not None and len(self.document_version_ids) != 1:
+            raise ValueError("a checksum requires exactly one document version")
 
 
 @dataclass
@@ -131,8 +137,15 @@ class KnowledgeIndexService:
             timeout_seconds=self.settings.knowledge_embedding_timeout_seconds,
         )
 
-    def ensure_profile(self, session: Session) -> KnowledgeIndexProfile:
-        profile_id = ":".join(
+    def require_synthetic_execution(self) -> None:
+        if (
+            self.settings.environment == "production"
+            or self.settings.knowledge_embedding_backend != "deterministic"
+        ):
+            raise AuthorizationError("STANDARDS_SYNTHETIC_TEST_EMBEDDINGS_REQUIRED")
+
+    def _profile_key(self) -> str:
+        return ":".join(
             [
                 CHUNKER_NAME,
                 CHUNKER_VERSION,
@@ -141,9 +154,25 @@ class KnowledgeIndexService:
                 str(self.settings.knowledge_embedding_dimension),
             ]
         )
-        profile = session.scalar(
-            select(KnowledgeIndexProfile).where(KnowledgeIndexProfile.profile_id == profile_id)
+
+    def active_profile(self, session: Session) -> KnowledgeIndexProfile | None:
+        return session.scalar(
+            select(KnowledgeIndexProfile).where(
+                KnowledgeIndexProfile.profile_id == self._profile_key(),
+                KnowledgeIndexProfile.active.is_(True),
+            )
         )
+
+    def ensure_profile(self, session: Session) -> KnowledgeIndexProfile:
+        profile_id = self._profile_key()
+        lookup = select(KnowledgeIndexProfile).where(KnowledgeIndexProfile.profile_id == profile_id)
+        profile = session.scalar(lookup)
+        if profile is None and session.get_bind().dialect.name == "postgresql":
+            key = int.from_bytes(
+                hashlib.sha256(profile_id.encode()).digest()[:4], "big", signed=True
+            )
+            session.execute(text("SELECT pg_advisory_xact_lock(4130037, :key)"), {"key": key})
+            profile = session.scalar(lookup)
         if profile is None:
             provider = self.provider()
             profile = KnowledgeIndexProfile(
@@ -161,7 +190,7 @@ class KnowledgeIndexService:
                 created_at=utcnow(),
             )
             session.add(profile)
-            session.commit()
+            session.flush()
         return profile
 
     def index(
@@ -171,23 +200,58 @@ class KnowledgeIndexService:
         *,
         version_id: uuid.UUID,
         profile_id: Optional[uuid.UUID] = None,
+        expected_document_checksum: str | None = None,
     ) -> KnowledgeIndexJob:
-        AuthorizationService.require_permission(context, "standards.document.manage")
-        version = session.get(KnowledgeDocumentVersion, version_id)
+        if (
+            context.organisation_id is not None
+            or "standards.document.manage" not in context.platform_permissions
+        ):
+            raise AuthorizationError("platform standards document authority required")
+        version = session.get(
+            KnowledgeDocumentVersion, version_id, with_for_update=True, populate_existing=True
+        )
         if version is None:
             raise ValueError("document version does not exist")
-        if version.status not in {
-            KnowledgeVersionStatus.APPROVED,
-            KnowledgeVersionStatus.SUPERSEDED,
-        }:
+        if version.status is not KnowledgeVersionStatus.APPROVED:
             raise ValueError("only approved knowledge can be indexed")
-        profile = (
-            session.get(KnowledgeIndexProfile, profile_id)
-            if profile_id
-            else self.ensure_profile(session)
+        if not _indexable_content(version):
+            raise AuthorizationError("STANDARDS_CONTENT_RIGHTS_REQUIRED")
+        if expected_document_checksum is not None and expected_document_checksum != version.sha256:
+            raise ValueError("STANDARDS_SOURCE_CHECKSUM_MISMATCH")
+        self.require_synthetic_execution()
+        profile = self.ensure_profile(session)
+        provider = self.provider()
+        if (
+            profile_id is not None
+            and profile_id != profile.id
+            or not profile.active
+            or profile.chunker_name != CHUNKER_NAME
+            or profile.chunker_version != CHUNKER_VERSION
+            or profile.embedding_provider != provider.provider
+            or profile.embedding_model != provider.model
+            or profile.embedding_dimension != provider.dimension
+        ):
+            raise ValueError("configured index profile pin does not match")
+        existing = session.scalar(
+            select(KnowledgeIndexJob)
+            .where(
+                KnowledgeIndexJob.document_version_id == version.id,
+                KnowledgeIndexJob.status == KnowledgeIndexJobStatus.SUCCEEDED,
+                KnowledgeIndexJob.index_status == KnowledgeIndexStatus.READY,
+            )
+            .order_by(KnowledgeIndexJob.created_at.desc())
+            .limit(1)
         )
-        if profile is None:
-            raise ValueError("index profile does not exist")
+        if existing is not None:
+            if existing.profile_id != profile.id:
+                raise ValueError("a new index profile requires a governed source successor")
+            return existing
+        if session.scalar(
+            select(KnowledgeChunk.id)
+            .where(KnowledgeChunk.document_version_id == version.id)
+            .limit(1)
+        ):
+            raise ValueError("existing unsealed source chunks cannot be replaced")
         job = KnowledgeIndexJob(
             document_version_id=version.id,
             profile_id=profile.id,
@@ -207,112 +271,99 @@ class KnowledgeIndexService:
             actor_id=context.user_id,
             metadata={"document_version_id": str(version.id), "profile_id": profile.profile_id},
         )
-        session.commit()
         try:
-            session.execute(
-                delete(KnowledgeChunkEmbedding).where(
-                    KnowledgeChunkEmbedding.profile_id == profile.id,
-                    KnowledgeChunkEmbedding.chunk_id.in_(
-                        select(KnowledgeChunk.id).where(
-                            KnowledgeChunk.document_version_id == version.id
-                        )
-                    ),
+            with session.begin_nested():
+                count = self._persist_chunks(session, version, profile, provider)
+                job.status = KnowledgeIndexJobStatus.SUCCEEDED
+                job.index_status = KnowledgeIndexStatus.READY
+                job.chunks_created = count
+                job.embeddings_created = count
+                job.finished_at = utcnow()
+                AuditService.record_security(
+                    session,
+                    event_type="standards.indexing.succeeded",
+                    entity_type="knowledge_index_job",
+                    entity_id=str(job.id),
+                    actor_id=context.user_id,
+                    metadata={"chunks": count, "embeddings": count},
                 )
-            )
-            session.execute(
-                delete(KnowledgeChunk).where(KnowledgeChunk.document_version_id == version.id)
-            )
-            pages = list(
-                session.scalars(
-                    select(KnowledgeDocumentPage)
-                    .where(KnowledgeDocumentPage.document_version_id == version.id)
-                    .order_by(KnowledgeDocumentPage.page_number)
-                )
-            )
-            drafts = [
-                draft
-                for page in pages
-                for draft in chunk_page(page.normalized_text, page_number=page.page_number)
-            ]
-            page_by_number = {page.page_number: page for page in pages}
-            chunks: list[KnowledgeChunk] = []
-            for draft in drafts:
-                chunk = KnowledgeChunk(
-                    document_version_id=version.id,
-                    document_page_id=page_by_number[draft.page_number].id,
-                    chunk_index=draft.chunk_index,
-                    text_content=draft.text_content,
-                    content_hash=draft.content_hash,
-                    character_start=draft.character_start,
-                    character_end=draft.character_end,
-                    section_title=draft.section_title,
-                    token_count=draft.token_count,
-                    chunker_name=CHUNKER_NAME,
-                    chunker_version=CHUNKER_VERSION,
-                    created_at=utcnow(),
-                )
-                chunks.append(chunk)
-                session.add(chunk)
-            session.flush()
-            vectors = self.provider().embed_documents([chunk.text_content for chunk in chunks])
-            if len(vectors) != len(chunks):
-                raise EmbeddingError("embedding provider returned an incomplete batch")
-            for chunk, vector in zip(chunks, vectors):
-                values = validate_dimension(vector, profile.embedding_dimension)
-                session.add(
-                    KnowledgeChunkEmbedding(
-                        chunk_id=chunk.id,
-                        profile_id=profile.id,
-                        embedding_provider=profile.embedding_provider,
-                        embedding_model=profile.embedding_model,
-                        embedding_dimension=len(values),
-                        embedding=values,
-                        content_hash=chunk.content_hash,
-                        created_at=utcnow(),
-                    )
-                )
-            completed_job = session.get(KnowledgeIndexJob, job.id)
-            assert completed_job is not None
-            completed_job.status = KnowledgeIndexJobStatus.SUCCEEDED
-            completed_job.index_status = KnowledgeIndexStatus.READY
-            completed_job.chunks_created = len(chunks)
-            completed_job.embeddings_created = len(vectors)
-            completed_job.finished_at = utcnow()
-            AuditService.record_security(
-                session,
-                event_type="standards.indexing.succeeded",
-                entity_type="knowledge_index_job",
-                entity_id=str(completed_job.id),
-                actor_id=context.user_id,
-                metadata={"chunks": len(chunks), "embeddings": len(vectors)},
-            )
-            session.commit()
-            return completed_job
         except Exception as exc:
-            session.rollback()
-            failed = session.get(KnowledgeIndexJob, job.id)
-            if failed is None:
-                raise
-            failed.status = KnowledgeIndexJobStatus.FAILED
-            failed.index_status = KnowledgeIndexStatus.FAILED
-            failed.finished_at = utcnow()
-            failed.error_code = type(exc).__name__[:80]
-            failed.safe_error_message = "knowledge indexing failed"
+            job.status = KnowledgeIndexJobStatus.FAILED
+            job.index_status = KnowledgeIndexStatus.FAILED
+            job.finished_at = utcnow()
+            job.error_code = type(exc).__name__[:80]
+            job.safe_error_message = "knowledge indexing failed"
             AuditService.record_security(
                 session,
                 event_type="standards.indexing.failed",
                 entity_type="knowledge_index_job",
-                entity_id=str(failed.id),
+                entity_id=str(job.id),
                 actor_id=context.user_id,
-                metadata={"error_code": failed.error_code},
+                metadata={"error_code": job.error_code},
             )
-            session.commit()
-            return failed
+        session.commit()
+        return job
+
+    @staticmethod
+    def _persist_chunks(
+        session: Session,
+        version: KnowledgeDocumentVersion,
+        profile: KnowledgeIndexProfile,
+        provider: EmbeddingProvider,
+    ) -> int:
+        pages = list(
+            session.scalars(
+                select(KnowledgeDocumentPage)
+                .where(KnowledgeDocumentPage.document_version_id == version.id)
+                .order_by(KnowledgeDocumentPage.page_number)
+            )
+        )
+        chunks = [
+            KnowledgeChunk(
+                document_version_id=version.id,
+                document_page_id=page.id,
+                chunk_index=draft.chunk_index,
+                text_content=draft.text_content,
+                content_hash=draft.content_hash,
+                character_start=draft.character_start,
+                character_end=draft.character_end,
+                section_title=draft.section_title,
+                token_count=draft.token_count,
+                chunker_name=CHUNKER_NAME,
+                chunker_version=CHUNKER_VERSION,
+                created_at=utcnow(),
+            )
+            for page in pages
+            for draft in chunk_page(page.normalized_text, page_number=page.page_number)
+        ]
+        if not chunks:
+            raise ValueError("no versioned source text to index")
+        session.add_all(chunks)
+        session.flush()
+        vectors = provider.embed_documents([chunk.text_content for chunk in chunks])
+        if len(vectors) != len(chunks):
+            raise EmbeddingError("embedding provider returned an incomplete batch")
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            values = validate_dimension(vector, profile.embedding_dimension)
+            session.add(
+                KnowledgeChunkEmbedding(
+                    chunk_id=chunk.id,
+                    profile_id=profile.id,
+                    embedding_provider=profile.embedding_provider,
+                    embedding_model=profile.embedding_model,
+                    embedding_dimension=len(values),
+                    embedding=values,
+                    content_hash=chunk.content_hash,
+                    created_at=utcnow(),
+                )
+            )
+        return len(chunks)
 
 
-def _effective(version: KnowledgeDocumentVersion, point: datetime) -> bool:
-    return (version.effective_from is None or version.effective_from <= point) and (
-        version.effective_until is None or version.effective_until > point
+def _indexable_content(version: KnowledgeDocumentVersion) -> bool:
+    legal = version.legal_metadata
+    return (
+        content_rights_permit(version) and legal is not None and legal.ai_processing_allowed is True
     )
 
 
@@ -323,16 +374,50 @@ class RetrievalService:
     def _base_versions(
         self, session: Session, scope: RetrievalScope
     ) -> list[KnowledgeDocumentVersion]:
+        point = scope.as_of_date or utcnow()
+        if point.tzinfo is None:
+            point = point.replace(tzinfo=timezone.utc)
+        successor = aliased(KnowledgeDocumentVersion)
         query = (
             select(KnowledgeDocumentVersion)
             .join(KnowledgeSource)
             .join(KnowledgeAuthority)
             .where(
-                KnowledgeDocumentVersion.status.in_(
-                    [KnowledgeVersionStatus.APPROVED, KnowledgeVersionStatus.SUPERSEDED]
+                KnowledgeSource.scope == KnowledgeScope.PLATFORM_SHARED,
+                KnowledgeSource.status == "ACTIVE",
+                KnowledgeAuthority.status == "ACTIVE",
+                KnowledgeDocumentVersion.content_mode == "ORIGINAL_SYNTHETIC",
+                or_(
+                    KnowledgeDocumentVersion.effective_from.is_(None),
+                    KnowledgeDocumentVersion.effective_from <= point,
+                ),
+                or_(
+                    KnowledgeDocumentVersion.effective_until.is_(None),
+                    KnowledgeDocumentVersion.effective_until > point,
+                ),
+                ~select(successor.id)
+                .where(
+                    successor.source_id == KnowledgeDocumentVersion.source_id,
+                    successor.supersedes_document_version_id == KnowledgeDocumentVersion.id,
+                    successor.approved_at <= point,
+                    or_(successor.effective_from.is_(None), successor.effective_from <= point),
                 )
+                .exists(),
             )
         )
+        if scope.as_of_date is None:
+            query = query.where(KnowledgeDocumentVersion.status == KnowledgeVersionStatus.APPROVED)
+        else:
+            query = query.where(
+                KnowledgeDocumentVersion.status.in_(
+                    [KnowledgeVersionStatus.APPROVED, KnowledgeVersionStatus.SUPERSEDED]
+                ),
+                KnowledgeDocumentVersion.approved_at <= point,
+            )
+        if scope.document_version_ids:
+            query = query.where(KnowledgeDocumentVersion.id.in_(scope.document_version_ids))
+        if scope.expected_document_checksum is not None:
+            query = query.where(KnowledgeDocumentVersion.sha256 == scope.expected_document_checksum)
         if scope.source_ids:
             query = query.where(KnowledgeSource.id.in_(scope.source_ids))
         if scope.assessment_family:
@@ -351,11 +436,27 @@ class RetrievalService:
             query = query.where(KnowledgeSource.skill == scope.skill)
         if scope.document_type:
             query = query.where(KnowledgeSource.document_type == scope.document_type)
-        point = scope.as_of_date or utcnow()
-        versions = list(session.scalars(query))
-        if scope.as_of_date is None:
-            versions = [v for v in versions if v.status is KnowledgeVersionStatus.APPROVED]
-        return [v for v in versions if _effective(v, point)]
+        versions = session.scalars(
+            query.order_by(KnowledgeDocumentVersion.id)
+            .with_for_update(read=True, of=KnowledgeDocumentVersion)
+            .execution_options(populate_existing=True)
+        )
+        return [version for version in versions if _indexable_content(version)]
+
+    @staticmethod
+    def _indexed_chunk(profile_id: uuid.UUID) -> tuple[ColumnElement[bool], ...]:
+        return (
+            KnowledgeChunkEmbedding.profile_id == profile_id,
+            KnowledgeChunkEmbedding.content_hash == KnowledgeChunk.content_hash,
+            select(KnowledgeIndexJob.id)
+            .where(
+                KnowledgeIndexJob.document_version_id == KnowledgeChunk.document_version_id,
+                KnowledgeIndexJob.profile_id == profile_id,
+                KnowledgeIndexJob.status == KnowledgeIndexJobStatus.SUCCEEDED,
+                KnowledgeIndexJob.index_status == KnowledgeIndexStatus.READY,
+            )
+            .exists(),
+        )
 
     def _results(
         self, session: Session, versions: list[KnowledgeDocumentVersion], profile_id: uuid.UUID
@@ -388,15 +489,7 @@ class RetrievalService:
             .join(KnowledgeChunkEmbedding, KnowledgeChunkEmbedding.chunk_id == KnowledgeChunk.id)
             .where(
                 KnowledgeChunk.document_version_id.in_(version_ids),
-                KnowledgeChunkEmbedding.profile_id == profile_id,
-                select(KnowledgeIndexJob.id)
-                .where(
-                    KnowledgeIndexJob.document_version_id == KnowledgeChunk.document_version_id,
-                    KnowledgeIndexJob.profile_id == profile_id,
-                    KnowledgeIndexJob.status == KnowledgeIndexJobStatus.SUCCEEDED,
-                    KnowledgeIndexJob.index_status == KnowledgeIndexStatus.READY,
-                )
-                .exists(),
+                *self._indexed_chunk(profile_id),
             )
         )
         output = []
@@ -429,6 +522,8 @@ class RetrievalService:
                         "legal_review_status": legal.legal_review_status.value
                         if legal
                         else "NOT_REVIEWED",
+                        "redistribution_allowed": legal.redistribution_allowed if legal else None,
+                        "ai_processing_allowed": legal.ai_processing_allowed if legal else None,
                     },
                     chunker_name=chunk.chunker_name,
                     chunker_version=chunk.chunker_version,
@@ -443,19 +538,30 @@ class RetrievalService:
         if not query.strip() or len(query) > 2000:
             raise ValueError("query must be 1-2000 characters")
         limit = min(max(limit, 1), 50)
-        profile = self.index_service.ensure_profile(session)
         versions = self._base_versions(session, scope)
+        if not versions:
+            return []
+        self.index_service.require_synthetic_execution()
+        profile = self.index_service.active_profile(session)
+        if profile is None:
+            return []
         scores: dict[uuid.UUID, float] = {}
-        if session.bind is not None and session.bind.dialect.name == "postgresql" and versions:
+        if session.get_bind().dialect.name == "postgresql":
             lexical_score = func.ts_rank_cd(
                 func.to_tsvector("simple", KnowledgeChunk.text_content),
                 func.plainto_tsquery("simple", query),
             ).label("lexical_score")
             rows = session.execute(
                 select(KnowledgeChunk.id, lexical_score)
-                .where(KnowledgeChunk.document_version_id.in_([item.id for item in versions]))
-                .where(lexical_score > 0)
-                .order_by(lexical_score.desc())
+                .join(
+                    KnowledgeChunkEmbedding, KnowledgeChunkEmbedding.chunk_id == KnowledgeChunk.id
+                )
+                .where(
+                    KnowledgeChunk.document_version_id.in_([item.id for item in versions]),
+                    lexical_score > 0,
+                    *self._indexed_chunk(profile.id),
+                )
+                .order_by(lexical_score.desc(), KnowledgeChunk.id)
                 .limit(limit)
             )
             scores = _typed_score_map(cast(Iterable[tuple[object, object]], rows))
@@ -482,11 +588,16 @@ class RetrievalService:
     def search_vector(
         self, session: Session, query: str, scope: RetrievalScope, limit: int = 10
     ) -> list[CitationReadyResult]:
-        profile = self.index_service.ensure_profile(session)
-        query_vector = self.index_service.provider().embed_query(query)
         versions = self._base_versions(session, scope)
+        if not versions:
+            return []
+        self.index_service.require_synthetic_execution()
+        profile = self.index_service.active_profile(session)
+        if profile is None:
+            return []
+        query_vector = self.index_service.provider().embed_query(query)
         distances: dict[uuid.UUID, float] = {}
-        if session.bind is not None and session.bind.dialect.name == "postgresql" and versions:
+        if session.get_bind().dialect.name == "postgresql":
             distance = KnowledgeChunkEmbedding.embedding.cosine_distance(query_vector).label(
                 "distance"
             )
@@ -497,9 +608,9 @@ class RetrievalService:
                 )
                 .where(
                     KnowledgeChunk.document_version_id.in_([item.id for item in versions]),
-                    KnowledgeChunkEmbedding.profile_id == profile.id,
+                    *self._indexed_chunk(profile.id),
                 )
-                .order_by(distance.asc())
+                .order_by(distance.asc(), KnowledgeChunk.id)
                 .limit(min(max(limit, 1), 50))
             )
             distances = _typed_score_map(cast(Iterable[tuple[object, object]], rows))

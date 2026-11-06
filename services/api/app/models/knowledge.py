@@ -97,6 +97,16 @@ class KnowledgeDocumentVersion(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "knowledge_document_versions"
     __table_args__ = (
         UniqueConstraint("source_id", "version_label", name="uq_knowledge_version_label"),
+        CheckConstraint(
+            "content_mode IN ('METADATA_ONLY', 'ORIGINAL_SYNTHETIC')",
+            name="ck_knowledge_version_content_mode",
+        ),
+        CheckConstraint(
+            "content_mode <> 'METADATA_ONLY' OR "
+            "(storage_key IS NULL AND storage_bucket IS NULL AND sha256 IS NULL "
+            "AND file_size IS NULL AND mime_type IS NULL AND original_filename IS NULL)",
+            name="ck_knowledge_metadata_only_no_file",
+        ),
         Index("ix_knowledge_versions_source_status", "source_id", "status"),
         Index("ix_knowledge_versions_checksum", "sha256"),
         CheckConstraint(
@@ -109,6 +119,8 @@ class KnowledgeDocumentVersion(UUIDPrimaryKeyMixin, Base):
         ForeignKey("knowledge_sources.id", ondelete="CASCADE"), nullable=False
     )
     version_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    content_mode: Mapped[Optional[str]] = mapped_column(String(32))
+    metadata_checksum: Mapped[Optional[str]] = mapped_column(String(64))
     publication_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     effective_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     effective_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -118,6 +130,7 @@ class KnowledgeDocumentVersion(UUIDPrimaryKeyMixin, Base):
     original_filename: Mapped[Optional[str]] = mapped_column(String(255))
     mime_type: Mapped[Optional[str]] = mapped_column(String(120))
     storage_key: Mapped[Optional[str]] = mapped_column(String(500))
+    storage_bucket: Mapped[Optional[str]] = mapped_column(String(255))
     file_size: Mapped[Optional[int]] = mapped_column(Integer)
     sha256: Mapped[Optional[str]] = mapped_column(String(64))
     page_count: Mapped[Optional[int]] = mapped_column(Integer)
@@ -158,6 +171,11 @@ class KnowledgeLegalMetadata(UUIDPrimaryKeyMixin, Base):
     licence_type: Mapped[Optional[str]] = mapped_column(String(120))
     rights_holder: Mapped[Optional[str]] = mapped_column(String(300))
     usage_rights: Mapped[Optional[str]] = mapped_column(Text)
+    ingestion_allowed: Mapped[Optional[bool]] = mapped_column(Boolean)
+    approved_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    basis_reference: Mapped[Optional[str]] = mapped_column(String(240))
+    retention_policy: Mapped[Optional[str]] = mapped_column(String(240))
+    decision_checksum: Mapped[Optional[str]] = mapped_column(String(64))
     redistribution_allowed: Mapped[Optional[bool]] = mapped_column(Boolean)
     derivative_use_allowed: Mapped[Optional[bool]] = mapped_column(Boolean)
     ai_processing_allowed: Mapped[Optional[bool]] = mapped_column(Boolean)

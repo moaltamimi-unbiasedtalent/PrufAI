@@ -7,11 +7,17 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.authorization import AuthorizationError
 from app.config import Settings, get_settings
 from app.knowledge.citations import Citation, CitationBuilder
 from app.knowledge.reranking import Reranker, RerankingProfile, build_reranker
 from app.models.retrieval import KnowledgeRerankingProfile
-from app.services.retrieval import CitationReadyResult, RetrievalScope, RetrievalService
+from app.services.retrieval import (
+    CitationReadyResult,
+    KnowledgeIndexService,
+    RetrievalScope,
+    RetrievalService,
+)
 
 
 class EvidenceRetrievalService:
@@ -22,7 +28,13 @@ class EvidenceRetrievalService:
         settings: Optional[Settings] = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.retrieval = retrieval or RetrievalService()
+        self.retrieval = retrieval or RetrievalService(KnowledgeIndexService(self.settings))
+        if (
+            self.settings.environment == "production"
+            or self.settings.knowledge_reranker_backend != "deterministic"
+            or (reranker is not None and reranker.provider != "test-deterministic")
+        ):
+            raise AuthorizationError("STANDARDS_SYNTHETIC_TEST_RERANKER_REQUIRED")
         self.reranker = reranker or build_reranker(self.settings)
         self.citations = CitationBuilder()
 
@@ -43,6 +55,8 @@ class EvidenceRetrievalService:
         self, session: Session, query: str, scope: RetrievalScope, limit: int = 10
     ) -> List[tuple[CitationReadyResult, Citation]]:
         candidates = self.retrieval.search_hybrid(session, query, scope, min(limit * 5, 50))
+        if not candidates:
+            return []
         profile = self.reranking_profile(limit)
         self._persist_profile(session, profile)
         reranked = self.reranker.rerank(query, list(candidates), profile)

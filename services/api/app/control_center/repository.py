@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-from sqlalchemy import func, literal, select, text
+from sqlalchemy import func, literal, or_, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import Executable, FromClause
 
@@ -41,7 +41,7 @@ from app.models import (
     User,
     WritingExecutionJob,
 )
-from app.models.enums import AppealStatus, ModerationStatus
+from app.models.enums import AppealStatus, KnowledgeScope, ModerationStatus
 
 
 class SubquerySource(Protocol):
@@ -190,16 +190,36 @@ class ControlCenterRepository:
                 StandardPack.created_at,
             ).order_by(StandardPack.code, StandardPack.id)
         elif kind == "bindings":
-            query = select(
-                StandardPackSourceBinding.id,
-                StandardPackSourceBinding.standard_pack_version_id,
-                StandardPackSourceBinding.knowledge_source_id,
-                StandardPackSourceBinding.document_version_id,
-                StandardPackSourceBinding.document_checksum,
-                StandardPackSourceBinding.binding_type,
-                StandardPackSourceBinding.required,
-                StandardPackSourceBinding.created_at,
-            ).order_by(StandardPackSourceBinding.created_at, StandardPackSourceBinding.id)
+            shared_source = select(KnowledgeSource.id).where(
+                KnowledgeSource.scope == KnowledgeScope.PLATFORM_SHARED
+            )
+            shared_version = select(KnowledgeDocumentVersion.id).where(
+                KnowledgeDocumentVersion.source_id.in_(shared_source)
+            )
+            query = (
+                select(
+                    StandardPackSourceBinding.id,
+                    StandardPackSourceBinding.standard_pack_version_id,
+                    StandardPackSourceBinding.knowledge_source_id,
+                    StandardPackSourceBinding.document_version_id,
+                    StandardPackSourceBinding.document_checksum,
+                    StandardPackSourceBinding.source_metadata_checksum,
+                    StandardPackSourceBinding.binding_type,
+                    StandardPackSourceBinding.required,
+                    StandardPackSourceBinding.created_at,
+                )
+                .where(
+                    or_(
+                        StandardPackSourceBinding.knowledge_source_id.is_(None),
+                        StandardPackSourceBinding.knowledge_source_id.in_(shared_source),
+                    ),
+                    or_(
+                        StandardPackSourceBinding.document_version_id.is_(None),
+                        StandardPackSourceBinding.document_version_id.in_(shared_version),
+                    ),
+                )
+                .order_by(StandardPackSourceBinding.created_at, StandardPackSourceBinding.id)
+            )
         else:
             query = (
                 select(
@@ -236,6 +256,8 @@ class ControlCenterRepository:
                     KnowledgeDocumentVersion.effective_from,
                     KnowledgeDocumentVersion.effective_until,
                     KnowledgeDocumentVersion.sha256,
+                    KnowledgeDocumentVersion.metadata_checksum,
+                    KnowledgeDocumentVersion.content_mode,
                     KnowledgeDocumentVersion.page_count,
                     KnowledgeDocumentVersion.created_at,
                     KnowledgeLegalMetadata.copyright_status,
@@ -249,30 +271,41 @@ class ControlCenterRepository:
                     KnowledgeLegalMetadata,
                     KnowledgeLegalMetadata.document_version_id == KnowledgeDocumentVersion.id,
                 )
+                .where(KnowledgeSource.scope == KnowledgeScope.PLATFORM_SHARED)
                 .order_by(KnowledgeDocumentVersion.created_at, KnowledgeDocumentVersion.id)
             )
         elif kind == "ingestions":
-            query = select(
-                KnowledgeIngestionJob.id,
-                KnowledgeIngestionJob.document_version_id,
-                KnowledgeIngestionJob.status,
-                KnowledgeIngestionJob.created_at,
-                KnowledgeIngestionJob.started_at,
-                KnowledgeIngestionJob.finished_at,
-                KnowledgeIngestionJob.pages_detected,
-            ).order_by(KnowledgeIngestionJob.created_at, KnowledgeIngestionJob.id)
+            query = (
+                select(
+                    KnowledgeIngestionJob.id,
+                    KnowledgeIngestionJob.document_version_id,
+                    KnowledgeIngestionJob.status,
+                    KnowledgeIngestionJob.created_at,
+                    KnowledgeIngestionJob.started_at,
+                    KnowledgeIngestionJob.finished_at,
+                    KnowledgeIngestionJob.pages_detected,
+                )
+                .join(KnowledgeDocumentVersion)
+                .join(KnowledgeSource)
+                .where(KnowledgeSource.scope == KnowledgeScope.PLATFORM_SHARED)
+                .order_by(KnowledgeIngestionJob.created_at, KnowledgeIngestionJob.id)
+            )
         else:
-            query = select(
-                KnowledgeSource.id,
-                KnowledgeSource.source_code,
-                KnowledgeSource.title,
-                KnowledgeSource.authority_id,
-                KnowledgeSource.assessment_family,
-                KnowledgeSource.language,
-                KnowledgeSource.cefr_level,
-                KnowledgeSource.status,
-                KnowledgeSource.document_type,
-            ).order_by(KnowledgeSource.source_code, KnowledgeSource.id)
+            query = (
+                select(
+                    KnowledgeSource.id,
+                    KnowledgeSource.source_code,
+                    KnowledgeSource.title,
+                    KnowledgeSource.authority_id,
+                    KnowledgeSource.assessment_family,
+                    KnowledgeSource.language,
+                    KnowledgeSource.cefr_level,
+                    KnowledgeSource.status,
+                    KnowledgeSource.document_type,
+                )
+                .where(KnowledgeSource.scope == KnowledgeScope.PLATFORM_SHARED)
+                .order_by(KnowledgeSource.source_code, KnowledgeSource.id)
+            )
         return ControlCenterRepository.page(session, query, offset, limit)
 
     @staticmethod

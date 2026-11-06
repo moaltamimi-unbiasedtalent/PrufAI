@@ -14,6 +14,7 @@ from app.audit import AuditService
 from app.authorization import TenantContext
 from app.models import (
     KnowledgeDocumentVersion,
+    KnowledgeSource,
     StandardPack,
     StandardPackSourceBinding,
     StandardPackVersion,
@@ -21,12 +22,29 @@ from app.models import (
 from app.models.enums import (
     AssessmentClassification,
     AssessmentFamily,
+    KnowledgeScope,
     KnowledgeVersionStatus,
     PackValidationStatus,
     RuleEvaluationStatus,
     RuleStatus,
     StandardPackBindingType,
     StandardPackStatus,
+)
+from app.services.knowledge import source_legal_decision_valid, source_version_reference_checksum
+
+B1_FOUNDATION_CODE = "PRUFAI_CEFR_DE_B1_FOUNDATION"
+B1_FOUNDATION_SCHEMA = "s1-cefr-b1-v1"
+B1_PUBLICATION_BLOCKED = "PACK_FOUNDATION_PUBLICATION_BLOCKED"
+B1_PUBLICATION_REQUIREMENTS = (
+    ("PACK_SOURCE_CONTENT_RIGHTS_REQUIRED", "Source metadata is not licensed content evidence."),
+    ("PACK_INDEPENDENT_EXPERT_REVIEW_REQUIRED", "Independent expert validation is not recorded."),
+    ("PACK_VALIDATED_TASK_RUBRIC_REQUIRED", "The draft task and rubric mapping is not validated."),
+    ("PACK_GOVERNED_RULES_REQUIRED", "No approved assessment rules are bound to this draft."),
+    (
+        "PACK_APPROVED_VERSION_PROVENANCE_REQUIRED",
+        "The version lacks approved assessment provenance.",
+    ),
+    ("PACK_HUMAN_PUBLICATION_AUTHORIZATION_REQUIRED", "Human publication authorization is absent."),
 )
 
 
@@ -52,6 +70,18 @@ _ELIGIBLE_NORMATIVE_STATUSES = {
     KnowledgeVersionStatus.SUPERSEDED,
     KnowledgeVersionStatus.RETIRED,
 }
+
+
+def normative_source_is_eligible(document: KnowledgeDocumentVersion) -> bool:
+    """S1 rights authorize bibliographic references or internal test evidence only."""
+    return (
+        document.source.scope is KnowledgeScope.PLATFORM_SHARED
+        and document.content_mode is None
+        and document.metadata_checksum is None
+        and document.status in _ELIGIBLE_NORMATIVE_STATUSES
+    )
+
+
 _ALLOWED_TRANSITIONS: dict[StandardPackStatus, set[StandardPackStatus]] = {
     StandardPackStatus.DRAFT: {
         StandardPackStatus.VALIDATION_REQUIRED,
@@ -88,6 +118,8 @@ class StandardPackService:
         description: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> StandardPack:
+        if code.strip().upper() == B1_FOUNDATION_CODE:
+            raise ValueError("the B1 foundation uses its exact-source creation workflow")
         pack = StandardPack(
             code=code,
             name=name,
@@ -117,6 +149,8 @@ class StandardPackService:
         notes: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> StandardPackVersion:
+        if pack.code == B1_FOUNDATION_CODE:
+            raise ValueError("the B1 foundation uses its exact-source creation workflow")
         version = StandardPackVersion(
             standard_pack_id=pack.id,
             version_label=version_label,
@@ -162,18 +196,23 @@ class StandardPackService:
             raise ValueError("normative bindings must pin an exact document version")
         if document_version_id is not None:
             document = session.get(KnowledgeDocumentVersion, document_version_id)
-            if document is None:
+            if document is None or document.source.scope is not KnowledgeScope.PLATFORM_SHARED:
                 raise ValueError("document version not found")
             if (
                 binding_type is StandardPackBindingType.NORMATIVE
-                and document.status not in _ELIGIBLE_NORMATIVE_STATUSES
+                and not normative_source_is_eligible(document)
             ):
-                raise ValueError("normative evidence must be approved or historically approved")
+                raise ValueError("source version is not eligible as normative evidence")
             if knowledge_source_id is not None and document.source_id != knowledge_source_id:
                 raise ValueError("document version does not belong to the selected source")
             knowledge_source_id = document.source_id
             document_checksum = document.sha256
         else:
+            source = (
+                session.get(KnowledgeSource, knowledge_source_id) if knowledge_source_id else None
+            )
+            if source is None or source.scope is not KnowledgeScope.PLATFORM_SHARED:
+                raise ValueError("source not found")
             document_checksum = None
         binding = StandardPackSourceBinding(
             standard_pack_version_id=version.id,
@@ -216,6 +255,12 @@ class StandardPackService:
                 None,
             )
         issues: list[ValidationIssue] = []
+        if (
+            pack.code == B1_FOUNDATION_CODE
+            or version.configuration_schema_version == B1_FOUNDATION_SCHEMA
+        ):
+            for code, message in B1_PUBLICATION_REQUIREMENTS:
+                issues.append(ValidationIssue(code, "FAIL", "publication", message))
         if not pack.code or not pack.name:
             issues.append(
                 ValidationIssue(
@@ -330,16 +375,45 @@ class StandardPackService:
                             "document version not found",
                         )
                     )
-                elif (
+                elif binding.source_metadata_checksum is not None and (
+                    binding.knowledge_source_id != document.source_id
+                    or binding.source_metadata_checksum
+                    != source_version_reference_checksum(document)
+                    or binding.document_checksum is not None
+                    or document.content_mode != "METADATA_ONLY"
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            "PACK.METADATA_SOURCE_PIN_MISMATCH",
+                            "FAIL",
+                            f"source_bindings[{index}]",
+                            "The exact metadata source reference no longer matches.",
+                            str(document.id),
+                        )
+                    )
+                elif binding.source_metadata_checksum is not None and (
+                    document.status is not KnowledgeVersionStatus.DRAFT
+                    or not source_legal_decision_valid(document)
+                ):
+                    issues.append(
+                        ValidationIssue(
+                            "PACK.METADATA_SOURCE_REVIEW_UNAVAILABLE",
+                            "FAIL",
+                            f"source_bindings[{index}]",
+                            "The exact bibliographic rights review is no longer current.",
+                            str(document.id),
+                        )
+                    )
+                if document is not None and (
                     binding.binding_type is StandardPackBindingType.NORMATIVE
-                    and document.status not in _ELIGIBLE_NORMATIVE_STATUSES
+                    and not normative_source_is_eligible(document)
                 ):
                     issues.append(
                         ValidationIssue(
                             "PACK.NORMATIVE_SOURCE_NOT_APPROVED",
                             "FAIL",
                             f"source_bindings[{index}]",
-                            "normative evidence must be approved or historically approved",
+                            "The exact source version is not eligible as normative evidence.",
                             str(document.id),
                         )
                     )
@@ -462,6 +536,15 @@ class StandardPackService:
         actor_id: Optional[uuid.UUID] = None,
         context: Optional[TenantContext] = None,
     ) -> PackValidationResult:
+        if (
+            version.configuration_schema_version == B1_FOUNDATION_SCHEMA
+            or version.standard_pack.code == B1_FOUNDATION_CODE
+        ) and target in {
+            StandardPackStatus.APPROVED,
+            StandardPackStatus.PUBLISHED,
+            StandardPackStatus.ACTIVE,
+        }:
+            raise ValueError(B1_PUBLICATION_BLOCKED)
         current = version.status
         if target not in _ALLOWED_TRANSITIONS.get(current, set()):
             raise ValueError(f"invalid Standard Pack transition: {current.value} -> {target.value}")
@@ -509,6 +592,8 @@ class StandardPackService:
 
     @staticmethod
     def ensure_mutable(version: StandardPackVersion) -> None:
+        if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
+            raise ValueError("the B1 foundation draft is sealed to its exact source mapping")
         if version.status in {
             StandardPackStatus.PUBLISHED,
             StandardPackStatus.ACTIVE,
@@ -521,16 +606,23 @@ class StandardPackService:
 
     @staticmethod
     def canonical(version: StandardPackVersion) -> dict[str, Any]:
+        def effective_date(value: datetime | None) -> str | None:
+            if value is None:
+                return None
+            if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
+                value = (
+                    value.replace(tzinfo=timezone.utc)
+                    if value.tzinfo is None
+                    else value.astimezone(timezone.utc)
+                )
+            return value.isoformat()
+
         return {
             "schema_version": version.configuration_schema_version,
             "standard_pack_id": str(version.standard_pack_id),
             "version_label": version.version_label,
-            "effective_from": version.effective_from.isoformat()
-            if version.effective_from
-            else None,
-            "effective_until": version.effective_until.isoformat()
-            if version.effective_until
-            else None,
+            "effective_from": effective_date(version.effective_from),
+            "effective_until": effective_date(version.effective_until),
             "supersedes_version_id": str(version.supersedes_version_id)
             if version.supersedes_version_id
             else None,
@@ -549,6 +641,11 @@ class StandardPackService:
                     if item.document_version_id
                     else None,
                     "document_checksum": item.document_checksum,
+                    **(
+                        {"source_metadata_checksum": item.source_metadata_checksum}
+                        if item.source_metadata_checksum is not None
+                        else {}
+                    ),
                     "binding_type": item.binding_type.value,
                     "purpose": item.purpose,
                     "required": item.required,

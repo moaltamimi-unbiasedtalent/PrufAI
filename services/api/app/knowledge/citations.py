@@ -39,9 +39,11 @@ class CitationBuilder:
     def build(self, result: CitationReadyResult) -> Citation:
         legal = result.legal_summary
         redistribution = legal.get("redistribution_allowed")
-        citation_allowed = redistribution is not False
+        citation_allowed = legal.get("legal_review_status") == "APPROVED"
         text_display_allowed = (
-            redistribution is True and legal.get("ai_processing_allowed") is not False
+            citation_allowed
+            and redistribution is True
+            and legal.get("ai_processing_allowed") is True
         )
         return Citation(
             citation_id=self.identifier(result),
@@ -49,11 +51,11 @@ class CitationBuilder:
             source_title=result.source_title,
             version_label=result.version_label,
             page_number=result.page_number,
-            section_title=result.section_title,
+            section_title=result.section_title if text_display_allowed else None,
             publication_date=result.publication_date,
             effective_from=result.effective_from,
             effective_until=result.effective_until,
-            source_url=result.source_url,
+            source_url=result.source_url if text_display_allowed else None,
             document_version_id=result.document_version_id,
             checksum=result.document_checksum,
             citation_allowed=citation_allowed,

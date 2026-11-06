@@ -17,6 +17,7 @@ from app.authorization import AuthorizationError, AuthorizationService, TenantCo
 from app.config import get_settings
 from app.db import get_db_session
 from app.knowledge.storage import StorageError, build_object_storage
+from app.lid_practice import service as lid
 from app.models import (
     AssessmentResult,
     CandidateAudioRecordingSession,
@@ -25,6 +26,7 @@ from app.models import (
     CandidateMediaAsset,
     CandidateResponseRevision,
     ExamVersion,
+    LidPracticeForm,
     User,
 )
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
@@ -73,6 +75,12 @@ class AssignmentCreate(BaseModel):
     maximum_attempts: int = Field(default=1, ge=1, le=20)
 
 
+class AttemptCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundesland: str | None = Field(default=None, min_length=5, max_length=5, strict=True)
+
+
 class ResponseSave(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -98,6 +106,18 @@ def _assignment_payload(assignment: CandidateExamAssignment) -> dict[str, Any]:
             for attempt in assignment.attempts
         ],
     }
+
+
+def _candidate_assignment_payload(
+    session: Session, assignment: CandidateExamAssignment
+) -> dict[str, Any]:
+    payload = _assignment_payload(assignment)
+    form = session.get(LidPracticeForm, assignment.exam_version_id)
+    if form is not None:
+        if not lid.technical_delivery_enabled():
+            raise HTTPException(status_code=404, detail="candidate assignment not found")
+        payload["lid_practice"] = lid.assignment_details(form.bundesland)
+    return payload
 
 
 def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
@@ -487,8 +507,10 @@ def list_candidate_assignments(
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     return [
-        _assignment_payload(row)
+        _candidate_assignment_payload(session, row)
         for row in CandidateRuntimeService.list_assignments(session, _context(principal))
+        if lid.technical_delivery_enabled()
+        or session.get(LidPracticeForm, row.exam_version_id) is None
     ]
 
 
@@ -504,7 +526,9 @@ def get_candidate_assignment(
         CandidateRuntimeService._require_candidate(context, assignment.candidate_user_id)
         if context.organisation_id != assignment.organisation_id:
             raise RuntimeError("organisation scope required")
-        return _assignment_payload(assignment)
+        return _candidate_assignment_payload(session, assignment)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise _runtime_error(exc) from exc
 
@@ -514,12 +538,16 @@ def get_candidate_assignment(
 )
 def create_attempt(
     assignment_id: uuid.UUID,
+    payload: AttemptCreate | None = None,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     try:
         attempt = CandidateRuntimeService.create_attempt(
-            session, _context(principal), assignment_id
+            session,
+            _context(principal),
+            assignment_id,
+            bundesland=payload.bundesland if payload is not None else None,
         )
         session.commit()
         return _attempt_payload(attempt)
@@ -540,6 +568,22 @@ def get_attempt(
         )
     except Exception as exc:  # noqa: BLE001
         raise _runtime_error(exc) from exc
+
+
+@candidate_router.get("/exam-attempts/{attempt_id}/lid-practice-result")
+def get_lid_practice_result(
+    attempt_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    try:
+        attempt = CandidateRuntimeService._owned_attempt(session, _context(principal), attempt_id)
+        projection = lid.practice_result(session, attempt)
+    except Exception as exc:  # noqa: BLE001
+        raise _runtime_error(exc) from exc
+    if projection is None:
+        raise HTTPException(status_code=404, detail="LID_PRACTICE_RESULT_PENDING")
+    return projection
 
 
 @candidate_router.post("/exam-attempts/{attempt_id}/start")

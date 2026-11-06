@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.interfaces import LoaderOption
 
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
-from app.knowledge.catalogue import DTZ, ENTRIES, VERIFIED_ON, CatalogueEntry, _register, _same_time
+from app.knowledge.catalogue import DTZ, ENTRIES, CatalogueEntry, _register, _same_time
 from app.models import KnowledgeDocumentVersion, KnowledgeSource
 from app.models.enums import (
     AssessmentFamily,
@@ -127,6 +127,17 @@ DTZ_ENTRIES = {
 def register_dtz_source(
     session: Session, context: TenantContext, key: str
 ) -> KnowledgeDocumentVersion:
+    return register_curated_source(session, context, key, DTZ_ENTRIES, prefix="DTZ")
+
+
+def register_curated_source(
+    session: Session,
+    context: TenantContext,
+    key: str,
+    entries: dict[str, CatalogueEntry],
+    *,
+    prefix: str,
+) -> KnowledgeDocumentVersion:
     """Register curated bibliographic metadata in the caller's transaction."""
     if context.organisation_id is not None or not context.platform_scope:
         raise AuthorizationError("platform standards context required")
@@ -136,9 +147,9 @@ def register_dtz_source(
         "standards.document.manage",
     ):
         AuthorizationService.require_permission(context, permission)
-    entry = DTZ_ENTRIES.get(key)
+    entry = entries.get(key)
     if entry is None:
-        raise ValueError("DTZ_UNKNOWN_SOURCE")
+        raise ValueError(f"{prefix}_UNKNOWN_SOURCE")
     return _register(session, context, entry)
 
 
@@ -193,12 +204,14 @@ def _matches_entry(version: KnowledgeDocumentVersion, entry: CatalogueEntry) -> 
         and version.supersedes_document_version_id is None
         and _same_time(version.publication_date, entry.publication_date)
         and _same_time(version.effective_from, entry.effective_from)
-        and _same_time(version.retrieved_at, VERIFIED_ON)
+        and _same_time(version.retrieved_at, entry.retrieved_at)
         and version.metadata_checksum == source_metadata_checksum(version)
     )
 
 
-def _reviewed(version: KnowledgeDocumentVersion, now: datetime) -> bool:
+def _reviewed(
+    version: KnowledgeDocumentVersion, now: datetime, *, historical_precedence: bool = False
+) -> bool:
     legal = version.legal_metadata
     starts_at = version.effective_from
     if starts_at is not None and starts_at.tzinfo is None:
@@ -207,13 +220,20 @@ def _reviewed(version: KnowledgeDocumentVersion, now: datetime) -> bool:
     if ends_at is not None and ends_at.tzinfo is None:
         ends_at = ends_at.replace(tzinfo=timezone.utc)
     return (
-        version.status is KnowledgeVersionStatus.DRAFT
+        (
+            version.status is KnowledgeVersionStatus.DRAFT
+            or (
+                historical_precedence
+                and version.status
+                in {KnowledgeVersionStatus.RETIRED, KnowledgeVersionStatus.SUPERSEDED}
+            )
+        )
         and version.content_mode == "METADATA_ONLY"
         and version.sha256 is None
         and version.storage_key is None
         and version.created_by_user_id is not None
         and (starts_at is None or starts_at <= now)
-        and (ends_at is None or now < ends_at)
+        and (historical_precedence or ends_at is None or now < ends_at)
         and legal is not None
         and legal.usage_rights == "BIBLIOGRAPHIC_REFERENCE_ONLY"
         and legal.ingestion_allowed is False
@@ -230,8 +250,10 @@ def _reviewed_successors(
     session: Session,
     versions: dict[str, KnowledgeDocumentVersion],
     now: datetime,
+    entries: dict[str, CatalogueEntry],
     *,
     lock: bool = False,
+    retain_reviewed_successors: bool = False,
 ) -> set[UUID]:
     if not versions:
         return set()
@@ -239,12 +261,12 @@ def _reviewed_successors(
     issuer_hosts = {
         version.id: {urlparse(url).hostname for url in (entry.url, entry.edition_url) if url}
         for key, version in versions.items()
-        for entry in (DTZ_ENTRIES[key],)
+        for entry in (entries[key],)
     }
     lineage = (
         select(document.id.label("root_id"), document.id, document.source_id)
         .where(document.id.in_(issuer_hosts))
-        .cte("dtz_source_lineage", recursive=True)
+        .cte("curated_source_lineage", recursive=True)
     )
     lineage = lineage.union(
         select(lineage.c.root_id, document.id, document.source_id).join(
@@ -278,15 +300,26 @@ def _reviewed_successors(
         if (
             origin.scheme == "https"
             and origin.hostname in issuer_hosts[root_id]
-            and _reviewed(successor, now)
+            # An effective reviewed successor can disqualify its predecessor
+            # without itself remaining eligible for current use.
+            and _reviewed(successor, now, historical_precedence=retain_reviewed_successors)
         ):
             stale.add(root_id)
     return stale
 
 
 def dtz_sources(session: Session) -> list[dict[str, Any]]:
+    return curated_sources(session, DTZ_ENTRIES)
+
+
+def curated_sources(
+    session: Session,
+    entries: dict[str, CatalogueEntry],
+    *,
+    retain_reviewed_successors: bool = False,
+) -> list[dict[str, Any]]:
     now = datetime.now(timezone.utc)
-    identities = [(entry.source_code, entry.version_label) for entry in DTZ_ENTRIES.values()]
+    identities = [(entry.source_code, entry.version_label) for entry in entries.values()]
     candidates = session.scalars(
         _versions()
         .join(KnowledgeDocumentVersion.source)
@@ -299,13 +332,15 @@ def dtz_sources(session: Session) -> list[dict[str, Any]]:
     versions = {(item.source.source_code, item.version_label): item for item in candidates}
     exact = {
         entry.key: item
-        for entry in DTZ_ENTRIES.values()
+        for entry in entries.values()
         if (item := versions.get((entry.source_code, entry.version_label))) is not None
         and _matches_entry(item, entry)
     }
-    stale = _reviewed_successors(session, exact, now)
+    stale = _reviewed_successors(
+        session, exact, now, entries, retain_reviewed_successors=retain_reviewed_successors
+    )
     result: list[dict[str, Any]] = []
-    for entry in DTZ_ENTRIES.values():
+    for entry in entries.values():
         item = exact.get(entry.key)
         registered = None
         if item is not None:
@@ -327,10 +362,31 @@ def dtz_sources(session: Session) -> list[dict[str, Any]]:
 def resolve_dtz_sources(
     session: Session, pins: dict[str, tuple[UUID, str]]
 ) -> dict[str, KnowledgeDocumentVersion]:
+    return resolve_curated_sources(session, pins, DTZ_ENTRIES, prefix="DTZ")
+
+
+def resolve_curated_sources(
+    session: Session,
+    pins: dict[str, tuple[UUID, str]],
+    entries: dict[str, CatalogueEntry],
+    *,
+    prefix: str,
+    refresh_after_lock: bool = False,
+    retain_reviewed_successors: bool = False,
+) -> dict[str, KnowledgeDocumentVersion]:
     """Lock the exact source versions before checking their bibliographic decisions."""
     identifiers = {identifier for identifier, _ in pins.values()}
-    if pins.keys() != DTZ_ENTRIES.keys() or len(identifiers) != len(DTZ_ENTRIES):
-        raise ValueError("DTZ_EXACT_SOURCE_PINS_REQUIRED")
+    if pins.keys() != entries.keys() or len(identifiers) != len(entries):
+        raise ValueError(f"{prefix}_EXACT_SOURCE_PINS_REQUIRED")
+    if refresh_after_lock:
+        # The rights review locks the document version before writing its legal row.
+        # Load that row in a new statement after acquiring the same document lock.
+        session.scalars(
+            select(KnowledgeDocumentVersion.id)
+            .where(KnowledgeDocumentVersion.id.in_(sorted(identifiers)))
+            .order_by(KnowledgeDocumentVersion.id)
+            .with_for_update()
+        ).all()
     versions = {
         item.id: item
         for item in session.scalars(
@@ -342,7 +398,7 @@ def resolve_dtz_sources(
     }
     now = datetime.now(timezone.utc)
     resolved: dict[str, KnowledgeDocumentVersion] = {}
-    for key, entry in DTZ_ENTRIES.items():
+    for key, entry in entries.items():
         identifier, checksum = pins[key]
         version = versions.get(identifier)
         if (
@@ -350,12 +406,19 @@ def resolve_dtz_sources(
             or version.metadata_checksum != checksum
             or not _matches_entry(version, entry)
         ):
-            raise ValueError("DTZ_EXACT_SOURCE_PIN_MISMATCH")
+            raise ValueError(f"{prefix}_EXACT_SOURCE_PIN_MISMATCH")
         if not _reviewed(version, now):
-            raise ValueError("DTZ_REVIEWED_METADATA_SOURCE_REQUIRED")
+            raise ValueError(f"{prefix}_REVIEWED_METADATA_SOURCE_REQUIRED")
         resolved[key] = version
-    if _reviewed_successors(session, resolved, now, lock=True):
-        raise ValueError("DTZ_SOURCE_SUCCESSOR_REVIEWED")
+    if _reviewed_successors(
+        session,
+        resolved,
+        now,
+        entries,
+        lock=True,
+        retain_reviewed_successors=retain_reviewed_successors,
+    ):
+        raise ValueError(f"{prefix}_SOURCE_SUCCESSOR_REVIEWED")
     return resolved
 
 

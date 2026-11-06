@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.dtz_policy import DTZ_DELIVERY_BLOCKED, is_dtz_pack
+from app.lid_policy import LID_DRAFT_DELIVERY_BLOCKED, is_lid_draft_pack, is_lid_practice_pack
+from app.lid_practice import service as lid
 from app.models import (
     Exam,
     ExamVersion,
@@ -138,6 +140,8 @@ class ExamStudioService:
             raise ValueError("standard pack version not found")
         if is_dtz_pack(pack):
             raise ValueError(DTZ_DELIVERY_BLOCKED)
+        if is_lid_draft_pack(pack):
+            raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
         if supersedes_version_id is not None:
             superseded = session.get(ExamVersion, supersedes_version_id)
             if superseded is None or superseded.exam_id != exam.id:
@@ -167,6 +171,9 @@ class ExamStudioService:
             ),
         )
         session.add(version)
+        if is_lid_practice_pack(pack):
+            with session.no_autoflush:
+                lid.require_technical_pack(pack, version)
         session.flush()
         ExamStudioService._audit(session, context, "exam.version.created", version, exam)
         if supersedes_version_id is not None:
@@ -216,6 +223,10 @@ class ExamStudioService:
             raise ValueError("standard pack version not found")
         if is_dtz_pack(pack):
             raise ValueError(DTZ_DELIVERY_BLOCKED)
+        if is_lid_draft_pack(pack):
+            raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
+        if is_lid_practice_pack(pack):
+            lid.require_technical_pack(pack, version)
         for module in sorted(pack.modules, key=lambda row: row.sequence):
             concrete_module = session.scalar(
                 select(ExamVersionModule).where(
@@ -313,7 +324,8 @@ class ExamStudioService:
             context,
             standard_pack_version_id=version.standard_pack_version_id,
             task_spec_id=spec.id,
-            limit=100,
+            item_version_id=item_version_id,
+            limit=1,
         )
         item = next((row for row in candidate if row.id == item_version_id), None)
         if item is None:
@@ -429,6 +441,37 @@ class ExamStudioService:
                 ),
                 version.checksum,
             )
+        if is_lid_draft_pack(pack):
+            return ValidationResult(
+                "FAIL",
+                (
+                    ValidationIssue(
+                        LID_DRAFT_DELIVERY_BLOCKED,
+                        "FAIL",
+                        "BLUEPRINT",
+                        "standard_pack_version_id",
+                        "The authoritative LiD draft cannot be used for Exam Studio delivery.",
+                    ),
+                ),
+                version.checksum,
+            )
+        if is_lid_practice_pack(pack):
+            try:
+                lid.require_form(session, version, pack)
+            except ValueError:
+                return ValidationResult(
+                    "FAIL",
+                    (
+                        ValidationIssue(
+                            lid.INVALID_FORM,
+                            "FAIL",
+                            "BLUEPRINT",
+                            "standard_pack_version_id",
+                            "The exact synthetic LiD form receipt must verify.",
+                        ),
+                    ),
+                    version.checksum,
+                )
         if version.classification.value not in pack.allowed_classifications:
             issues.append(
                 ValidationIssue(
@@ -829,6 +872,15 @@ class ExamStudioService:
         ExamStudioService._require_visible(context, version.exam, "exam.read")
         if version.status not in {ExamVersionStatus.PUBLISHED, ExamVersionStatus.ACTIVE}:
             raise ValueError("delivery preview requires a published ExamVersion")
+        pack = session.get(StandardPackVersion, version.standard_pack_version_id)
+        if pack is None:
+            raise ValueError("standard pack version not found")
+        if is_lid_draft_pack(pack):
+            raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
+        form = lid.require_form(session, version, pack) if is_lid_practice_pack(pack) else None
+        scopes = (
+            {item["binding_id"]: item["scope"] for item in form.manifest["items"]} if form else {}
+        )
         structure = []
         for module in version.modules:
             sections = []
@@ -847,7 +899,11 @@ class ExamStudioService:
                         )
                         if item is None:
                             raise ValueError("bound item not found")
-                        safe_items.append(delivery_projection(item))
+                        safe_items.append(
+                            lid.safe_item(item, scopes[str(binding.id)])
+                            if form
+                            else delivery_projection(item)
+                        )
                     tasks.append(
                         {
                             "task_id": str(task.standard_pack_task_spec_id),

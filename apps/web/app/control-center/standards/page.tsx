@@ -286,6 +286,11 @@ export default function StandardsPage() {
               DTZ A2–B1 blueprint
             </Link>
           </p>
+          <p>
+            <Link href="/control-center/standards/lid">
+              Leben in Deutschland blueprint
+            </Link>
+          </p>
           <DraftWorkbench inspect={inspect} />
         </>
       }

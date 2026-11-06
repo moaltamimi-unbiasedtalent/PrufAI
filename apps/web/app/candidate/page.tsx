@@ -13,6 +13,7 @@ function availabilityLabel(
   now: number,
 ): string {
   const latest = assignment.attempts.at(-1);
+  if (latest?.status === "READY" && assignment.lid_practice) return "Prepared";
   if (latest?.status === "IN_PROGRESS") return "In progress";
   if (latest?.status === "SUBMITTED") return "Submitted";
   if (latest?.status === "EXPIRED") return "Expired";
@@ -38,6 +39,11 @@ function actionFor(
   assignment: CandidateAssignment,
 ): { label: string; href: string } | { label: string; disabled: true } {
   const latest = assignment.attempts.at(-1);
+  if (latest?.status === "READY" && assignment.lid_practice)
+    return {
+      label: "Continue preparation",
+      href: `/candidate/exams/${latest.id}`,
+    };
   if (latest?.status === "IN_PROGRESS")
     return { label: "Resume", href: `/candidate/exams/${latest.id}` };
   if (latest?.status === "SUBMITTED")
@@ -99,10 +105,11 @@ export default function CandidatePage() {
           {assignments.map((assignment) => {
             const action = actionFor(assignment);
             const status = availabilityLabel(assignment, Date.now());
+            const title = assignment.lid_practice?.title ?? "Exam assignment";
             return (
               <li key={assignment.id} style={{ marginTop: "1rem" }}>
                 <article aria-labelledby={`assignment-${assignment.id}`}>
-                  <h3 id={`assignment-${assignment.id}`}>Exam assignment</h3>
+                  <h3 id={`assignment-${assignment.id}`}>{title}</h3>
                   <p>Status: {status}</p>
                   <p>
                     Attempts: {assignment.attempts.length} of{" "}
@@ -119,7 +126,8 @@ export default function CandidatePage() {
                   </p>
                   {"href" in action ? (
                     <Link href={action.href}>
-                      {action.label} for exam assignment
+                      {action.label} for{" "}
+                      {assignment.lid_practice?.title ?? "exam assignment"}
                     </Link>
                   ) : (
                     <button type="button" disabled>

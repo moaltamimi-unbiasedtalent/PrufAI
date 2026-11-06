@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.authorization.membership import require_active_tenant_permission
+from app.lid_policy import is_lid_draft_pack, is_lid_practice_pack
+from app.lid_practice import service as lid
 from app.models import (
     AssessmentResult,
     CandidateExamAttempt,
@@ -745,6 +747,16 @@ class ScoringService:
         )
         if pack is None:
             raise ScoringError("SCORING_CONFIGURATION_INCOMPLETE: StandardPackVersion missing")
+        if is_lid_draft_pack(pack):
+            raise ScoringError("LID_DRAFT_DELIVERY_BLOCKED")
+        form = None
+        if is_lid_practice_pack(pack) or "lid_practice" in attempt.runtime_plan:
+            if objective_item_overrides:
+                raise ScoringError("LID_PRACTICE_ITEM_OVERRIDE_DENIED")
+            try:
+                form = lid.require_attempt_form(session, attempt, pack)
+            except ValueError as exc:
+                raise ScoringError(str(exc)) from exc
         item_map = {
             str(item.id): item
             for item in session.scalars(
@@ -759,6 +771,14 @@ class ScoringService:
                 )
             )
         }
+        answered_count = 0
+        if form is not None:
+            try:
+                answered_count = lid.validate_scoring_snapshot(
+                    form, attempt, snapshot_json["items"], item_map
+                )
+            except ValueError as exc:
+                raise ScoringError(str(exc)) from exc
         if objective_item_overrides:
             replacement_ids = set(objective_item_overrides.values())
             replacements = {
@@ -806,6 +826,7 @@ class ScoringService:
                 item["question_bank_item_version_id"] for item in snapshot_json["items"]
             ],
             "objective_item_overrides": objective_item_overrides or {},
+            **({"lid_form_checksum": form.checksum} if form is not None else {}),
             "item_scoring_configuration": [
                 {
                     "item_version_id": item_id,
@@ -988,6 +1009,36 @@ class ScoringService:
             "evaluations": [],
         }
         outcome = ResultOutcome.UNDETERMINED
+        if form is not None:
+            from app.standard_packs.lid_service import evaluate_lid_blueprint
+
+            blueprint = session.get(StandardPackVersion, form.blueprint_version_id)
+            submitted_at = attempt.submitted_at
+            if (
+                blueprint is None
+                or submitted_at is None
+                or max_total != lid.GENERAL_COUNT + lid.STATE_COUNT
+            ):
+                raise ScoringError(lid.INVALID_FORM)
+            preview = evaluate_lid_blueprint(
+                session,
+                blueprint,
+                raw_correct=int(raw_total),
+                answered_count=answered_count,
+                as_of=submitted_at,
+            )
+            rule_provenance["lid_practice_preview"] = {
+                "form_checksum": form.checksum,
+                "answered_count": answered_count,
+                "contexts": lid.safe_contexts(preview["contexts"]),
+            }
+            _audit(
+                session,
+                context,
+                "lid.practice.preview_calculated",
+                run,
+                {"form_checksum": form.checksum, "rule_count": len(preview["contexts"])},
+            )
         if pack.rule_bindings:
             rules = [
                 (binding.rule_version.definition, binding.rule_version)

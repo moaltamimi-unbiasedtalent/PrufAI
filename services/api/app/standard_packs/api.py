@@ -13,6 +13,7 @@ from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.dtz_policy import DTZ_PUBLICATION_BLOCKED, is_dtz_pack
+from app.lid_policy import LID_DRAFT_PUBLICATION_BLOCKED, is_lid_pack
 from app.models import (
     StandardPack,
     StandardPackModule,
@@ -279,6 +280,8 @@ def get_version(
     item = session.get(StandardPackVersion, version_id)
     if item is None:
         raise HTTPException(status_code=404, detail="standard pack version not found")
+    if is_lid_pack(item):
+        _require(principal, "standards.document.read")
     if is_dtz_pack(item):
         if principal.tenant_context is None or principal.tenant_context.organisation_id is not None:
             raise HTTPException(status_code=403, detail="platform standards authority required")
@@ -456,9 +459,19 @@ def _transition(
         session.commit()
     except ValueError as exc:
         session.rollback()
+        if str(exc) == LID_DRAFT_PUBLICATION_BLOCKED:
+            StandardPackService._audit(
+                session,
+                context,
+                "standards.lid_draft.publication_denied",
+                version,
+                {"target": target.value, "reason": LID_DRAFT_PUBLICATION_BLOCKED},
+            )
+            session.commit()
         raise HTTPException(
             status_code=409
-            if str(exc) in {B1_PUBLICATION_BLOCKED, DTZ_PUBLICATION_BLOCKED}
+            if str(exc)
+            in {B1_PUBLICATION_BLOCKED, DTZ_PUBLICATION_BLOCKED, LID_DRAFT_PUBLICATION_BLOCKED}
             else 400,
             detail=str(exc),
         ) from exc

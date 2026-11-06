@@ -126,6 +126,31 @@ class StandardPackVersion(UUIDPrimaryKeyMixin, Base):
         back_populates="pack_version", uselist=False
     )
 
+    lid_provenance: Mapped[Optional[LidBlueprintProvenance]] = relationship(
+        back_populates="pack_version", uselist=False
+    )
+
+
+class LidBlueprintProvenance(Base):
+    """Immutable source, structure and draft rule pins for a LiD pack edition."""
+
+    __tablename__ = "standard_pack_lid_provenance"
+    __table_args__ = (
+        CheckConstraint("length(manifest_checksum) = 64", name="ck_lid_manifest_digest"),
+    )
+
+    standard_pack_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("standard_pack_versions.id", ondelete="RESTRICT"), primary_key=True
+    )
+    manifest: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    manifest_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+
+    pack_version: Mapped[StandardPackVersion] = relationship(back_populates="lid_provenance")
+
 
 class DtzBlueprintProvenance(Base):
     """One sealed claim manifest attached to an existing Standard Pack version."""

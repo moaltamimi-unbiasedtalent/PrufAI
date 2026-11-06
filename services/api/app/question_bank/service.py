@@ -543,6 +543,7 @@ class QuestionBankService:
         *,
         standard_pack_version_id: uuid.UUID,
         task_spec_id: Optional[uuid.UUID] = None,
+        item_version_id: Optional[uuid.UUID] = None,
         offset: int = 0,
         limit: int = 50,
     ) -> list[QuestionBankItemVersion]:
@@ -551,6 +552,7 @@ class QuestionBankService:
             session,
             context,
             status=QuestionBankLifecycleStatus.ACTIVE,
+            item_version_id=item_version_id,
             offset=offset,
             limit=min(limit, 100),
         )
@@ -1149,6 +1151,7 @@ class QuestionBankService:
         context: TenantContext,
         *,
         status: Optional[QuestionBankLifecycleStatus] = None,
+        item_version_id: Optional[uuid.UUID] = None,
         assessment_family: Optional[AssessmentFamily] = None,
         language: Optional[str] = None,
         cefr_level: Optional[str] = None,
@@ -1167,6 +1170,8 @@ class QuestionBankService:
                 | (QuestionBankItem.organisation_id == context.organisation_id)
             )
         )
+        if item_version_id is not None:
+            query = query.where(QuestionBankItemVersion.id == item_version_id)
         if status:
             query = query.where(QuestionBankItemVersion.status == status)
         if assessment_family:

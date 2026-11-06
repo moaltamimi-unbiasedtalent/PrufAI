@@ -13,6 +13,13 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.exams.service import exam_checksum
+from app.lid_policy import (
+    LID_DRAFT_DELIVERY_BLOCKED,
+    LID_STATES,
+    is_lid_draft_pack,
+    is_lid_practice_pack,
+)
+from app.lid_practice import service as lid
 from app.models import (
     CandidateAudioRecordingSession,
     CandidateExamAssignment,
@@ -26,6 +33,7 @@ from app.models import (
     StandardPackModule,
     StandardPackSection,
     StandardPackTaskSpecification,
+    StandardPackVersion,
 )
 from app.models.enums import (
     CandidateAssignmentStatus,
@@ -118,7 +126,7 @@ class CandidateRuntimeService:
         eligible = []
         for version in versions:
             try:
-                CandidateRuntimeService._safe_plan(session, version)
+                plan = CandidateRuntimeService._safe_plan(session, version)
             except ValueError:
                 continue
             eligible.append(
@@ -131,6 +139,11 @@ class CandidateRuntimeService:
                     "classification": version.classification.value,
                     "standard_pack_version_id": str(version.standard_pack_version_id),
                     "checksum": version.checksum,
+                    **(
+                        {"lid_practice": lid.assignment_details(plan["lid_practice"]["bundesland"])}
+                        if "lid_practice" in plan
+                        else {}
+                    ),
                 }
             )
         return {
@@ -154,8 +167,12 @@ class CandidateRuntimeService:
         entity_id: uuid.UUID,
         organisation_id: uuid.UUID,
         metadata: Optional[dict[str, Any]] = None,
+        *,
+        evidence_required: bool = False,
     ) -> None:
-        if AuthorizationService.has_permission(context, "audit.read", organisation_id):
+        if evidence_required or AuthorizationService.has_permission(
+            context, "audit.read", organisation_id
+        ):
             AuditService.record(
                 session,
                 context,
@@ -163,6 +180,7 @@ class CandidateRuntimeService:
                 entity_type=entity_type,
                 entity_id=str(entity_id),
                 organisation_id=organisation_id,
+                require_audit_permission=not evidence_required,
                 metadata=metadata or {},
             )
 
@@ -188,6 +206,7 @@ class CandidateRuntimeService:
         CandidateRuntimeService._require_candidate(context, attempt.candidate_user_id)
         if context.organisation_id != attempt.organisation_id:
             raise RuntimeError("organisation scope required")
+        lid.require_attempt_environment(attempt)
         return attempt
 
     @staticmethod
@@ -203,11 +222,22 @@ class CandidateRuntimeService:
         )
 
     @staticmethod
-    def _safe_plan(session: Session, version: ExamVersion) -> dict[str, Any]:
+    def _safe_plan(
+        session: Session, version: ExamVersion, *, lid_attempt_id: uuid.UUID | None = None
+    ) -> dict[str, Any]:
         if version.status not in {ExamVersionStatus.PUBLISHED, ExamVersionStatus.ACTIVE}:
             raise ValueError("ExamVersion is not available for candidate delivery")
         if version.classification.value == "OFFICIAL_CERTIFICATION":
             raise ValueError("official certification delivery is not authorized")
+        pack = session.get(StandardPackVersion, version.standard_pack_version_id)
+        if pack is None:
+            raise ValueError("pinned StandardPackVersion not found")
+        if is_lid_draft_pack(pack):
+            raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
+        form = lid.require_form(session, version, pack) if is_lid_practice_pack(pack) else None
+        scopes = (
+            {item["binding_id"]: item["scope"] for item in form.manifest["items"]} if form else {}
+        )
         modules: list[dict[str, Any]] = []
         duration = 0
         for module in version.modules:
@@ -246,7 +276,11 @@ class CandidateRuntimeService:
                             item.rights_expires_at and item.rights_expires_at <= _now()
                         ):
                             raise ValueError("runtime item rights are not publishable")
-                        safe = delivery_projection(item)
+                        safe = (
+                            lid.safe_item(item, scopes[str(binding.id)])
+                            if form
+                            else delivery_projection(item)
+                        )
                         safe["binding_id"] = str(binding.id)
                         safe["response_mode"] = spec.response_mode.value
                         items.append(safe)
@@ -280,6 +314,7 @@ class CandidateRuntimeService:
             "classification": version.classification.value,
             "duration_seconds": duration or None,
             "modules": modules,
+            **({"lid_practice": lid.plan_details(form, lid_attempt_id)} if form else {}),
         }
 
     @staticmethod
@@ -406,7 +441,11 @@ class CandidateRuntimeService:
 
     @staticmethod
     def create_attempt(
-        session: Session, context: TenantContext, assignment_id: uuid.UUID
+        session: Session,
+        context: TenantContext,
+        assignment_id: uuid.UUID,
+        *,
+        bundesland: str | None = None,
     ) -> CandidateExamAttempt:
         assignment = CandidateRuntimeService._assignment(session, assignment_id)
         CandidateRuntimeService._require_candidate(context, assignment.candidate_user_id)
@@ -429,15 +468,36 @@ class CandidateRuntimeService:
                 )
             )
         )
+        version = session.get(ExamVersion, assignment.exam_version_id)
+        if version is None:
+            raise ValueError("pinned ExamVersion not found")
+        attempt_id = uuid.uuid4()
+        plan = CandidateRuntimeService._safe_plan(session, version, lid_attempt_id=attempt_id)
+        practice = plan.get("lid_practice")
+        if practice is not None:
+            if bundesland not in LID_STATES:
+                raise ValueError(
+                    "LID_BUNDESLAND_REQUIRED" if bundesland is None else "LID_INVALID_BUNDESLAND"
+                )
+            if bundesland != practice["bundesland"]:
+                raise ValueError(lid.CONTENT_UNAVAILABLE)
+            for existing in attempts:
+                existing_practice = existing.runtime_plan.get("lid_practice")
+                if (
+                    existing.status in ACTIVE_ATTEMPT_STATUSES
+                    and isinstance(existing_practice, dict)
+                    and existing_practice.get("bundesland") == bundesland
+                    and existing_practice.get("form_checksum") == practice["form_checksum"]
+                ):
+                    return existing
+        elif bundesland is not None:
+            raise ValueError("LID_BUNDESLAND_NOT_APPLICABLE")
         if len(attempts) >= assignment.maximum_attempts:
             raise ValueError("maximum attempt limit reached")
         if any(row.status in ACTIVE_ATTEMPT_STATUSES for row in attempts):
             raise RuntimeError("one active attempt per assignment is required")
-        version = session.get(ExamVersion, assignment.exam_version_id)
-        if version is None:
-            raise ValueError("pinned ExamVersion not found")
-        plan = CandidateRuntimeService._safe_plan(session, version)
         attempt = CandidateExamAttempt(
+            id=attempt_id,
             assignment_id=assignment.id,
             candidate_user_id=assignment.candidate_user_id,
             organisation_id=assignment.organisation_id,
@@ -458,6 +518,13 @@ class CandidateRuntimeService:
             "CANDIDATE_ATTEMPT",
             attempt.id,
             attempt.organisation_id,
+            {
+                "bundesland": practice["bundesland"],
+                "form_checksum": practice["form_checksum"],
+            }
+            if practice is not None
+            else None,
+            evidence_required=practice is not None,
         )
         return attempt
 
@@ -466,6 +533,9 @@ class CandidateRuntimeService:
         session: Session, context: TenantContext, attempt_id: uuid.UUID
     ) -> CandidateExamAttempt:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
+        practice = attempt.runtime_plan.get("lid_practice")
+        if practice is not None:
+            attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.IN_PROGRESS:
             return attempt
@@ -474,7 +544,9 @@ class CandidateRuntimeService:
         version = session.get(ExamVersion, attempt.exam_version_id)
         if (
             version is None
-            or exam_checksum(CandidateRuntimeService._safe_plan(session, version))
+            or exam_checksum(
+                CandidateRuntimeService._safe_plan(session, version, lid_attempt_id=attempt.id)
+            )
             != attempt.runtime_plan_checksum
         ):
             raise ValueError("runtime plan checksum no longer matches the pinned ExamVersion")
@@ -495,6 +567,13 @@ class CandidateRuntimeService:
             "CANDIDATE_ATTEMPT",
             attempt.id,
             attempt.organisation_id,
+            {
+                "bundesland": practice["bundesland"],
+                "form_checksum": practice["form_checksum"],
+            }
+            if practice is not None
+            else None,
+            evidence_required=practice is not None,
         )
         return attempt
 
@@ -596,6 +675,7 @@ class CandidateRuntimeService:
         audio_storage: Any = None,
     ) -> CandidateResponse:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
+        lid.require_attempt_environment(attempt)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         item, mode = CandidateRuntimeService._binding_payload(attempt, binding_id)
         CandidateRuntimeService._validate_payload(item, mode, payload)
@@ -761,6 +841,7 @@ class CandidateRuntimeService:
         session: Session, context: TenantContext, attempt_id: uuid.UUID
     ) -> CandidateExamAttempt:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
+        lid.require_attempt_environment(attempt)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.SUBMITTED:
             return attempt
@@ -774,6 +855,7 @@ class CandidateRuntimeService:
         for response in attempt.responses:
             response.finalized_at = attempt.submitted_at
         session.flush()
+        practice = attempt.runtime_plan.get("lid_practice")
         CandidateRuntimeService._audit(
             session,
             context,
@@ -781,6 +863,13 @@ class CandidateRuntimeService:
             "CANDIDATE_ATTEMPT",
             attempt.id,
             attempt.organisation_id,
+            {
+                "bundesland": practice["bundesland"],
+                "form_checksum": practice["form_checksum"],
+            }
+            if practice is not None
+            else None,
+            evidence_required=practice is not None,
         )
         return attempt
 
@@ -790,6 +879,9 @@ class CandidateRuntimeService:
     ) -> dict[str, Any]:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
+        plan = attempt.runtime_plan
+        if attempt.status is CandidateAttemptStatus.READY and "lid_practice" in plan:
+            plan = {**plan, "modules": []}
         return {
             "attempt_id": str(attempt.id),
             "status": attempt.status.value,
@@ -797,7 +889,7 @@ class CandidateRuntimeService:
             "started_at": attempt.started_at.isoformat() if attempt.started_at else None,
             "deadline_at": attempt.deadline_at.isoformat() if attempt.deadline_at else None,
             "runtime_plan_checksum": attempt.runtime_plan_checksum,
-            "runtime_plan": attempt.runtime_plan,
+            "runtime_plan": plan,
             "session": {
                 "current_binding_id": str(attempt.session.current_binding_id)
                 if attempt.session and attempt.session.current_binding_id

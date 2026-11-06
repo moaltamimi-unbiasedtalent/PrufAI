@@ -97,3 +97,4 @@ docker compose -f infra/docker-compose.yml config
 - [Target Architecture V1](docs/architecture/TARGET_ARCHITECTURE_V1.md)
 - [Phase 0 engineering baseline report](docs/architecture/PHASE_0_ENGINEERING_BASELINE_REPORT.md)
 - [Architecture Decision Records](docs/architecture/adr/)
+- [Original Berlin LiD practice editorial workflow](docs/lid-original-editorial.md)

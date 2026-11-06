@@ -66,6 +66,12 @@ from app.models.knowledge import (
     KnowledgeLegalMetadata,
     KnowledgeSource,
 )
+from app.models.lid_editorial import (
+    LidEditorialCollection,
+    LidEditorialItemVersion,
+    LidEditorialPublication,
+)
+from app.models.lid_editorial_review import LidEditorialReviewReceipt
 from app.models.lid_practice import LidPracticeForm, LidPracticePoolVersion
 from app.models.memory import (
     AIRunMemoryReference,
@@ -180,6 +186,10 @@ __all__ = [
     "PromptVersion",
     "AuthSession",
     "Base",
+    "LidEditorialCollection",
+    "LidEditorialItemVersion",
+    "LidEditorialPublication",
+    "LidEditorialReviewReceipt",
     "LidPracticeForm",
     "LidPracticePoolVersion",
     "MembershipRole",

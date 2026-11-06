@@ -31,6 +31,7 @@ from app.models import (
 )
 from app.models.enums import AIArtifactStatus, AIRunStatus, HumanReviewStatus
 from app.models.feedback import GovernedChangeCandidate
+from app.models.lid_editorial import LidEditorialItemVersion
 
 
 def _checksum(payload: dict[str, Any]) -> str:
@@ -121,6 +122,17 @@ class AIOrchestrationService:
             or human is not None
             or session.get(RubricVersion, entity_id) is not None
             or session.get(AssessmentRubric, entity_id) is not None
+            or session.scalar(
+                select(LidEditorialItemVersion.item_version_id)
+                .where(
+                    or_(
+                        LidEditorialItemVersion.item_version_id == entity_id,
+                        LidEditorialItemVersion.item_id == entity_id,
+                    )
+                )
+                .limit(1)
+            )
+            is not None
             or session.scalar(
                 select(GovernedChangeCandidate.id)
                 .where(

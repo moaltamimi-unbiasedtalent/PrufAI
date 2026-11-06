@@ -26,6 +26,8 @@ from app.improvement.api import summary_router as improvement_summary_router
 from app.knowledge.api import router as knowledge_router
 from app.knowledge.catalogue import router as standards_catalogue_router
 from app.knowledge.retrieval_api import router as retrieval_router
+from app.lid_editorial.api import router as lid_editorial_router
+from app.lid_editorial.review_api import router as lid_editorial_review_router
 from app.memory.api import router as memory_router
 from app.question_bank.api import router as question_bank_router
 from app.result_governance.api import candidate_router as candidate_appeal_router
@@ -86,6 +88,8 @@ app.include_router(standard_packs_router)
 app.include_router(dtz_standards_router)
 app.include_router(dtz_institution_router)
 app.include_router(lid_standards_router)
+app.include_router(lid_editorial_router)
+app.include_router(lid_editorial_review_router)
 app.include_router(rules_router)
 app.include_router(ai_orchestration_router)
 app.include_router(memory_router)

@@ -1,6 +1,6 @@
 """Reserved identities and delivery boundaries for the S3 LiD programme."""
 
-from app.models.enums import AssessmentFamily
+from app.models.enums import AssessmentFamily, StandardPackStatus
 from app.models.standard_pack import StandardPackVersion
 
 LID_EXAM_FAMILY = "LEBEN_IN_DEUTSCHLAND"
@@ -8,6 +8,13 @@ LID_DRAFT_PACK_CODE = "PRUFAI_LID_DE_DRAFT"
 LID_DRAFT_SCHEMA = "s3-lid-draft-v1"
 LID_PRACTICE_SCHEMA = "s3-lid-synthetic-practice-v1"
 LID_PRACTICE_CODE_PREFIX = "PRUFAI_LID_SYNTHETIC_"
+LID_EDITORIAL_SCHEMA = "s4-lid-original-practice-v1"
+LID_EDITORIAL_PACK_CODE_PREFIX = "PRUFAI_LID_ORIGINAL_"
+LID_EDITORIAL_ITEM_CODE_PREFIX = "LID_S4_"
+LID_ORIGINAL_NOTICE = (
+    "Original educational practice questions. Not an official BAMF examination. "
+    "NOT OFFICIAL / NOT CERTIFIED."
+)
 LID_DRAFT_PUBLICATION_BLOCKED = "LID_DRAFT_PUBLICATION_BLOCKED"
 LID_DRAFT_DELIVERY_BLOCKED = "LID_DRAFT_DELIVERY_BLOCKED"
 LID_RULE_PREFIX = "PRUFAI_LID_S3_"
@@ -65,7 +72,9 @@ def is_lid_family(value: str | None) -> bool:
 
 def reserved_lid_code(code: str) -> bool:
     code = code.strip().upper()
-    return code == LID_DRAFT_PACK_CODE or code.startswith(LID_PRACTICE_CODE_PREFIX)
+    return code == LID_DRAFT_PACK_CODE or code.startswith(
+        (LID_PRACTICE_CODE_PREFIX, LID_EDITORIAL_PACK_CODE_PREFIX)
+    )
 
 
 def is_lid_practice_pack(version: StandardPackVersion) -> bool:
@@ -81,16 +90,40 @@ def is_lid_practice_pack(version: StandardPackVersion) -> bool:
     )
 
 
+def is_lid_editorial_pack(version: StandardPackVersion) -> bool:
+    pack = version.standard_pack
+    return (
+        version.configuration_schema_version == LID_EDITORIAL_SCHEMA
+        and pack.code.startswith(LID_EDITORIAL_PACK_CODE_PREFIX)
+        and pack.exam_family == LID_EXAM_FAMILY
+        and pack.assessment_family is AssessmentFamily.INTEGRATION_KNOWLEDGE
+        and pack.language == "de"
+        and not version.supported_levels
+        and version.allowed_classifications == ["PRACTICE"]
+    )
+
+
+def is_lid_delivery_pack(version: StandardPackVersion) -> bool:
+    return is_lid_practice_pack(version) or is_lid_editorial_pack(version)
+
+
 def is_lid_pack(version: StandardPackVersion) -> bool:
     return (
-        version.configuration_schema_version in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA}
+        version.configuration_schema_version
+        in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA, LID_EDITORIAL_SCHEMA}
         or reserved_lid_code(version.standard_pack.code)
         or is_lid_family(version.standard_pack.exam_family)
     )
 
 
 def is_lid_draft_pack(version: StandardPackVersion) -> bool:
-    return is_lid_pack(version) and not is_lid_practice_pack(version)
+    return is_lid_pack(version) and not (
+        is_lid_practice_pack(version)
+        or (
+            is_lid_editorial_pack(version)
+            and version.status in {StandardPackStatus.PUBLISHED, StandardPackStatus.ACTIVE}
+        )
+    )
 
 
 def is_lid_preview_rule_code(code: str) -> bool:

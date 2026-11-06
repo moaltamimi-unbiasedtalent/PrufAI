@@ -16,8 +16,8 @@ from app.exams.service import exam_checksum
 from app.lid_policy import (
     LID_DRAFT_DELIVERY_BLOCKED,
     LID_STATES,
+    is_lid_delivery_pack,
     is_lid_draft_pack,
-    is_lid_practice_pack,
 )
 from app.lid_practice import service as lid
 from app.models import (
@@ -140,7 +140,12 @@ class CandidateRuntimeService:
                     "standard_pack_version_id": str(version.standard_pack_version_id),
                     "checksum": version.checksum,
                     **(
-                        {"lid_practice": lid.assignment_details(plan["lid_practice"]["bundesland"])}
+                        {
+                            "lid_practice": lid.assignment_details(
+                                plan["lid_practice"]["bundesland"],
+                                original=plan["lid_practice"].get("mode") == lid.ORIGINAL_MODE,
+                            )
+                        }
                         if "lid_practice" in plan
                         else {}
                     ),
@@ -234,7 +239,7 @@ class CandidateRuntimeService:
             raise ValueError("pinned StandardPackVersion not found")
         if is_lid_draft_pack(pack):
             raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
-        form = lid.require_form(session, version, pack) if is_lid_practice_pack(pack) else None
+        form = lid.require_form(session, version, pack) if is_lid_delivery_pack(pack) else None
         scopes = (
             {item["binding_id"]: item["scope"] for item in form.manifest["items"]} if form else {}
         )
@@ -272,8 +277,9 @@ class CandidateRuntimeService:
                             raise ValueError("runtime item is missing")
                         if item.status is not QuestionBankLifecycleStatus.ACTIVE:
                             raise ValueError("runtime item is not ACTIVE")
-                        if item.rights_status not in PUBLISHABLE_RIGHTS or (
-                            item.rights_expires_at and item.rights_expires_at <= _now()
+                        if (form is None or not lid.is_original_form(form)) and (
+                            item.rights_status not in PUBLISHABLE_RIGHTS
+                            or (item.rights_expires_at and item.rights_expires_at <= _now())
                         ):
                             raise ValueError("runtime item rights are not publishable")
                         safe = (

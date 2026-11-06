@@ -33,6 +33,7 @@ from app.models.enums import (
 from app.question_bank.service import (
     QuestionBankService,
     delivery_projection,
+    is_lid_editorial_item,
     validate_item_payload,
 )
 
@@ -209,6 +210,8 @@ def export_version(
     AuthorizationService.require_permission(
         context, "question_bank.export", version.item.organisation_id
     )
+    if is_lid_editorial_item(version.item.code):
+        raise HTTPException(status_code=403, detail="LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
     return service.export_safe(version, cefr_levels=[], pack_binding_ids=[], evidence_ids=[])
 
 

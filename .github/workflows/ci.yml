@@ -575,6 +575,24 @@ jobs:
           OBJECT_STORAGE_ACCESS_KEY: prufai_ci
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
+      - name: LiD S4 original practice and editorial review (required PostgreSQL and real MinIO)
+        run: |
+          python -m pytest tests/test_lid_editorial_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/standards-s4-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/standards-s4-required.xml" test_lid_editorial_postgresql_minio_integration
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_REQUIRE_OBJECT_STORAGE_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          OBJECT_STORAGE_BACKEND: s3
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_BUCKET: prufai-ci
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
       - run: python -m pytest tests/test_object_storage_integration.py
         working-directory: services/api
         env:

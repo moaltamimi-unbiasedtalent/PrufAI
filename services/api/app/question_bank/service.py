@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
+from app.lid_policy import LID_EDITORIAL_ITEM_CODE_PREFIX, LID_EDITORIAL_SCHEMA
 from app.models import (
     HumanReviewRequest,
     QuestionBankItem,
@@ -34,6 +35,7 @@ from app.models.enums import (
     QuestionBankSkill,
     QuestionBankTaskType,
 )
+from app.models.lid_editorial import LidEditorialItemVersion
 from app.question_bank.schemas import parse_item_content
 from app.rules.engine import EvaluationContext, RulesEngine
 
@@ -71,6 +73,10 @@ def _canonical(value: Any) -> str:
 
 def item_checksum(payload: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical(payload).encode()).hexdigest()
+
+
+def is_lid_editorial_item(code: str) -> bool:
+    return code.strip().upper().startswith(LID_EDITORIAL_ITEM_CODE_PREFIX)
 
 
 def normalized_fingerprint(content: dict[str, Any]) -> str:
@@ -563,7 +569,23 @@ class QuestionBankService:
                 continue
             if version.effective_until and version.effective_until <= now:
                 continue
-            if version.rights_status not in PUBLISHABLE_RIGHTS:
+            if is_lid_editorial_item(version.item.code):
+                from app.lid_editorial.reviews import current_item_evidence, editorial_binding_scope
+
+                if (
+                    not editorial_binding_scope(
+                        session, version, standard_pack_version_id, task_spec_id
+                    )
+                    or not current_item_evidence(
+                        session,
+                        version,
+                        mode="PUBLISHED_PRACTICE",
+                        require_published=True,
+                        lock_for_review=False,
+                    )["eligible"]
+                ):
+                    continue
+            elif version.rights_status not in PUBLISHABLE_RIGHTS:
                 continue
             bound = session.scalar(
                 select(QuestionBankStandardPackBinding).where(
@@ -764,6 +786,16 @@ class QuestionBankService:
         AuthorizationService.require_permission(
             context, "question_bank.manage", version.item.organisation_id
         )
+        pack = session.get(StandardPackVersion, standard_pack_version_id)
+        if is_lid_editorial_item(version.item.code) or (
+            pack is not None and pack.configuration_schema_version == LID_EDITORIAL_SCHEMA
+        ):
+            from app.lid_editorial.reviews import editorial_binding_scope
+
+            if not editorial_binding_scope(
+                session, version, standard_pack_version_id, task_spec_id
+            ):
+                raise ValueError("LID_EDITORIAL_EXACT_ITEM_BINDING_REQUIRED")
         compatibility = QuestionBankService.validate_pack_compatibility(
             session, version, standard_pack_version_id, task_spec_id
         )
@@ -801,7 +833,10 @@ class QuestionBankService:
         code: str,
         scope_type: str,
         organisation_id: Optional[uuid.UUID] = None,
+        editorial_initial: bool = False,
     ) -> QuestionBankItem:
+        if is_lid_editorial_item(code) != editorial_initial:
+            raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
         if scope_type == "PLATFORM_SHARED":
             if not context.platform_scope:
                 raise ValueError("platform-shared items require platform authority")
@@ -859,10 +894,42 @@ class QuestionBankService:
         origin_type: QuestionBankOriginType = QuestionBankOriginType.HUMAN_AUTHORED,
         proposed_by_ai_run_id: Optional[uuid.UUID] = None,
         proposed_by_ai_step_id: Optional[uuid.UUID] = None,
+        editorial_initial: bool = False,
+        editorial_successor_of: QuestionBankItemVersion | None = None,
     ) -> QuestionBankItemVersion:
         AuthorizationService.require_permission(
             context, "question_bank.manage", item.organisation_id
         )
+        if is_lid_editorial_item(item.code):
+            latest = session.scalar(
+                select(QuestionBankItemVersion)
+                .where(QuestionBankItemVersion.item_id == item.id)
+                .order_by(
+                    QuestionBankItemVersion.created_at.desc(), QuestionBankItemVersion.id.desc()
+                )
+                .limit(1)
+            )
+            if (
+                (editorial_initial == (editorial_successor_of is not None))
+                or (editorial_initial and latest is not None)
+                or (
+                    editorial_successor_of is not None
+                    and (
+                        latest is None
+                        or latest.id != editorial_successor_of.id
+                        or session.get(LidEditorialItemVersion, latest.id) is None
+                    )
+                )
+                or origin_type is not QuestionBankOriginType.AI_PROPOSED
+                or rights_status is not QuestionBankRightsStatus.UNKNOWN
+                or rights_holder is not None
+                or licence_reference is not None
+                or proposed_by_ai_run_id is not None
+                or proposed_by_ai_step_id is not None
+            ):
+                raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
+        elif editorial_initial or editorial_successor_of is not None:
+            raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
         levels = cefr_levels or []
         result = validate_item_payload(
             assessment_family=assessment_family,
@@ -883,6 +950,7 @@ class QuestionBankService:
         )
         version = QuestionBankItemVersion(
             item_id=item.id,
+            supersedes_version_id=editorial_successor_of.id if editorial_successor_of else None,
             version_label=version_label,
             status=QuestionBankLifecycleStatus.DRAFT
             if origin_type is not QuestionBankOriginType.AI_PROPOSED
@@ -938,6 +1006,8 @@ class QuestionBankService:
         item = session.get(QuestionBankItem, version.item_id)
         if item is None:
             raise ValueError("question bank review permission denied")
+        if is_lid_editorial_item(item.code):
+            raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
         required_permission = (
             "question_bank.publish"
             if target is QuestionBankLifecycleStatus.PUBLISHED
@@ -1002,6 +1072,17 @@ class QuestionBankService:
             and version.status is not QuestionBankLifecycleStatus.PUBLISHED
         ):
             raise ValueError("only published items can activate")
+        return QuestionBankService._apply_transition(session, context, version, target)
+
+    @staticmethod
+    def _apply_transition(
+        session: Session,
+        context: TenantContext,
+        version: QuestionBankItemVersion,
+        target: QuestionBankLifecycleStatus,
+        *,
+        require_audit_permission: bool = True,
+    ) -> QuestionBankItemVersion:
         version.status = target
         now = datetime.now(timezone.utc)
         if target is QuestionBankLifecycleStatus.APPROVED:
@@ -1019,8 +1100,9 @@ class QuestionBankService:
             event_type=f"question_bank.item.{target.value.lower()}",
             entity_type="question_bank_item_version",
             entity_id=str(version.id),
-            organisation_id=item.organisation_id,
+            organisation_id=version.item.organisation_id,
             metadata={"checksum": version.checksum},
+            require_audit_permission=require_audit_permission,
         )
         return version
 
@@ -1033,6 +1115,8 @@ class QuestionBankService:
         item = session.get(QuestionBankItem, version.item_id)
         if item is None:
             raise ValueError("item not found")
+        if is_lid_editorial_item(item.code):
+            raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
         AuthorizationService.require_permission(
             context, "question_bank.review", item.organisation_id
         )
@@ -1041,9 +1125,20 @@ class QuestionBankService:
             QuestionBankLifecycleStatus.VALIDATION_REQUIRED,
         }:
             raise ValueError("item version is not reviewable")
+        return QuestionBankService._open_review(session, context, version, "QUESTION_BANK_ITEM")
+
+    @staticmethod
+    def _open_review(
+        session: Session,
+        context: TenantContext,
+        version: QuestionBankItemVersion,
+        review_type: str,
+        *,
+        require_audit_permission: bool = True,
+    ) -> HumanReviewRequest:
         version.status = QuestionBankLifecycleStatus.HUMAN_REVIEW
         review = HumanReviewRequest(
-            review_type="QUESTION_BANK_ITEM",
+            review_type=review_type,
             entity_type="QUESTION_BANK_ITEM_VERSION",
             entity_id=version.id,
             status=HumanReviewStatus.PENDING,
@@ -1059,8 +1154,9 @@ class QuestionBankService:
             event_type="question_bank.item.review_requested",
             entity_type="question_bank_item_version",
             entity_id=str(version.id),
-            organisation_id=item.organisation_id,
+            organisation_id=version.item.organisation_id,
             metadata={"review_id": str(review.id), "checksum": version.checksum},
+            require_audit_permission=require_audit_permission,
         )
         return review
 
@@ -1079,6 +1175,8 @@ class QuestionBankService:
         item = session.get(QuestionBankItem, version.item_id)
         if item is None:
             raise ValueError("item not found")
+        if is_lid_editorial_item(item.code):
+            raise ValueError("LID_EDITORIAL_ITEM_REQUIRES_GOVERNED_PATH")
         AuthorizationService.require_permission(
             context, "question_bank.review", item.organisation_id
         )

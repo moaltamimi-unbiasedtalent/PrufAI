@@ -201,7 +201,7 @@ test("an independent scoped reviewer can inspect and decide only five pinned edi
       await expect(detail).toContainText(first.metadata_checksum);
       await expect(detail).toContainText(/unknown/i);
       await detail
-        .getByLabel("Rights decision", { exact: true })
+        .getByRole("combobox", { name: "Rights decision", exact: true })
         .selectOption("METADATA_ONLY");
       await detail
         .getByLabel("Rights holder", { exact: true })
@@ -298,7 +298,17 @@ test("an independent scoped reviewer can inspect and decide only five pinned edi
         id: first.id,
         metadata_checksum: first.metadata_checksum,
         legal_review_status: "APPROVED",
+        legal_reviewed_by_user_id: reviewer_id,
         ingestion_allowed: false,
+      });
+      const unresolved = await adminPage.request.get(
+        `${standards}/versions/${pending.id}`,
+        { headers: headers(admin) },
+      );
+      expect(await checked(unresolved, 200)).toMatchObject({
+        id: pending.id,
+        legal_review_status: "NOT_REVIEWED",
+        decision_checksum: null,
       });
     });
     await logout(page);

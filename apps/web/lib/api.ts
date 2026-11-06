@@ -90,6 +90,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}) {
     if (token) headers.set("Authorization", `Bearer ${token}`);
     if (
       path.startsWith("/api/v1/auth/") ||
+      path.startsWith("/api/v1/scoped-source-review/") ||
       path === "/api/v1/platform/control-center" ||
       path.startsWith("/api/v1/platform/control-center/") ||
       path === "/api/v1/platform/evaluation" ||

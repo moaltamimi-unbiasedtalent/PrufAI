@@ -593,6 +593,16 @@ jobs:
           OBJECT_STORAGE_ACCESS_KEY: prufai_ci
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
+      - name: Scoped source review authorization (required PostgreSQL)
+        run: |
+          python -m pytest tests/test_scoped_source_review_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/scoped-source-review-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/scoped-source-review-required.xml" test_scoped_source_review_postgresql_integration
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
       - run: python -m pytest tests/test_object_storage_integration.py
         working-directory: services/api
         env:

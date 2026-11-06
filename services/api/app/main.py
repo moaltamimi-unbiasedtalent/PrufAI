@@ -37,6 +37,7 @@ from app.result_release.api import router as result_release_router
 from app.rules.api import router as rules_router
 from app.runtime.api import candidate_router
 from app.runtime.api import organisation_router as runtime_organisation_router
+from app.scoped_source_review.api import router as scoped_source_review_router
 from app.scoring.api import candidate_result_router, scoring_router
 from app.speaking_assessment.api import router as speaking_assessment_router
 from app.speech_transcription.api import router as speech_transcription_router
@@ -82,6 +83,7 @@ _configure_cors()
 app.include_router(auth_router)
 app.include_router(org_router)
 app.include_router(knowledge_router)
+app.include_router(scoped_source_review_router)
 app.include_router(standards_catalogue_router)
 app.include_router(retrieval_router)
 app.include_router(standard_packs_router)

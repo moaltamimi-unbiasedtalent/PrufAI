@@ -13,7 +13,10 @@ export default function Home() {
         Welcome to PrüfAI{user?.display_name ? `, ${user.display_name}` : ""}
       </h1>
       <p style={{ maxWidth: "700px", fontSize: "1.1rem", lineHeight: 1.6 }}>
-        {membership?.organisation_name ?? "Select an organisation to continue."}
+        {membership?.organisation_name ??
+          (user?.scoped_source_review
+            ? "Open your scoped source review workspace to continue."
+            : "Select an organisation to continue.")}
       </p>
       <section
         style={{
@@ -37,7 +40,11 @@ export default function Home() {
           </article>
         )}
         {workspaceLinks
-          .filter(([, href]) => href !== "/" && canViewRoute(href, membership))
+          .filter(
+            ([, href]) =>
+              href !== "/" &&
+              canViewRoute(href, membership, [], user?.scoped_source_review),
+          )
           .map(([title, href]) => (
             <article key={href} style={styles.card}>
               <h2 style={{ marginTop: 0 }}>{title}</h2>
@@ -53,8 +60,8 @@ export default function Home() {
       <section style={{ ...styles.card, marginTop: "2rem", maxWidth: "none" }}>
         <h2>Workspace access</h2>
         <p>
-          The available workspaces follow your active organisation membership.
-          The server checks permission and ownership for every API request.
+          Your workspaces depend on your account’s roles and access grants. The
+          server checks permission and ownership for every API request.
         </p>
         {demoMode && (
           <p>

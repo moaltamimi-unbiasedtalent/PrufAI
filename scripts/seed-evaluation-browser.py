@@ -129,6 +129,20 @@ def main() -> None:
                 "The synthetic Writing rubric has no exact Standard Pack."
             )
 
+        scoped_reviewer_email = "scoped-source.reviewer@demo.prufai.local"
+        scoped_reviewer = User(
+            id=identifier("actor:scoped-source-reviewer"),
+            email=scoped_reviewer_email,
+            normalized_email=scoped_reviewer_email,
+            display_name="SYNTHETIC_TEST scoped source reviewer",
+            status=UserStatus.ACTIVE,
+        )
+        # This account has no membership or role. The browser must issue its
+        # exact temporary grant through the authenticated administrative API.
+        session.add(scoped_reviewer)
+        session.flush()
+        AuthenticationService(settings).set_password(session, scoped_reviewer, password)
+
         users = {}
         for actor in ACTORS:
             email = f"evaluation.{actor}@demo.prufai.local"
@@ -360,6 +374,11 @@ def main() -> None:
             "reference_checksum": source.checksum,
             "actor_ids": {actor: str(user.id) for actor, user in users.items()},
             "qualifications": qualifications,
+            "scoped_source_review": {
+                "organisation_id": str(organisation.id),
+                "reviewer_id": str(scoped_reviewer.id),
+                "reviewer_email": scoped_reviewer_email,
+            },
         }
     path = Path(manifest_path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.authorization.membership import require_active_tenant_permission
-from app.lid_policy import is_lid_draft_pack, is_lid_practice_pack
+from app.lid_policy import is_lid_delivery_pack, is_lid_draft_pack
 from app.lid_practice import service as lid
 from app.models import (
     AssessmentResult,
@@ -750,7 +750,7 @@ class ScoringService:
         if is_lid_draft_pack(pack):
             raise ScoringError("LID_DRAFT_DELIVERY_BLOCKED")
         form = None
-        if is_lid_practice_pack(pack) or "lid_practice" in attempt.runtime_plan:
+        if is_lid_delivery_pack(pack) or "lid_practice" in attempt.runtime_plan:
             if objective_item_overrides:
                 raise ScoringError("LID_PRACTICE_ITEM_OVERRIDE_DENIED")
             try:

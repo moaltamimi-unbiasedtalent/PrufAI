@@ -23,6 +23,7 @@ from app.dtz_policy import (
 from app.lid_policy import (
     LID_DRAFT_PUBLICATION_BLOCKED,
     LID_DRAFT_SCHEMA,
+    LID_EDITORIAL_SCHEMA,
     LID_PRACTICE_SCHEMA,
     LID_PUBLICATION_BLOCKERS,
     is_lid_pack,
@@ -593,6 +594,23 @@ class StandardPackService:
             and result.status is PackValidationStatus.FAIL
         ):
             raise ValueError("pack validation failed; transition is blocked")
+        StandardPackService._apply_transition(
+            session, version, target, actor_id=actor_id, context=context
+        )
+        return result
+
+    @staticmethod
+    def _apply_transition(
+        session: Session,
+        version: StandardPackVersion,
+        target: StandardPackStatus,
+        *,
+        actor_id: uuid.UUID | None,
+        context: TenantContext | None,
+    ) -> None:
+        """Persist one validated transition and its existing audit event."""
+        if target not in _ALLOWED_TRANSITIONS.get(version.status, set()):
+            raise ValueError("invalid Standard Pack lifecycle transition")
         now = datetime.now(timezone.utc)
         version.status = target
         if target is StandardPackStatus.HUMAN_REVIEW:
@@ -622,13 +640,16 @@ class StandardPackService:
             version,
             {"checksum": version.configuration_checksum},
         )
-        return result
 
     @staticmethod
     def ensure_mutable(version: StandardPackVersion) -> None:
         if is_dtz_pack(version):
             raise ValueError("the DTZ draft is sealed to its exact evidence")
-        if version.configuration_schema_version in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA}:
+        if version.configuration_schema_version in {
+            LID_DRAFT_SCHEMA,
+            LID_PRACTICE_SCHEMA,
+            LID_EDITORIAL_SCHEMA,
+        }:
             raise ValueError("the LiD version is sealed to its exact evidence")
         if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
             raise ValueError("the B1 foundation draft is sealed to its exact source mapping")
@@ -657,6 +678,7 @@ class StandardPackService:
                 DTZ_SCHEMA,
                 LID_DRAFT_SCHEMA,
                 LID_PRACTICE_SCHEMA,
+                LID_EDITORIAL_SCHEMA,
             }:
                 value = (
                     value.replace(tzinfo=timezone.utc)
@@ -761,7 +783,11 @@ class StandardPackService:
                 "language": version.standard_pack.language,
                 "authority_id": str(version.standard_pack.authority_id),
             }
-        if version.configuration_schema_version in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA}:
+        if version.configuration_schema_version in {
+            LID_DRAFT_SCHEMA,
+            LID_PRACTICE_SCHEMA,
+            LID_EDITORIAL_SCHEMA,
+        }:
             payload["lid_identity"] = {
                 "code": version.standard_pack.code,
                 "exam_family": version.standard_pack.exam_family,

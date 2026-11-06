@@ -10,7 +10,12 @@ from typing import Any
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.authorization import AuthorizationError, TenantContext, build_tenant_context
+from app.authorization import (
+    AuthorizationError,
+    AuthorizationService,
+    TenantContext,
+    build_tenant_context,
+)
 from app.authorization.membership import require_active_tenant_permission
 from app.evaluation import service as foundation
 from app.evaluation.expert_evidence import validate_judgment_evidence, validate_reference_source
@@ -21,6 +26,13 @@ from app.evaluation.expert_requests import (
     ReferenceDatasetInput,
 )
 from app.evaluation.expert_schemas import SourceInput
+from app.lid_editorial.access import (
+    editorial_preview_enabled,
+    editorial_verified_identity,
+    editorial_verified_reference,
+)
+from app.lid_editorial.review_contracts import REVIEW_PERMISSIONS, STAGES
+from app.lid_policy import is_lid_editorial_pack
 from app.models import (
     EvaluationDataset,
     EvaluationDatasetVersion,
@@ -37,6 +49,7 @@ from app.models.expert_evaluation import (
     EvaluationExpertJudgment,
     EvaluationReference,
 )
+from app.models.lid_editorial import LidEditorialCollection
 from app.writing_assessment.service import canonical_checksum
 
 LIMITATIONS = [
@@ -225,6 +238,46 @@ def approve_reference(
     return row
 
 
+def _lid_qualification_scope(
+    session: Session,
+    payload: QualificationInput,
+    pack: StandardPackVersion,
+) -> None:
+    if (
+        payload.organisation_id is None
+        or not is_lid_editorial_pack(pack)
+        or session.scalar(
+            select(LidEditorialCollection.id).where(
+                LidEditorialCollection.pack_version_id == pack.id,
+                LidEditorialCollection.organisation_id == payload.organisation_id,
+            )
+        )
+        is None
+    ):
+        raise ValueError("LID_EDITORIAL_EXACT_QUALIFICATION_SCOPE_REQUIRED")
+    stage = next(stage for stage in STAGES if payload.kind == f"LID_{stage}")
+    context = build_tenant_context(session, payload.examiner_id, payload.organisation_id)
+    if context.membership_id is None:
+        raise AuthorizationError("LID_EDITORIAL_ACTIVE_MEMBERSHIP_REQUIRED")
+    AuthorizationService.require_permission(
+        context, REVIEW_PERMISSIONS[stage], payload.organisation_id
+    )
+
+
+def _lid_qualification_authority(
+    session: Session, actor_id: uuid.UUID, evidence_class: str, reference: str
+) -> None:
+    if evidence_class == "SYNTHETIC_TEST":
+        if not editorial_preview_enabled(session):
+            raise AuthorizationError("LID_EDITORIAL_SYNTHETIC_REVIEW_DENIED")
+    elif (
+        evidence_class != "VERIFIED_CREDENTIAL"
+        or not editorial_verified_identity(session, actor_id)
+        or not editorial_verified_reference(reference)
+    ):
+        raise AuthorizationError("LID_EDITORIAL_VERIFIED_HUMAN_REQUIRED")
+
+
 def create_qualification(
     session: Session, context: TenantContext, payload: QualificationInput
 ) -> EvaluationExaminerQualification:
@@ -243,6 +296,11 @@ def create_qualification(
     pack = session.get(StandardPackVersion, payload.standard_pack_version_id)
     if pack is None or pack.configuration_checksum != payload.standard_pack_checksum:
         raise ValueError("EVALUATION_QUALIFICATION_SCOPE_INVALID")
+    if payload.kind.startswith("LID_"):
+        _lid_qualification_scope(session, payload, pack)
+        _lid_qualification_authority(
+            session, trusted.user_id, payload.origin, payload.credential_reference
+        )
     if payload.rubric_version_id:
         rubric = session.get(RubricVersion, payload.rubric_version_id)
         if (
@@ -291,7 +349,9 @@ def approve_qualification(
     review_reference: str,
 ) -> EvaluationExaminerQualification:
     trusted = foundation.require(session, context, foundation.MANAGE, foundation.REVIEW)
-    row = _locked(session, EvaluationExaminerQualification, identifier)
+    row: EvaluationExaminerQualification = _locked(
+        session, EvaluationExaminerQualification, identifier
+    )
     _expected(row, checksum)
     if trusted.user_id in {row.examiner_id, row.created_by}:
         raise AuthorizationError("EVALUATION_INDEPENDENT_CREDENTIAL_REVIEW_REQUIRED")
@@ -301,6 +361,16 @@ def approve_qualification(
         <= foundation.utcnow()
     ):
         raise foundation.EvaluationConflict("EVALUATION_QUALIFICATION_INVALID")
+    if str(row.body.get("kind", "")).startswith("LID_"):
+        payload = QualificationInput.model_validate({**row.body, "operation_id": row.operation_id})
+        pack = session.get(StandardPackVersion, payload.standard_pack_version_id)
+        if pack is None or pack.configuration_checksum != payload.standard_pack_checksum:
+            raise ValueError("EVALUATION_QUALIFICATION_SCOPE_INVALID")
+        _lid_qualification_scope(session, payload, pack)
+        _lid_qualification_authority(
+            session, row.created_by, row.evidence_class, payload.credential_reference
+        )
+        _lid_qualification_authority(session, trusted.user_id, row.evidence_class, review_reference)
     if row.status == "APPROVED":
         if row.approved_by == trusted.user_id and row.approval_reference == review_reference:
             return row

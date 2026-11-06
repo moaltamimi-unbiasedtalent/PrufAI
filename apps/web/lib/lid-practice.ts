@@ -1,5 +1,6 @@
 export type LidPracticeAssignment = {
   title: string;
+  notice?: string;
   bundeslaender: Array<{ code: string; label: string; available: boolean }>;
 };
 

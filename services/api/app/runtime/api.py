@@ -114,9 +114,11 @@ def _candidate_assignment_payload(
     payload = _assignment_payload(assignment)
     form = session.get(LidPracticeForm, assignment.exam_version_id)
     if form is not None:
-        if not lid.technical_delivery_enabled():
+        if not lid.assignment_visible(session, form):
             raise HTTPException(status_code=404, detail="candidate assignment not found")
-        payload["lid_practice"] = lid.assignment_details(form.bundesland)
+        payload["lid_practice"] = lid.assignment_details(
+            form.bundesland, original=lid.is_original_form(form)
+        )
     return payload
 
 
@@ -509,8 +511,7 @@ def list_candidate_assignments(
     return [
         _candidate_assignment_payload(session, row)
         for row in CandidateRuntimeService.list_assignments(session, _context(principal))
-        if lid.technical_delivery_enabled()
-        or session.get(LidPracticeForm, row.exam_version_id) is None
+        if lid.assignment_visible(session, session.get(LidPracticeForm, row.exam_version_id))
     ]
 
 

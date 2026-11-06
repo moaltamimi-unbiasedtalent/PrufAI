@@ -117,6 +117,13 @@ export default function LidStandardsPage() {
         </Link>
       </p>
       <h1>Leben in Deutschland blueprint</h1>
+      {canRead && (
+        <p>
+          <Link href="/control-center/standards/lid/editorial">
+            Original Berlin LiD editorial set
+          </Link>
+        </p>
+      )}
       <p className={css.notice}>
         Integration knowledge · PRACTICE · NOT OFFICIAL · NOT CERTIFIED
       </p>

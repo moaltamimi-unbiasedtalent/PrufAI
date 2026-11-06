@@ -21,7 +21,15 @@ class QualificationInput(Contract):
     operation_id: uuid.UUID
     examiner_id: uuid.UUID
     organisation_id: uuid.UUID | None = None
-    kind: Literal["WRITING", "SPEAKING", "TRANSCRIPTION", "RETRIEVAL"]
+    kind: Literal[
+        "WRITING",
+        "SPEAKING",
+        "TRANSCRIPTION",
+        "RETRIEVAL",
+        "LID_FACTUAL",
+        "LID_ASSESSMENT",
+        "LID_RIGHTS",
+    ]
     language: str = Field(pattern=r"^[a-z]{2}$")
     rubric_version_id: uuid.UUID | None = None
     rubric_checksum: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -37,6 +45,12 @@ class QualificationInput(Contract):
             raise ValueError("EXAMINER_EXACT_RUBRIC_REQUIRED")
         if self.expires_at.tzinfo is None:
             raise ValueError("EXAMINER_EXPIRY_TIMEZONE_REQUIRED")
+        if self.kind.startswith("LID_") and (
+            self.language != "de"
+            or self.organisation_id is None
+            or self.rubric_version_id is not None
+        ):
+            raise ValueError("LID_EDITORIAL_EXACT_QUALIFICATION_SCOPE_REQUIRED")
         return self
 
 

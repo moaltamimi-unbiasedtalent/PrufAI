@@ -66,7 +66,7 @@ function safeError(cause: unknown): string {
   if (!(cause instanceof CandidateApiError))
     return "The runtime is temporarily unavailable.";
   if (cause.code === "CONTENT_UNAVAILABLE")
-    return "Synthetic practice questions are unavailable for this Bundesland.";
+    return "Practice questions are unavailable for this Bundesland.";
   if (cause.code.includes("UNSUPPORTED_RESPONSE_MODE"))
     return "This exam contains a response type that is not available in Candidate Runtime.";
   if (cause.status === 403 || cause.status === 404)
@@ -579,7 +579,11 @@ export default function CandidateExamRuntimePage() {
         </p>
         <h1>{lidForm?.title ?? lidAssignment?.title ?? "Exam assignment"}</h1>
         {(lidForm || lidAssignment) && (
-          <p>ORIGINAL SYNTHETIC TEST CONTENT · NOT AN OFFICIAL BAMF QUESTION</p>
+          <p>
+            {lidForm?.notice ??
+              lidAssignment?.notice ??
+              "ORIGINAL SYNTHETIC TEST CONTENT · NOT AN OFFICIAL BAMF QUESTION"}
+          </p>
         )}
         {lidForm && (
           <p>
@@ -608,7 +612,7 @@ export default function CandidateExamRuntimePage() {
           <>
             <p id="practice-state-help">
               Select the state for this practice attempt. A state without enough
-              synthetic questions is unavailable.
+              eligible questions is unavailable.
             </p>
             <label>
               Practice Bundesland

@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.dtz_policy import DTZ_DELIVERY_BLOCKED, is_dtz_pack
-from app.lid_policy import LID_DRAFT_DELIVERY_BLOCKED, is_lid_draft_pack, is_lid_practice_pack
+from app.lid_policy import (
+    LID_DRAFT_DELIVERY_BLOCKED,
+    is_lid_delivery_pack,
+    is_lid_draft_pack,
+    is_lid_editorial_pack,
+)
 from app.lid_practice import service as lid
 from app.models import (
     Exam,
@@ -171,7 +176,7 @@ class ExamStudioService:
             ),
         )
         session.add(version)
-        if is_lid_practice_pack(pack):
+        if is_lid_delivery_pack(pack):
             with session.no_autoflush:
                 lid.require_technical_pack(pack, version)
         session.flush()
@@ -225,7 +230,7 @@ class ExamStudioService:
             raise ValueError(DTZ_DELIVERY_BLOCKED)
         if is_lid_draft_pack(pack):
             raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
-        if is_lid_practice_pack(pack):
+        if is_lid_delivery_pack(pack):
             lid.require_technical_pack(pack, version)
         for module in sorted(pack.modules, key=lambda row: row.sequence):
             concrete_module = session.scalar(
@@ -455,7 +460,7 @@ class ExamStudioService:
                 ),
                 version.checksum,
             )
-        if is_lid_practice_pack(pack):
+        if is_lid_delivery_pack(pack):
             try:
                 lid.require_form(session, version, pack)
             except ValueError:
@@ -604,8 +609,9 @@ class ExamStudioService:
                                 )
                             )
                             continue
-                        if item.rights_status not in PUBLISHABLE_RIGHTS or (
-                            item.rights_expires_at and item.rights_expires_at <= _now()
+                        if not is_lid_editorial_pack(pack) and (
+                            item.rights_status not in PUBLISHABLE_RIGHTS
+                            or (item.rights_expires_at and item.rights_expires_at <= _now())
                         ):
                             issues.append(
                                 ValidationIssue(
@@ -877,7 +883,7 @@ class ExamStudioService:
             raise ValueError("standard pack version not found")
         if is_lid_draft_pack(pack):
             raise ValueError(LID_DRAFT_DELIVERY_BLOCKED)
-        form = lid.require_form(session, version, pack) if is_lid_practice_pack(pack) else None
+        form = lid.require_form(session, version, pack) if is_lid_delivery_pack(pack) else None
         scopes = (
             {item["binding_id"]: item["scope"] for item in form.manifest["items"]} if form else {}
         )

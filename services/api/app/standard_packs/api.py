@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
+from app.dtz_policy import DTZ_PUBLICATION_BLOCKED, is_dtz_pack
 from app.models import (
     StandardPack,
     StandardPackModule,
@@ -278,6 +279,17 @@ def get_version(
     item = session.get(StandardPackVersion, version_id)
     if item is None:
         raise HTTPException(status_code=404, detail="standard pack version not found")
+    if is_dtz_pack(item):
+        if principal.tenant_context is None or principal.tenant_context.organisation_id is not None:
+            raise HTTPException(status_code=403, detail="platform standards authority required")
+        return {
+            **_version(item),
+            "assessment_family": item.standard_pack.assessment_family.value,
+            "exam_family": item.standard_pack.exam_family,
+            "language": item.standard_pack.language,
+            "review_status": "REVIEW_REQUIRED",
+            "delivery_ready": False,
+        }
     return (
         {**_version(item), **b1_foundation_detail(session, item)}
         if is_b1_foundation(item)
@@ -445,7 +457,10 @@ def _transition(
     except ValueError as exc:
         session.rollback()
         raise HTTPException(
-            status_code=409 if str(exc) == B1_PUBLICATION_BLOCKED else 400, detail=str(exc)
+            status_code=409
+            if str(exc) in {B1_PUBLICATION_BLOCKED, DTZ_PUBLICATION_BLOCKED}
+            else 400,
+            detail=str(exc),
         ) from exc
     return {
         "version": _version(version),

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
+from app.dtz_policy import DTZ_RUBRIC_SCHEMA, DTZ_RULE_PREFIX, is_dtz_pack
 from app.models import (
     AssessmentRubric,
     CandidateExamAttempt,
@@ -163,6 +164,9 @@ class RubricService:
 
     @staticmethod
     def checksum_payload(version: RubricVersion) -> dict[str, Any]:
+        evidence = version.evidence_bindings
+        if version.schema_version == DTZ_RUBRIC_SCHEMA:
+            evidence = sorted(evidence, key=lambda item: str(item.knowledge_document_version_id))
         payload = {
             "schema_version": version.schema_version,
             "assessment_family": version.assessment_family.value,
@@ -190,7 +194,7 @@ class RubricService:
                     "source_checksum": binding.source_checksum,
                     "required": binding.required,
                 }
-                for binding in version.evidence_bindings
+                for binding in evidence
             ],
         }
         # Keep historical unbound rubric checksums unchanged.
@@ -207,6 +211,8 @@ class RubricService:
         organisation_id: uuid.UUID | None,
         context: TenantContext | None = None,
     ) -> AssessmentRubric:
+        if code.strip().upper().startswith(DTZ_RULE_PREFIX):
+            raise RubricError("DTZ_DRAFT_RUBRIC_REVIEW_REQUIRED")
         rubric = AssessmentRubric(
             code=code,
             name=name,
@@ -252,6 +258,8 @@ class RubricService:
         task_spec_id: uuid.UUID | None = None,
         context: TenantContext | None = None,
     ) -> RubricVersion:
+        if is_dtz_pack(standard_pack):
+            raise RubricError("DTZ_DRAFT_RUBRIC_REVIEW_REQUIRED")
         validate_rubric(
             criteria=criteria,
             performance_levels=performance_levels,
@@ -327,6 +335,8 @@ class RubricService:
 
     @staticmethod
     def assert_executable(version: RubricVersion) -> None:
+        if version.schema_version == DTZ_RUBRIC_SCHEMA:
+            raise RubricError("DTZ_DRAFT_RUBRIC_REVIEW_REQUIRED")
         if version.status not in RubricService.EXECUTABLE_STATUSES:
             raise RubricError("rubric version is not executable")
 

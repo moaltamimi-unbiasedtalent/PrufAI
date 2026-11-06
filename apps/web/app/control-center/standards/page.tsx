@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../../lib/auth";
 import css from "../control-center.module.css";
@@ -278,7 +279,16 @@ export default function StandardsPage() {
     <MetadataBrowser
       section="standards"
       onInspect={setInspect}
-      workbench={<DraftWorkbench inspect={inspect} />}
+      workbench={
+        <>
+          <p>
+            <Link href="/control-center/standards/dtz">
+              DTZ A2–B1 blueprint
+            </Link>
+          </p>
+          <DraftWorkbench inspect={inspect} />
+        </>
+      }
     />
   );
 }

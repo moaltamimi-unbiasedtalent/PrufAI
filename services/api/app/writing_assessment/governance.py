@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
+from app.dtz_policy import DTZ_RUBRIC_SCHEMA, is_dtz_pack
 from app.models import (
     AuditEvent,
     CandidateExamAttempt,
@@ -187,6 +188,11 @@ class RubricGovernanceService:
         expected_checksum: str,
     ) -> RubricVersion:
         version = cls._version(session, context, version_id)
+        from app.models import StandardPackTaskSpecification, StandardPackVersion
+
+        pack = session.get(StandardPackVersion, version.standard_pack_version_id)
+        if version.schema_version == DTZ_RUBRIC_SCHEMA or (pack is not None and is_dtz_pack(pack)):
+            raise RubricError("DTZ_DRAFT_RUBRIC_REVIEW_REQUIRED")
         if version.skill is QuestionBankSkill.SPEAKING:
             from app.authorization.membership import require_active_tenant_permission
 
@@ -241,9 +247,6 @@ class RubricGovernanceService:
                 raise RubricError(
                     "Speaking rubric requires an exact approved audio-capable execution profile"
                 ) from exc
-        from app.models import StandardPackTaskSpecification, StandardPackVersion
-
-        pack = session.get(StandardPackVersion, version.standard_pack_version_id)
         if pack is None:
             raise RubricError("rubric StandardPackVersion is unavailable")
         task = session.get(StandardPackTaskSpecification, version.task_spec_id)

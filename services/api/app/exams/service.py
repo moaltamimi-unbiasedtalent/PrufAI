@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
+from app.dtz_policy import DTZ_DELIVERY_BLOCKED, is_dtz_pack
 from app.models import (
     Exam,
     ExamVersion,
@@ -135,6 +136,8 @@ class ExamStudioService:
         pack = session.get(StandardPackVersion, standard_pack_version_id)
         if pack is None:
             raise ValueError("standard pack version not found")
+        if is_dtz_pack(pack):
+            raise ValueError(DTZ_DELIVERY_BLOCKED)
         if supersedes_version_id is not None:
             superseded = session.get(ExamVersion, supersedes_version_id)
             if superseded is None or superseded.exam_id != exam.id:
@@ -211,6 +214,8 @@ class ExamStudioService:
         pack = session.get(StandardPackVersion, version.standard_pack_version_id)
         if pack is None:
             raise ValueError("standard pack version not found")
+        if is_dtz_pack(pack):
+            raise ValueError(DTZ_DELIVERY_BLOCKED)
         for module in sorted(pack.modules, key=lambda row: row.sequence):
             concrete_module = session.scalar(
                 select(ExamVersionModule).where(
@@ -410,6 +415,20 @@ class ExamStudioService:
                 )
             )
             return ValidationResult("FAIL", tuple(issues), version.checksum)
+        if is_dtz_pack(pack):
+            return ValidationResult(
+                "FAIL",
+                (
+                    ValidationIssue(
+                        DTZ_DELIVERY_BLOCKED,
+                        "FAIL",
+                        "BLUEPRINT",
+                        "standard_pack_version_id",
+                        "The DTZ blueprint is available only for Standards practice preview.",
+                    ),
+                ),
+                version.checksum,
+            )
         if version.classification.value not in pack.allowed_classifications:
             issues.append(
                 ValidationIssue(

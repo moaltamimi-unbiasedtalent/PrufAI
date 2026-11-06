@@ -1,4 +1,5 @@
 import { authenticatedFetch } from "../../lib/api";
+import type { LidPracticeAssignment } from "../../lib/lid-practice";
 import type { AssessmentComponent } from "./assessment-evidence";
 
 export type HumanResultReview = {
@@ -64,6 +65,7 @@ export type AssignmentOptions = {
     status: string;
     classification: string;
     standard_pack_version_id: string;
+    lid_practice?: LidPracticeAssignment | null;
     checksum: string;
   }>;
 };

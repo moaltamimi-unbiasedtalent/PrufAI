@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import TenantContext
 from app.dtz_policy import DTZ_RULE_PREFIX
+from app.lid_policy import LID_RULE_PREVIEW_ONLY, is_lid_preview_rule_code
 from app.models import (
     KnowledgeChunk,
     KnowledgeDocumentPage,
@@ -81,6 +82,14 @@ def is_dtz_preview_rule_code(code: str) -> bool:
     return code.strip().upper().startswith(DTZ_RULE_PREFIX)
 
 
+def _preview_only(code: str) -> str | None:
+    if is_dtz_preview_rule_code(code):
+        return DTZ_RULE_PREVIEW_ONLY
+    if is_lid_preview_rule_code(code):
+        return LID_RULE_PREVIEW_ONLY
+    return None
+
+
 class RulesService:
     @staticmethod
     def create_definition(
@@ -92,8 +101,8 @@ class RulesService:
         description: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleDefinition:
-        if is_dtz_preview_rule_code(code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(code):
+            raise ValueError(reason)
         definition = RuleDefinition(
             code=code,
             name=name,
@@ -126,8 +135,8 @@ class RulesService:
         test_cases: Optional[list[dict[str, Any]]] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleVersion:
-        if is_dtz_preview_rule_code(definition.code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(definition.code):
+            raise ValueError(reason)
         version = RuleVersion(
             rule_definition_id=definition.id,
             version_label=version_label,
@@ -211,8 +220,8 @@ class RulesService:
         context: Optional[TenantContext] = None,
     ) -> StandardPackRuleBinding:
         StandardPackService.ensure_mutable(pack_version)
-        if is_dtz_preview_rule_code(rule_version.definition.code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(rule_version.definition.code):
+            raise ValueError(reason)
         if rule_version.status not in {
             RuleStatus.APPROVED,
             RuleStatus.PUBLISHED,
@@ -241,13 +250,13 @@ class RulesService:
     @staticmethod
     def validate(session: Session, version: RuleVersion) -> RuleValidationResult:
         issues: list[RuleValidationIssue] = []
-        if is_dtz_preview_rule_code(version.definition.code):
+        if reason := _preview_only(version.definition.code):
             issues.append(
                 RuleValidationIssue(
-                    DTZ_RULE_PREVIEW_ONLY,
+                    reason,
                     "FAIL",
                     "status",
-                    "DTZ draft rules require the source-pinned practice preview.",
+                    "This draft rule requires its source-pinned practice preview.",
                 )
             )
         try:
@@ -327,8 +336,8 @@ class RulesService:
         actor_id: Optional[uuid.UUID] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleValidationResult:
-        if is_dtz_preview_rule_code(version.definition.code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(version.definition.code):
+            raise ValueError(reason)
         if target not in _TRANSITIONS.get(version.status, set()):
             raise ValueError(f"invalid rule transition: {version.status.value} -> {target.value}")
         result = RulesService.validate(session, version)
@@ -362,8 +371,8 @@ class RulesService:
 
     @staticmethod
     def ensure_mutable(version: RuleVersion) -> None:
-        if is_dtz_preview_rule_code(version.definition.code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(version.definition.code):
+            raise ValueError(reason)
         if version.status in {
             RuleStatus.PUBLISHED,
             RuleStatus.ACTIVE,
@@ -383,18 +392,18 @@ class RulesService:
 
     @staticmethod
     def dry_run(version: RuleVersion, facts: dict[str, Any]) -> RuleEvaluationReport:
-        if is_dtz_preview_rule_code(version.definition.code):
-            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
+        if reason := _preview_only(version.definition.code):
+            raise ValueError(reason)
         return RulesEngine().evaluate([(version.definition, version)], EvaluationContext(facts))
 
     @staticmethod
     def canonical(version: RuleVersion) -> dict[str, Any]:
-        dtz_preview = is_dtz_preview_rule_code(version.definition.code)
+        metadata_preview = _preview_only(version.definition.code) is not None
 
         def timestamp(value: datetime | None) -> str | None:
             if value is None:
                 return None
-            if dtz_preview:
+            if metadata_preview:
                 value = (
                     value.replace(tzinfo=timezone.utc)
                     if value.tzinfo is None
@@ -421,7 +430,7 @@ class RulesService:
                     "chunk_id": str(item.knowledge_chunk_id) if item.knowledge_chunk_id else None,
                     "evidence_type": item.evidence_type.value,
                     "document_checksum": item.document_checksum,
-                    **({"source_metadata_checksum": item.notes} if dtz_preview else {}),
+                    **({"source_metadata_checksum": item.notes} if metadata_preview else {}),
                 }
                 for item in sorted(version.evidence_bindings, key=lambda value: str(value.id))
             ],

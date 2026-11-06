@@ -10,6 +10,8 @@ import React, {
   useState,
 } from "react";
 import { useAuth } from "../../../../lib/auth";
+import type { LidPracticeAssignment } from "../../../../lib/lid-practice";
+import { LidPracticeResultPanel } from "./lid-practice-result";
 import {
   CandidateApiError,
   candidateApi,
@@ -63,6 +65,8 @@ function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
 function safeError(cause: unknown): string {
   if (!(cause instanceof CandidateApiError))
     return "The runtime is temporarily unavailable.";
+  if (cause.code === "CONTENT_UNAVAILABLE")
+    return "Synthetic practice questions are unavailable for this Bundesland.";
   if (cause.code.includes("UNSUPPORTED_RESPONSE_MODE"))
     return "This exam contains a response type that is not available in Candidate Runtime.";
   if (cause.status === 403 || cause.status === 404)
@@ -96,6 +100,11 @@ export default function CandidateExamRuntimePage() {
   const responseHelpId = `${promptId}-help`;
   const errorId = `${promptId}-error`;
   const [screen, setScreen] = useState<Screen>("loading");
+  const [lidAssignmentInfo, setLidAssignmentInfo] = useState<{
+    context: string | null;
+    assignment: LidPracticeAssignment;
+  } | null>(null);
+  const [practiceState, setPracticeState] = useState("");
   const [attemptId, setAttemptId] = useState<string | null>(
     assignmentId ? null : routeId,
   );
@@ -146,6 +155,15 @@ export default function CandidateExamRuntimePage() {
     ? items.findIndex((item) => item.binding_id === currentItem.binding_id)
     : -1;
   const editable = runtime?.status === "IN_PROGRESS";
+  const lidForm =
+    runtimeContext === contextKey ? runtime?.runtime_plan.lid_practice : null;
+  const lidAssignment =
+    lidAssignmentInfo?.context === contextKey
+      ? lidAssignmentInfo?.assignment
+      : null;
+  const selectedPracticeState = lidAssignment?.bundeslaender.find(
+    (state) => state.code === practiceState && state.available,
+  );
   const savedRevision =
     runtime?.responses.find((item) => item.binding_id === currentBinding)
       ?.revision ?? 0;
@@ -187,8 +205,18 @@ export default function CandidateExamRuntimePage() {
         .assignments()
         .then((rows) => {
           if (!active) return;
-          if (!rows.some((row) => row.id === assignmentId))
+          const assignment = rows.find((row) => row.id === assignmentId);
+          if (!assignment)
             throw new CandidateApiError(404, "assignment unavailable");
+          setPracticeState("");
+          setLidAssignmentInfo(
+            assignment.lid_practice
+              ? {
+                  context: currentContext.current,
+                  assignment: assignment.lid_practice,
+                }
+              : null,
+          );
           setScreen("prestart");
         })
         .catch((cause: unknown) => {
@@ -323,11 +351,14 @@ export default function CandidateExamRuntimePage() {
   }, [online, attemptId, accountScope, updateRuntime]);
 
   async function prepareAttempt() {
-    if (!assignmentId) return;
+    if (!assignmentId || (lidAssignment && !selectedPracticeState)) return;
     setStarting(true);
     setError(null);
     try {
-      const attempt = await candidateApi.createAttempt(assignmentId);
+      const attempt = await candidateApi.createAttempt(
+        assignmentId,
+        selectedPracticeState?.code,
+      );
       await loadRuntime(attempt.id, "prestart");
       router.replace(`/candidate/exams/${attempt.id}`);
     } catch (cause) {
@@ -546,7 +577,16 @@ export default function CandidateExamRuntimePage() {
         <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
           Candidate exam
         </p>
-        <h1>Exam assignment</h1>
+        <h1>{lidForm?.title ?? lidAssignment?.title ?? "Exam assignment"}</h1>
+        {(lidForm || lidAssignment) && (
+          <p>ORIGINAL SYNTHETIC TEST CONTENT · NOT AN OFFICIAL BAMF QUESTION</p>
+        )}
+        {lidForm && (
+          <p>
+            Selected practice Bundesland: {lidForm.bundesland_label}. The state
+            stays fixed for this attempt.
+          </p>
+        )}
         <p>
           This pre-start screen does not start the attempt or begin the timer.
         </p>
@@ -564,9 +604,44 @@ export default function CandidateExamRuntimePage() {
           Answer each question using the supported response control. Your
           progress is saved by the server.
         </p>
+        {lidAssignment && !attemptId && (
+          <>
+            <p id="practice-state-help">
+              Select the state for this practice attempt. A state without enough
+              synthetic questions is unavailable.
+            </p>
+            <label>
+              Practice Bundesland
+              <select
+                aria-describedby="practice-state-help"
+                value={practiceState}
+                disabled={starting}
+                onChange={(event) => setPracticeState(event.target.value)}
+              >
+                <option value="">Select a Bundesland</option>
+                {lidAssignment.bundeslaender.map((state) => (
+                  <option
+                    key={state.code}
+                    value={state.code}
+                    disabled={!state.available}
+                  >
+                    {state.label}
+                    {state.available ? "" : " — Content unavailable"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
         {error && <p role="alert">{error}</p>}
         {!attemptId ? (
-          <button type="button" onClick={prepareAttempt} disabled={starting}>
+          <button
+            type="button"
+            onClick={prepareAttempt}
+            disabled={
+              starting || Boolean(lidAssignment && !selectedPracticeState)
+            }
+          >
             {starting ? "Preparing exam…" : "Prepare exam"}
           </button>
         ) : (
@@ -592,13 +667,28 @@ export default function CandidateExamRuntimePage() {
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
         Candidate exam
       </p>
-      <h1>Runtime</h1>
+      <h1>{lidForm?.title ?? "Runtime"}</h1>
+      {lidForm && (
+        <>
+          <p>{lidForm.notice}</p>
+          <p>Selected practice Bundesland: {lidForm.bundesland_label}</p>
+          <p>
+            {lidForm.general_count + lidForm.state_count} questions ·{" "}
+            {lidForm.general_count} general · {lidForm.state_count}{" "}
+            state-specific
+          </p>
+        </>
+      )}
       <p>Attempt {attemptId} · Server time controls the deadline.</p>
-      <RuntimeTimer
-        deadlineAt={
-          runtime?.deadline_at ? Date.parse(runtime.deadline_at) : null
-        }
-      />
+      {lidForm && runtime?.status === "SUBMITTED" ? (
+        <p>Submission state: Submitted</p>
+      ) : (
+        <RuntimeTimer
+          deadlineAt={
+            runtime?.deadline_at ? Date.parse(runtime.deadline_at) : null
+          }
+        />
+      )}
       <p>
         Module and task position: {currentIndex + 1} of {items.length}
       </p>
@@ -762,6 +852,12 @@ export default function CandidateExamRuntimePage() {
       >
         Submit attempt
       </button>
+      {lidForm && attemptId && runtime?.status === "SUBMITTED" && (
+        <LidPracticeResultPanel
+          key={`${contextKey}:${attemptId}`}
+          attemptId={attemptId}
+        />
+      )}
       {audioPending && (
         <p role="status">
           Finish or cancel the pending audio recording and attachment before

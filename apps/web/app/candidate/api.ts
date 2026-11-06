@@ -1,3 +1,8 @@
+import type {
+  LidPracticeAssignment,
+  LidPracticeForm,
+  LidPracticeResult,
+} from "../../lib/lid-practice";
 import { anchorRecordingClock, type RecordingClock } from "./audio-timing";
 
 export type CandidateAssignment = {
@@ -6,6 +11,7 @@ export type CandidateAssignment = {
   available_from: string | null;
   available_until: string | null;
   maximum_attempts: number;
+  lid_practice?: LidPracticeAssignment | null;
   attempts: Array<{ id: string; status: string; attempt_number: number }>;
 };
 
@@ -29,6 +35,7 @@ export type RuntimeState = {
   runtime_plan_checksum: string;
   runtime_plan: {
     duration_seconds: number | null;
+    lid_practice?: LidPracticeForm | null;
     modules: Array<{
       module_id: string;
       sections: Array<{
@@ -181,10 +188,15 @@ export const candidateApi = {
   assignments: () => request<CandidateAssignment[]>("/exam-assignments"),
   attempt: (attemptId: string) =>
     request<CandidateAttempt>(`/exam-attempts/${attemptId}`),
-  createAttempt: (assignmentId: string) =>
+  createAttempt: (assignmentId: string, bundesland?: string) =>
     request<CandidateAttempt>(`/exam-assignments/${assignmentId}/attempts`, {
       method: "POST",
+      ...(bundesland ? { body: JSON.stringify({ bundesland }) } : {}),
     }),
+  lidPracticeResult: (attemptId: string) =>
+    request<LidPracticeResult>(
+      `/exam-attempts/${attemptId}/lid-practice-result`,
+    ),
   runtime: (attemptId: string) =>
     request<RuntimeState>(`/exam-attempts/${attemptId}/runtime`),
   start: (attemptId: string) =>

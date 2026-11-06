@@ -144,8 +144,22 @@ def test_delivery_manifest_uses_answer_key_safe_item_projection() -> None:
 
     class FakeSession:
         def get(self, model, identity):
-            from app.models import QuestionBankItemVersion, StandardPackTaskSpecification
+            from app.models import (
+                QuestionBankItemVersion,
+                StandardPackTaskSpecification,
+                StandardPackVersion,
+            )
 
+            if model is StandardPackVersion:
+                assert identity == version.standard_pack_version_id
+                return SimpleNamespace(
+                    configuration_schema_version="1",
+                    standard_pack=SimpleNamespace(
+                        code="SYNTHETIC_LANGUAGE",
+                        exam_family=None,
+                        assessment_family=AssessmentFamily.LANGUAGE,
+                    ),
+                )
             if model is QuestionBankItemVersion:
                 return item
             if model is StandardPackTaskSpecification:

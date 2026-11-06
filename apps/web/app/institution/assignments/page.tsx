@@ -160,6 +160,13 @@ export default function AssignAssessmentPage() {
                     Standard Pack version: {selected.standard_pack_version_id}
                   </p>
                   <p>This assignment permits one attempt.</p>
+                  {selected.lid_practice && (
+                    <p>
+                      {selected.lid_practice.title} uses original synthetic
+                      questions. The candidate selects the practice Bundesland.
+                      Official recognition and certification are unavailable.
+                    </p>
+                  )}
                 </div>
               )}
               <button

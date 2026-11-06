@@ -66,6 +66,7 @@ from app.models.knowledge import (
     KnowledgeLegalMetadata,
     KnowledgeSource,
 )
+from app.models.lid_practice import LidPracticeForm, LidPracticePoolVersion
 from app.models.memory import (
     AIRunMemoryReference,
     LongTermMemory,
@@ -179,6 +180,8 @@ __all__ = [
     "PromptVersion",
     "AuthSession",
     "Base",
+    "LidPracticeForm",
+    "LidPracticePoolVersion",
     "MembershipRole",
     "Organisation",
     "OrganisationInvitation",

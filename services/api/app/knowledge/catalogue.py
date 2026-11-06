@@ -65,6 +65,7 @@ class CatalogueEntry:
     exam_family: Optional[str] = None
     provider_code: Optional[str] = None
     edition_url: Optional[str] = None
+    retrieved_at: datetime = VERIFIED_ON
 
     def public(self) -> dict[str, Any]:
         return {
@@ -78,7 +79,7 @@ class CatalogueEntry:
             "publication_label": self.publication_label,
             "publication_date": self.publication_date,
             "effective_from": self.effective_from,
-            "verified_on": VERIFIED_ON.date().isoformat(),
+            "verified_on": self.retrieved_at.date().isoformat(),
             "assessment_family": self.family.value,
             "exam_family": self.exam_family,
             "language": self.language,
@@ -279,8 +280,10 @@ def _register(
             source_id=source.id,
             version_label=entry.version_label,
             publication_date=entry.publication_date,
-            effective_from=entry.effective_from,
-            retrieved_at=VERIFIED_ON,
+            effective_from=entry.effective_from.astimezone(timezone.utc)
+            if entry.effective_from
+            else None,
+            retrieved_at=entry.retrieved_at,
             source_url=version_url,
             notes=notes,
             content_mode="METADATA_ONLY",
@@ -298,7 +301,7 @@ def _register(
         or version.supersedes_document_version_id is not None
         or not _same_time(version.publication_date, entry.publication_date)
         or not _same_time(version.effective_from, entry.effective_from)
-        or not _same_time(version.retrieved_at, VERIFIED_ON)
+        or not _same_time(version.retrieved_at, entry.retrieved_at)
     ):
         raise ValueError("curated version identity conflicts with the existing record")
     if version.metadata_checksum != source_metadata_checksum(version):

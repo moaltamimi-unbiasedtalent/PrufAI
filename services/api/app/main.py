@@ -41,6 +41,7 @@ from app.speech_transcription.api import router as speech_transcription_router
 from app.standard_packs.api import router as standard_packs_router
 from app.standard_packs.dtz_api import institution_router as dtz_institution_router
 from app.standard_packs.dtz_api import router as dtz_standards_router
+from app.standard_packs.lid_api import router as lid_standards_router
 from app.writing_assessment.api import writing_router
 from app.writing_execution.api import router as writing_execution_router
 
@@ -84,6 +85,7 @@ app.include_router(retrieval_router)
 app.include_router(standard_packs_router)
 app.include_router(dtz_standards_router)
 app.include_router(dtz_institution_router)
+app.include_router(lid_standards_router)
 app.include_router(rules_router)
 app.include_router(ai_orchestration_router)
 app.include_router(memory_router)

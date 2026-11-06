@@ -20,6 +20,14 @@ from app.dtz_policy import (
     is_dtz_family,
     is_dtz_pack,
 )
+from app.lid_policy import (
+    LID_DRAFT_PUBLICATION_BLOCKED,
+    LID_DRAFT_SCHEMA,
+    LID_PRACTICE_SCHEMA,
+    LID_PUBLICATION_BLOCKERS,
+    is_lid_pack,
+    reserved_lid_code,
+)
 from app.models import (
     KnowledgeDocumentVersion,
     KnowledgeSource,
@@ -128,6 +136,8 @@ class StandardPackService:
     ) -> StandardPack:
         if code.strip().upper() == DTZ_PACK_CODE or is_dtz_family(exam_family):
             raise ValueError("DTZ uses its exact-source draft workflow")
+        if reserved_lid_code(code):
+            raise ValueError("LiD uses its exact-source draft workflow")
         if code.strip().upper() == B1_FOUNDATION_CODE:
             raise ValueError("the B1 foundation uses its exact-source creation workflow")
         pack = StandardPack(
@@ -161,6 +171,8 @@ class StandardPackService:
     ) -> StandardPackVersion:
         if pack.code.strip().upper() == DTZ_PACK_CODE or is_dtz_family(pack.exam_family):
             raise ValueError("DTZ uses its exact-source draft workflow")
+        if reserved_lid_code(pack.code):
+            raise ValueError("LiD uses its exact-source draft workflow")
         if pack.code == B1_FOUNDATION_CODE:
             raise ValueError("the B1 foundation uses its exact-source creation workflow")
         version = StandardPackVersion(
@@ -269,6 +281,9 @@ class StandardPackService:
         issues: list[ValidationIssue] = []
         if is_dtz_pack(version):
             for code, message in DTZ_PUBLICATION_BLOCKERS:
+                issues.append(ValidationIssue(code, "FAIL", "publication", message))
+        if is_lid_pack(version):
+            for code, message in LID_PUBLICATION_BLOCKERS:
                 issues.append(ValidationIssue(code, "FAIL", "publication", message))
         if (
             pack.code == B1_FOUNDATION_CODE
@@ -553,6 +568,8 @@ class StandardPackService:
     ) -> PackValidationResult:
         if is_dtz_pack(version):
             raise ValueError(DTZ_PUBLICATION_BLOCKED)
+        if is_lid_pack(version):
+            raise ValueError(LID_DRAFT_PUBLICATION_BLOCKED)
         if (
             version.configuration_schema_version == B1_FOUNDATION_SCHEMA
             or version.standard_pack.code == B1_FOUNDATION_CODE
@@ -611,6 +628,8 @@ class StandardPackService:
     def ensure_mutable(version: StandardPackVersion) -> None:
         if is_dtz_pack(version):
             raise ValueError("the DTZ draft is sealed to its exact evidence")
+        if version.configuration_schema_version in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA}:
+            raise ValueError("the LiD version is sealed to its exact evidence")
         if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
             raise ValueError("the B1 foundation draft is sealed to its exact source mapping")
         if version.status in {
@@ -625,12 +644,20 @@ class StandardPackService:
 
     @staticmethod
     def canonical(
-        version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None
+        version: StandardPackVersion,
+        *,
+        dtz_manifest_checksum: str | None = None,
+        lid_manifest_checksum: str | None = None,
     ) -> dict[str, Any]:
         def effective_date(value: datetime | None) -> str | None:
             if value is None:
                 return None
-            if version.configuration_schema_version in {B1_FOUNDATION_SCHEMA, DTZ_SCHEMA}:
+            if version.configuration_schema_version in {
+                B1_FOUNDATION_SCHEMA,
+                DTZ_SCHEMA,
+                LID_DRAFT_SCHEMA,
+                LID_PRACTICE_SCHEMA,
+            }:
                 value = (
                     value.replace(tzinfo=timezone.utc)
                     if value.tzinfo is None
@@ -734,24 +761,51 @@ class StandardPackService:
                 "language": version.standard_pack.language,
                 "authority_id": str(version.standard_pack.authority_id),
             }
+        if version.configuration_schema_version in {LID_DRAFT_SCHEMA, LID_PRACTICE_SCHEMA}:
+            payload["lid_identity"] = {
+                "code": version.standard_pack.code,
+                "exam_family": version.standard_pack.exam_family,
+                "assessment_family": version.standard_pack.assessment_family.value,
+                "language": version.standard_pack.language,
+                "authority_id": str(version.standard_pack.authority_id),
+            }
+        if version.configuration_schema_version == LID_DRAFT_SCHEMA:
+            lid_provenance = version.lid_provenance if lid_manifest_checksum is None else None
+            payload["lid_manifest_checksum"] = (
+                lid_provenance.manifest_checksum if lid_provenance else lid_manifest_checksum
+            )
         return payload
 
     @staticmethod
     def canonical_json(
-        version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None
+        version: StandardPackVersion,
+        *,
+        dtz_manifest_checksum: str | None = None,
+        lid_manifest_checksum: str | None = None,
     ) -> str:
         return json.dumps(
-            StandardPackService.canonical(version, dtz_manifest_checksum=dtz_manifest_checksum),
+            StandardPackService.canonical(
+                version,
+                dtz_manifest_checksum=dtz_manifest_checksum,
+                lid_manifest_checksum=lid_manifest_checksum,
+            ),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
         )
 
     @staticmethod
-    def checksum(version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None) -> str:
+    def checksum(
+        version: StandardPackVersion,
+        *,
+        dtz_manifest_checksum: str | None = None,
+        lid_manifest_checksum: str | None = None,
+    ) -> str:
         return hashlib.sha256(
             StandardPackService.canonical_json(
-                version, dtz_manifest_checksum=dtz_manifest_checksum
+                version,
+                dtz_manifest_checksum=dtz_manifest_checksum,
+                lid_manifest_checksum=lid_manifest_checksum,
             ).encode("utf-8")
         ).hexdigest()
 

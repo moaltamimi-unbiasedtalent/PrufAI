@@ -13,6 +13,7 @@ from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.authorization.membership import require_active_tenant_permission
 from app.config import get_settings
+from app.lid_policy import is_lid_pack
 from app.models import (
     AssessmentResult,
     AuditEvent,
@@ -498,6 +499,8 @@ class ResultReleaseService:
             raise ResultReleaseError("CERTIFICATION.NOT_AUTHORIZED")
         _operation(operation_id)
         pack = session.get(StandardPackVersion, standard_pack_version_id)
+        if pack is not None and is_lid_pack(pack):
+            raise ResultReleaseError("CERTIFICATION.NOT_AUTHORIZED")
         if (
             pack is None
             or provider_scope != pack.standard_pack.code
@@ -561,6 +564,7 @@ class ResultReleaseService:
             and release.classification != "OFFICIAL_CERTIFICATION"
             and auth is not None
             and pack is not None
+            and not is_lid_pack(pack)
             and auth.organisation_id == release.organisation_id
             and auth.standard_pack_version_id == release.standard_pack_version_id
             and auth.provider_scope == pack.standard_pack.code

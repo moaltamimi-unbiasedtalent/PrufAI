@@ -27,7 +27,12 @@ from app.models.enums import (
     StandardPackBindingType,
     StandardPackStatus,
 )
-from app.standard_packs.service import StandardPackService
+from app.standard_packs.foundation import (
+    b1_foundation_detail,
+    create_b1_foundation,
+    is_b1_foundation,
+)
+from app.standard_packs.service import B1_PUBLICATION_BLOCKED, StandardPackService
 
 router = APIRouter(prefix="/api/v1/platform", tags=["standard-packs"])
 
@@ -49,6 +54,11 @@ class VersionCreateRequest(BaseModel):
     supersedes_version_id: Optional[uuid.UUID] = None
     supported_levels: list[str] = Field(default_factory=list)
     notes: Optional[str] = None
+
+
+class B1FoundationRequest(BaseModel):
+    source_version_id: uuid.UUID
+    expected_metadata_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class BindingRequest(BaseModel):
@@ -176,6 +186,28 @@ def create_pack(
     return _pack(item)
 
 
+@router.post("/standard-packs/cefr-b1-foundation", status_code=status.HTTP_201_CREATED)
+def create_foundation(
+    payload: B1FoundationRequest,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, object]:
+    context = _require(principal, "standard_pack.manage")
+    if (
+        context.organisation_id is not None
+        or "standard_pack.manage" not in context.platform_permissions
+    ):
+        raise HTTPException(status_code=403, detail="platform standards authority required")
+    try:
+        item = create_b1_foundation(session, context, **payload.model_dump())
+        result = {**_version(item), **b1_foundation_detail(session, item)}
+        session.commit()
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result
+
+
 @router.get("/standard-packs/{pack_id}")
 def get_pack(
     pack_id: uuid.UUID,
@@ -246,7 +278,11 @@ def get_version(
     item = session.get(StandardPackVersion, version_id)
     if item is None:
         raise HTTPException(status_code=404, detail="standard pack version not found")
-    return _version(item)
+    return (
+        {**_version(item), **b1_foundation_detail(session, item)}
+        if is_b1_foundation(item)
+        else _version(item)
+    )
 
 
 @router.post(
@@ -319,7 +355,10 @@ def add_section(
     version = session.get(StandardPackVersion, module.standard_pack_version_id)
     if version is None:
         raise HTTPException(status_code=404, detail="standard pack version not found")
-    StandardPackService.ensure_mutable(version)
+    try:
+        StandardPackService.ensure_mutable(version)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     item = StandardPackSection(
         module_id=module.id,
         created_at=datetime.now(timezone.utc),
@@ -345,7 +384,10 @@ def add_task(
     version = session.get(StandardPackVersion, module.standard_pack_version_id) if module else None
     if version is None:
         raise HTTPException(status_code=404, detail="standard pack version not found")
-    StandardPackService.ensure_mutable(version)
+    try:
+        StandardPackService.ensure_mutable(version)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     values = payload.model_dump()
     values["metadata_json"] = values.pop("metadata")
     item = StandardPackTaskSpecification(
@@ -402,7 +444,9 @@ def _transition(
         session.commit()
     except ValueError as exc:
         session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=409 if str(exc) == B1_PUBLICATION_BLOCKED else 400, detail=str(exc)
+        ) from exc
     return {
         "version": _version(version),
         "validation": {

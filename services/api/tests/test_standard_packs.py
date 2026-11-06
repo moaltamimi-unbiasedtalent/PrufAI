@@ -13,6 +13,7 @@ from app.models import (
     KnowledgeAuthority,
     KnowledgeDocumentVersion,
     KnowledgeSource,
+    RuleVersion,
     StandardPackModule,
 )
 from app.models.enums import (
@@ -22,9 +23,12 @@ from app.models.enums import (
     KnowledgeScope,
     KnowledgeVersionStatus,
     PackValidationStatus,
+    RuleEvidenceType,
+    RuleStatus,
     StandardPackBindingType,
     StandardPackStatus,
 )
+from app.rules.service import RulesService
 from app.standard_packs import StandardPackService
 
 
@@ -121,6 +125,37 @@ def test_language_pack_lifecycle_and_published_immutability(db: Session) -> None
     with pytest.raises(ValueError, match="invalid Standard Pack transition"):
         StandardPackService.transition(db, version, StandardPackStatus.DRAFT)
     assert pack.code.startswith("SYNTHETIC_B1_")
+
+
+@pytest.mark.parametrize(
+    ("content_mode", "status"),
+    (
+        ("METADATA_ONLY", KnowledgeVersionStatus.RETIRED),
+        ("ORIGINAL_SYNTHETIC", KnowledgeVersionStatus.APPROVED),
+    ),
+)
+def test_s1_references_never_grant_normative_pack_or_rule_authority(
+    db: Session, content_mode: str, status: KnowledgeVersionStatus
+) -> None:
+    _, pack_version = _pack_with_version(db)
+    document = _approved_evidence(db)
+    document.content_mode = content_mode
+    document.metadata_checksum = "a" * 64
+    document.status = status
+    with pytest.raises(ValueError, match="not eligible as normative evidence"):
+        StandardPackService.bind_source(
+            db,
+            pack_version,
+            binding_type=StandardPackBindingType.NORMATIVE,
+            document_version_id=document.id,
+        )
+    with pytest.raises(ValueError, match="not eligible as normative evidence"):
+        RulesService.bind_evidence(
+            db,
+            RuleVersion(status=RuleStatus.DRAFT),
+            document_version_id=document.id,
+            evidence_type=RuleEvidenceType.NORMATIVE,
+        )
 
 
 def test_lid_cefr_and_official_certification_are_rejected(db: Session) -> None:

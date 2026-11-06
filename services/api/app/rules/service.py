@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.audit import AuditService
 from app.authorization import TenantContext
 from app.models import (
+    KnowledgeChunk,
+    KnowledgeDocumentPage,
     KnowledgeDocumentVersion,
     RuleDefinition,
     RuleEvidenceBinding,
@@ -21,7 +23,7 @@ from app.models import (
     StandardPackVersion,
 )
 from app.models.enums import (
-    KnowledgeVersionStatus,
+    KnowledgeScope,
     RuleCategory,
     RuleEvidenceType,
     RuleSeverity,
@@ -35,6 +37,7 @@ from app.rules.engine import (
     validate_expression,
 )
 from app.rules.facts import pack_evaluation_context
+from app.standard_packs.service import StandardPackService, normative_source_is_eligible
 
 
 @dataclass(frozen=True)
@@ -53,11 +56,6 @@ class RuleValidationResult:
     tests_passed: bool
 
 
-_ELIGIBLE_EVIDENCE = {
-    KnowledgeVersionStatus.APPROVED,
-    KnowledgeVersionStatus.SUPERSEDED,
-    KnowledgeVersionStatus.RETIRED,
-}
 _TRANSITIONS: dict[RuleStatus, set[RuleStatus]] = {
     RuleStatus.DRAFT: {
         RuleStatus.VALIDATION_REQUIRED,
@@ -154,13 +152,24 @@ class RulesService:
     ) -> RuleEvidenceBinding:
         RulesService.ensure_mutable(version)
         document = session.get(KnowledgeDocumentVersion, document_version_id)
-        if document is None:
+        if document is None or document.source.scope is not KnowledgeScope.PLATFORM_SHARED:
             raise ValueError("document version not found")
-        if (
-            evidence_type is RuleEvidenceType.NORMATIVE
-            and document.status not in _ELIGIBLE_EVIDENCE
+        if evidence_type is RuleEvidenceType.NORMATIVE and not normative_source_is_eligible(
+            document
         ):
-            raise ValueError("normative rule evidence must be approved or historically approved")
+            raise ValueError("source version is not eligible as normative evidence")
+        if page_id is not None:
+            page = session.get(KnowledgeDocumentPage, page_id)
+            if page is None or page.document_version_id != document.id:
+                raise ValueError("rule evidence page does not belong to the source version")
+        if chunk_id is not None:
+            chunk = session.get(KnowledgeChunk, chunk_id)
+            if (
+                chunk is None
+                or chunk.document_version_id != document.id
+                or (page_id is not None and chunk.document_page_id != page_id)
+            ):
+                raise ValueError("rule evidence chunk does not match the exact source reference")
         binding = RuleEvidenceBinding(
             rule_version_id=version.id,
             knowledge_document_version_id=document_version_id,
@@ -189,8 +198,7 @@ class RulesService:
         sequence: int = 0,
         context: Optional[TenantContext] = None,
     ) -> StandardPackRuleBinding:
-        if pack_version.status.value in {"PUBLISHED", "ACTIVE", "RETIRED", "SUPERSEDED"}:
-            raise ValueError("published Standard Pack versions are immutable")
+        StandardPackService.ensure_mutable(pack_version)
         if rule_version.status not in {
             RuleStatus.APPROVED,
             RuleStatus.PUBLISHED,
@@ -236,6 +244,19 @@ class RulesService:
                     "external rules require normative evidence",
                 )
             )
+        for binding in version.evidence_bindings:
+            if binding.evidence_type is not RuleEvidenceType.NORMATIVE:
+                continue
+            document = session.get(KnowledgeDocumentVersion, binding.knowledge_document_version_id)
+            if document is None or not normative_source_is_eligible(document):
+                issues.append(
+                    RuleValidationIssue(
+                        "RULE.NORMATIVE_SOURCE_NOT_ELIGIBLE",
+                        "FAIL",
+                        "evidence_bindings",
+                        "The exact source version is not eligible as normative evidence.",
+                    )
+                )
         if not version.test_cases:
             issues.append(
                 RuleValidationIssue(

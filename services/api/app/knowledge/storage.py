@@ -183,9 +183,13 @@ def safe_filename(filename: str) -> str:
     return candidate[:255]
 
 
-def build_storage_key(source_id: uuid.UUID, version_id: uuid.UUID, filename: str) -> str:
+def build_storage_key(
+    source_id: uuid.UUID, version_id: uuid.UUID, filename: str, *, sha256: str | None = None
+) -> str:
     del filename
-    return f"standards/{source_id}/{version_id}/{uuid.uuid4()}"
+    if sha256 is not None and re.fullmatch(r"[a-f0-9]{64}", sha256) is None:
+        raise StorageIntegrityError("invalid source checksum")
+    return f"standards/{source_id}/{version_id}/{sha256 or uuid.uuid4()}"
 
 
 def detect_mime_type(filename: str, declared_mime: Optional[str], content: bytes) -> str:

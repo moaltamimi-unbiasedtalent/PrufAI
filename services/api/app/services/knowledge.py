@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.auth.security import utcnow
-from app.authorization import AuthorizationService, TenantContext
+from app.authorization import AuthorizationError, TenantContext
 from app.config import get_settings
 from app.knowledge.parsers import ParserRegistry
 from app.knowledge.storage import (
+    MAX_SOURCE_FILE_SIZE,
     ObjectStorage,
+    S3CompatibleObjectStorage,
+    StorageError,
+    StorageIntegrityError,
     build_object_storage,
     build_storage_key,
     detect_mime_type,
@@ -37,7 +43,9 @@ from app.models.enums import (
     KnowledgeIngestionStatus,
     KnowledgeScope,
     KnowledgeVersionStatus,
+    LegalReviewStatus,
 )
+from app.writing_assessment.service import canonical_checksum
 
 KNOWN_AUTHORITY_CODES = {
     "COUNCIL_OF_EUROPE",
@@ -47,14 +55,32 @@ KNOWN_AUTHORITY_CODES = {
     "TELC",
     "PRUFAI",
 }
+CONTENT_MODES = {"METADATA_ONLY", "ORIGINAL_SYNTHETIC"}
+RIGHTS_DECISIONS = {"METADATA_ONLY", "ALLOW_SYNTHETIC_INGESTION", "DENY", "WITHDRAW"}
+_SHA256 = re.compile(r"[a-f0-9]{64}")
+
+
+class SourceConflict(ValueError):
+    """A stale request cannot replace a sealed source or decision."""
 
 
 def _valid_url(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
         raise ValueError("URL must use http or https")
+    if any(
+        marker in key.lower().replace("-", "_")
+        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        for marker in ("password", "secret", "token", "api_key", "signature", "x_amz_")
+    ):
+        raise ValueError("source URL must not include credentials")
     return value
 
 
@@ -62,6 +88,130 @@ def _aware(value: Optional[datetime]) -> Optional[datetime]:
     if value is None or value.tzinfo is not None:
         return value
     return value.replace(tzinfo=timezone.utc)
+
+
+def _timestamp(value: datetime | None) -> str | None:
+    instant = _aware(value)
+    return instant.astimezone(timezone.utc).isoformat() if instant else None
+
+
+def source_metadata_checksum(version: KnowledgeDocumentVersion) -> str:
+    return canonical_checksum(
+        {
+            "id": str(version.id),
+            "source_id": str(version.source_id),
+            "version_label": version.version_label,
+            "content_mode": version.content_mode,
+            "publication_date": _timestamp(version.publication_date),
+            "retrieved_at": _timestamp(version.retrieved_at),
+            "effective_from": _timestamp(version.effective_from),
+            "effective_until": _timestamp(version.effective_until),
+            "source_url": version.source_url,
+            "supersedes": str(version.supersedes_document_version_id)
+            if version.supersedes_document_version_id
+            else None,
+        }
+    )
+
+
+def source_version_reference_checksum(version: KnowledgeDocumentVersion) -> str | None:
+    return version.sha256 or version.metadata_checksum
+
+
+def _decision_checksum(version: KnowledgeDocumentVersion, legal: KnowledgeLegalMetadata) -> str:
+    return canonical_checksum(
+        {
+            "metadata_checksum": version.metadata_checksum,
+            "version_id": str(version.id),
+            "reviewer": str(legal.legal_reviewed_by_user_id),
+            "reviewed_at": _timestamp(legal.legal_reviewed_at),
+            "status": legal.legal_review_status.value,
+            **{
+                key: getattr(legal, key)
+                for key in (
+                    "copyright_status",
+                    "licence_type",
+                    "rights_holder",
+                    "usage_rights",
+                    "ingestion_allowed",
+                    "approved_sha256",
+                    "basis_reference",
+                    "retention_policy",
+                    "redistribution_allowed",
+                    "derivative_use_allowed",
+                    "ai_processing_allowed",
+                    "citation_required",
+                    "commercial_use_allowed",
+                )
+            },
+        }
+    )
+
+
+def source_legal_decision_valid(version: KnowledgeDocumentVersion) -> bool:
+    legal = version.legal_metadata
+    return bool(
+        version.metadata_checksum is not None
+        and version.metadata_checksum == source_metadata_checksum(version)
+        and legal is not None
+        and legal.legal_review_status == LegalReviewStatus.APPROVED
+        and legal.legal_reviewed_by_user_id is not None
+        and legal.legal_reviewed_by_user_id != version.created_by_user_id
+        and legal.legal_reviewed_at is not None
+        and legal.decision_checksum is not None
+        and legal.decision_checksum == _decision_checksum(version, legal)
+    )
+
+
+def _source_available(version: KnowledgeDocumentVersion) -> bool:
+    return (
+        version.source.scope == KnowledgeScope.PLATFORM_SHARED
+        and version.source.status == "ACTIVE"
+        and version.source.authority.status == "ACTIVE"
+        and version.status != KnowledgeVersionStatus.RETIRED
+    )
+
+
+def _ingestion_rights(version: KnowledgeDocumentVersion) -> KnowledgeLegalMetadata | None:
+    legal = version.legal_metadata
+    if (
+        legal is None
+        or version.content_mode != "ORIGINAL_SYNTHETIC"
+        or version.source.authority.authority_type != KnowledgeAuthorityType.INTERNAL
+        or not _source_available(version)
+        or not source_legal_decision_valid(version)
+        or legal.ingestion_allowed is not True
+        or _SHA256.fullmatch(legal.approved_sha256 or "") is None
+    ):
+        return None
+    return legal
+
+
+def content_rights_permit(version: KnowledgeDocumentVersion) -> bool:
+    legal = _ingestion_rights(version)
+    return bool(
+        legal is not None
+        and version.storage_key
+        and version.file_size is not None
+        and 0 < version.file_size <= MAX_SOURCE_FILE_SIZE
+        and version.sha256 == legal.approved_sha256
+    )
+
+
+def _platform(context: TenantContext, permission: str) -> None:
+    if context.organisation_id is not None or permission not in context.platform_permissions:
+        raise AuthorizationError("platform standards authority required")
+
+
+def _version(
+    session: Session, version_id: uuid.UUID, *, lock: bool = False
+) -> KnowledgeDocumentVersion:
+    row = session.get(
+        KnowledgeDocumentVersion, version_id, with_for_update=lock, populate_existing=lock
+    )
+    if row is None or row.source.scope != KnowledgeScope.PLATFORM_SHARED:
+        raise SourceConflict("SOURCE_VERSION_UNAVAILABLE")
+    return row
 
 
 class KnowledgeLifecycleService:
@@ -106,8 +256,14 @@ class KnowledgeRegistryService:
         storage: Optional[ObjectStorage] = None,
         parsers: Optional[ParserRegistry] = None,
     ) -> None:
-        self.storage = storage or build_object_storage(get_settings())
+        self._storage = storage
         self.parsers = parsers or ParserRegistry()
+
+    @property
+    def storage(self) -> ObjectStorage:
+        if self._storage is None:
+            self._storage = build_object_storage(get_settings())
+        return self._storage
 
     def create_authority(
         self,
@@ -119,8 +275,9 @@ class KnowledgeRegistryService:
         authority_type: KnowledgeAuthorityType,
         jurisdiction: Optional[str] = None,
         website_url: Optional[str] = None,
+        commit: bool = True,
     ) -> KnowledgeAuthority:
-        AuthorizationService.require_permission(context, "standards.authority.manage")
+        _platform(context, "standards.authority.manage")
         code = code.strip().upper()
         if not code or len(code) > 80:
             raise ValueError("authority code is required")
@@ -143,7 +300,8 @@ class KnowledgeRegistryService:
             actor_id=context.user_id,
             metadata={"code": code},
         )
-        session.commit()
+        if commit:
+            session.commit()
         return authority
 
     def create_source(
@@ -164,13 +322,17 @@ class KnowledgeRegistryService:
         skill: Optional[str] = None,
         canonical_url: Optional[str] = None,
         notes: Optional[str] = None,
+        commit: bool = True,
     ) -> KnowledgeSource:
-        AuthorizationService.require_permission(context, "standards.source.manage")
+        _platform(context, "standards.source.manage")
         if scope is not KnowledgeScope.PLATFORM_SHARED:
             raise ValueError("tenant-private standards sources are not enabled in this phase")
         authority = session.get(KnowledgeAuthority, authority_id)
         if authority is None:
             raise ValueError("authority does not exist")
+        source_code = source_code.strip().upper()
+        if not source_code or not title.strip():
+            raise ValueError("source code and title are required")
         if session.scalar(
             select(KnowledgeSource).where(KnowledgeSource.source_code == source_code)
         ):
@@ -182,7 +344,7 @@ class KnowledgeRegistryService:
                 raise ValueError("unsupported CEFR level")
         source = KnowledgeSource(
             authority_id=authority_id,
-            source_code=source_code.strip().upper(),
+            source_code=source_code,
             title=title.strip(),
             document_type=document_type,
             scope=scope,
@@ -209,7 +371,8 @@ class KnowledgeRegistryService:
                 "assessment_family": assessment_family.value,
             },
         )
-        session.commit()
+        if commit:
+            session.commit()
         return source
 
     def create_version(
@@ -225,18 +388,49 @@ class KnowledgeRegistryService:
         source_url: Optional[str] = None,
         supersedes_document_version_id: Optional[uuid.UUID] = None,
         notes: Optional[str] = None,
+        content_mode: str = "METADATA_ONLY",
+        retrieved_at: Optional[datetime] = None,
+        rights_holder: Optional[str] = None,
+        licence_type: Optional[str] = None,
+        commit: bool = True,
     ) -> KnowledgeDocumentVersion:
-        AuthorizationService.require_permission(context, "standards.document.manage")
-        if session.get(KnowledgeSource, source_id) is None:
+        _platform(context, "standards.document.manage")
+        source = session.get(KnowledgeSource, source_id)
+        if source is None or source.scope != KnowledgeScope.PLATFORM_SHARED:
             raise ValueError("source does not exist")
+        if content_mode not in CONTENT_MODES or (
+            content_mode == "ORIGINAL_SYNTHETIC"
+            and source.authority.authority_type != KnowledgeAuthorityType.INTERNAL
+        ):
+            raise ValueError("SOURCE_CONTENT_MODE_UNAVAILABLE")
+        version_label = version_label.strip()
+        if not version_label:
+            raise ValueError("source version label is required")
+        if (
+            session.scalar(
+                select(KnowledgeDocumentVersion.id).where(
+                    KnowledgeDocumentVersion.source_id == source_id,
+                    KnowledgeDocumentVersion.version_label == version_label,
+                )
+            )
+            is not None
+        ):
+            raise SourceConflict("SOURCE_VERSION_ALREADY_REGISTERED")
+        if supersedes_document_version_id is not None:
+            previous = _version(session, supersedes_document_version_id)
+            if previous.source_id != source_id:
+                raise SourceConflict("SOURCE_PREDECESSOR_MISMATCH")
         effective_from = _aware(effective_from)
         effective_until = _aware(effective_until)
         if effective_from and effective_until and effective_until <= effective_from:
             raise ValueError("effective_until must be after effective_from")
         version = KnowledgeDocumentVersion(
+            id=uuid.uuid4(),
             source_id=source_id,
-            version_label=version_label.strip(),
+            version_label=version_label,
+            content_mode=content_mode,
             publication_date=_aware(publication_date),
+            retrieved_at=_aware(retrieved_at),
             effective_from=effective_from,
             effective_until=effective_until,
             status=KnowledgeVersionStatus.DRAFT,
@@ -246,14 +440,16 @@ class KnowledgeRegistryService:
             created_at=utcnow(),
             created_by_user_id=context.user_id,
         )
+        version.metadata_checksum = source_metadata_checksum(version)
         session.add(version)
         session.flush()
-        session.add(KnowledgeLegalMetadata(document_version_id=version.id))
-        if (
-            supersedes_document_version_id
-            and session.get(KnowledgeDocumentVersion, supersedes_document_version_id) is None
-        ):
-            raise ValueError("superseded version does not exist")
+        session.add(
+            KnowledgeLegalMetadata(
+                document_version_id=version.id,
+                rights_holder=rights_holder,
+                licence_type=licence_type,
+            )
+        )
         AuditService.record_security(
             session,
             event_type="standards.document_version.created",
@@ -262,7 +458,168 @@ class KnowledgeRegistryService:
             actor_id=context.user_id,
             metadata={"source_id": str(source_id), "version_label": version.version_label},
         )
+        if commit:
+            session.commit()
+        return version
+
+    def review_rights(
+        self,
+        session: Session,
+        context: TenantContext,
+        *,
+        version_id: uuid.UUID,
+        expected_metadata_checksum: str,
+        decision: str,
+        basis_reference: str,
+        rights_holder: str,
+        licence_type: str,
+        retention_policy: str,
+        expected_sha256: str | None = None,
+    ) -> KnowledgeLegalMetadata:
+        self._review_context(context)
+        version = _version(session, version_id, lock=True)
+        legal = version.legal_metadata
+        if (
+            legal is None
+            or version.metadata_checksum != expected_metadata_checksum
+            or source_metadata_checksum(version) != expected_metadata_checksum
+        ):
+            raise SourceConflict("SOURCE_METADATA_CHECKSUM_MISMATCH")
+        if context.user_id == version.created_by_user_id:
+            raise AuthorizationError("SOURCE_INDEPENDENT_RIGHTS_REVIEW_REQUIRED")
+        values = {
+            "basis_reference": basis_reference.strip(),
+            "rights_holder": rights_holder.strip(),
+            "licence_type": licence_type.strip(),
+            "retention_policy": retention_policy.strip(),
+        }
+        if decision not in RIGHTS_DECISIONS or any(
+            not value or len(value) > bound
+            for value, bound in zip(values.values(), (240, 300, 120, 240), strict=True)
+        ):
+            raise ValueError("SOURCE_RIGHTS_DECISION_INVALID")
+        if decision == "WITHDRAW":
+            if expected_sha256 is not None:
+                raise ValueError("SOURCE_WITHDRAWAL_USES_METADATA_PIN")
+            if not source_legal_decision_valid(version):
+                raise SourceConflict("SOURCE_RIGHTS_APPROVAL_REQUIRED")
+            if version.status != KnowledgeVersionStatus.RETIRED:
+                version.status = KnowledgeVersionStatus.RETIRED
+                AuditService.record_security(
+                    session,
+                    event_type="standards.source_rights.withdrawn",
+                    entity_type="knowledge_document_version",
+                    entity_id=str(version.id),
+                    actor_id=context.user_id,
+                    metadata={
+                        "metadata_checksum": version.metadata_checksum,
+                        "prior_decision_checksum": legal.decision_checksum,
+                        "withdrawal_basis_checksum": canonical_checksum(values),
+                    },
+                )
+                session.commit()
+            return legal
+        if not _source_available(version):
+            raise SourceConflict("SOURCE_VERSION_UNAVAILABLE")
+        allow = decision == "ALLOW_SYNTHETIC_INGESTION"
+        if (
+            (
+                allow
+                and (
+                    version.content_mode != "ORIGINAL_SYNTHETIC"
+                    or version.source.authority.authority_type != KnowledgeAuthorityType.INTERNAL
+                    or _SHA256.fullmatch(expected_sha256 or "") is None
+                )
+            )
+            or (not allow and expected_sha256 is not None)
+            or (decision == "METADATA_ONLY" and version.content_mode != "METADATA_ONLY")
+        ):
+            raise ValueError("SOURCE_RIGHTS_CONTENT_MODE_MISMATCH")
+        review_status = (
+            LegalReviewStatus.REJECTED if decision == "DENY" else LegalReviewStatus.APPROVED
+        )
+        if legal.decision_checksum is not None:
+            if (
+                legal.legal_reviewed_by_user_id == context.user_id
+                and legal.legal_review_status == review_status
+                and legal.ingestion_allowed is allow
+                and legal.approved_sha256 == expected_sha256
+                and all(getattr(legal, key) == value for key, value in values.items())
+                and legal.decision_checksum == _decision_checksum(version, legal)
+            ):
+                return legal
+            raise SourceConflict("SOURCE_RIGHTS_DECISION_IMMUTABLE")
+        if version.status != KnowledgeVersionStatus.DRAFT or version.storage_key is not None:
+            raise SourceConflict("SOURCE_RIGHTS_DRAFT_REQUIRED")
+        legal.basis_reference = values["basis_reference"]
+        legal.rights_holder = values["rights_holder"]
+        legal.licence_type = values["licence_type"]
+        legal.retention_policy = values["retention_policy"]
+        legal.copyright_status = "PRUFAI_ORIGINAL" if allow else "UNKNOWN"
+        legal.usage_rights = {
+            "ALLOW_SYNTHETIC_INGESTION": "ORIGINAL_SYNTHETIC_INTERNAL_TEST_ONLY",
+            "METADATA_ONLY": "BIBLIOGRAPHIC_REFERENCE_ONLY",
+            "DENY": "CONTENT_USE_DENIED",
+        }[decision]
+        legal.ingestion_allowed = allow
+        legal.approved_sha256 = expected_sha256
+        legal.derivative_use_allowed = allow
+        legal.ai_processing_allowed = allow
+        legal.redistribution_allowed = False
+        legal.commercial_use_allowed = False
+        legal.citation_required = True
+        legal.legal_review_status = review_status
+        legal.legal_reviewed_by_user_id = context.user_id
+        legal.legal_reviewed_at = utcnow()
+        legal.decision_checksum = _decision_checksum(version, legal)
+        AuditService.record_security(
+            session,
+            event_type="standards.source_rights.reviewed",
+            entity_type="knowledge_document_version",
+            entity_id=str(version.id),
+            actor_id=context.user_id,
+            metadata={
+                "decision": decision,
+                "decision_checksum": legal.decision_checksum,
+                "metadata_checksum": version.metadata_checksum,
+                "approved_sha256": expected_sha256,
+            },
+        )
         session.commit()
+        return legal
+
+    def _verified_file(self, version: KnowledgeDocumentVersion) -> bytes:
+        if not content_rights_permit(version):
+            raise SourceConflict("SOURCE_CONTENT_RIGHTS_REQUIRED")
+        assert version.storage_key is not None and version.file_size is not None
+        storage = self.storage
+        bucket = storage.bucket if isinstance(storage, S3CompatibleObjectStorage) else None
+        if bucket != version.storage_bucket:
+            raise StorageIntegrityError("SOURCE_STORAGE_IDENTITY_MISMATCH")
+        if isinstance(storage, S3CompatibleObjectStorage):
+            content = storage.get_bounded(
+                version.storage_key, max_bytes=MAX_SOURCE_FILE_SIZE, expected_size=version.file_size
+            )
+        else:
+            if (
+                not 0 < version.file_size <= MAX_SOURCE_FILE_SIZE
+                or storage.size(version.storage_key) != version.file_size
+            ):
+                raise StorageIntegrityError("SOURCE_SIZE_MISMATCH")
+            content = storage.get(version.storage_key)
+        if (
+            len(content) != version.file_size
+            or hashlib.sha256(content).hexdigest() != version.sha256
+        ):
+            raise StorageIntegrityError("SOURCE_CHECKSUM_MISMATCH")
+        return content
+
+    def verify_file(
+        self, session: Session, context: TenantContext, *, version_id: uuid.UUID
+    ) -> KnowledgeDocumentVersion:
+        _platform(context, "standards.document.read")
+        version = _version(session, version_id, lock=True)
+        self._verified_file(version)
         return version
 
     def register_file(
@@ -275,32 +632,39 @@ class KnowledgeRegistryService:
         content: bytes,
         declared_mime_type: Optional[str] = None,
     ) -> KnowledgeDocumentVersion:
-        AuthorizationService.require_permission(context, "standards.document.manage")
-        version = session.get(KnowledgeDocumentVersion, version_id)
-        if version is None:
-            raise ValueError("document version does not exist")
-        if version.status is KnowledgeVersionStatus.APPROVED:
-            raise ValueError("approved document versions are immutable")
-        if version.status not in {KnowledgeVersionStatus.DRAFT, KnowledgeVersionStatus.REJECTED}:
-            raise ValueError("only draft or rejected document versions can receive files")
+        _platform(context, "standards.document.manage")
+        version = _version(session, version_id, lock=True)
+        legal = _ingestion_rights(version)
+        if legal is None:
+            raise SourceConflict("SOURCE_CONTENT_RIGHTS_REQUIRED")
         mime_type = detect_mime_type(filename, declared_mime_type, content)
+        normalized_filename = safe_filename(filename)
         checksum = hashlib.sha256(content).hexdigest()
-        duplicate = session.scalar(
-            select(KnowledgeDocumentVersion).where(
-                KnowledgeDocumentVersion.source_id == version.source_id,
-                KnowledgeDocumentVersion.sha256 == checksum,
-                KnowledgeDocumentVersion.id != version.id,
-            )
-        )
-        if duplicate is not None:
-            raise ValueError("identical file is already registered for this source")
-        storage_key = build_storage_key(version.source_id, version.id, filename)
-        self.storage.put(storage_key, content, mime_type)
-        version.original_filename = safe_filename(filename)
+        if version.storage_key is not None:
+            if (version.sha256, version.original_filename, version.mime_type) != (
+                checksum,
+                normalized_filename,
+                mime_type,
+            ):
+                raise SourceConflict("SOURCE_OBJECT_IDENTITY_IMMUTABLE")
+            self._verified_file(version)
+            return version
+        if version.status != KnowledgeVersionStatus.DRAFT:
+            raise SourceConflict("SOURCE_DRAFT_REQUIRED")
+        if checksum != legal.approved_sha256:
+            raise SourceConflict("SOURCE_CHECKSUM_MISMATCH")
+        storage = self.storage
+        storage_key = build_storage_key(version.source_id, version.id, filename, sha256=checksum)
+        storage.put(storage_key, content, mime_type)
+        version.original_filename = normalized_filename
         version.mime_type = mime_type
         version.storage_key = storage_key
+        version.storage_bucket = (
+            storage.bucket if isinstance(storage, S3CompatibleObjectStorage) else None
+        )
         version.file_size = len(content)
         version.sha256 = checksum
+        self._verified_file(version)
         AuditService.record_security(
             session,
             event_type="standards.document.upload_registered",
@@ -313,29 +677,31 @@ class KnowledgeRegistryService:
         return version
 
     def ingest(
-        self,
-        session: Session,
-        context: TenantContext,
-        *,
-        version_id: uuid.UUID,
+        self, session: Session, context: TenantContext, *, version_id: uuid.UUID
     ) -> KnowledgeIngestionJob:
-        AuthorizationService.require_permission(context, "standards.document.manage")
-        version = session.get(KnowledgeDocumentVersion, version_id)
-        if version is None or not version.storage_key or not version.mime_type:
-            raise ValueError("document version has no registered file")
-        if version.status is KnowledgeVersionStatus.APPROVED:
-            raise ValueError("approved document versions are immutable")
+        _platform(context, "standards.document.manage")
+        version = _version(session, version_id, lock=True)
+        if not content_rights_permit(version):
+            raise SourceConflict("SOURCE_CONTENT_RIGHTS_REQUIRED")
         existing_success = session.scalar(
-            select(KnowledgeIngestionJob).where(
+            select(KnowledgeIngestionJob)
+            .where(
                 KnowledgeIngestionJob.document_version_id == version.id,
                 KnowledgeIngestionJob.status == KnowledgeIngestionStatus.SUCCEEDED,
             )
+            .order_by(KnowledgeIngestionJob.created_at.desc())
+            .limit(1)
         )
-        if (
-            existing_success is not None
-            and version.status is KnowledgeVersionStatus.REVIEW_REQUIRED
-        ):
+        if existing_success is not None:
+            self._verified_file(version)
             return existing_success
+        if (
+            version.status not in {KnowledgeVersionStatus.DRAFT, KnowledgeVersionStatus.REJECTED}
+            or version.rejection_reason
+        ):
+            raise SourceConflict("SOURCE_INGESTION_STATE_CONFLICT")
+        if version.pages:
+            raise SourceConflict("SOURCE_PAGE_HISTORY_ALREADY_PRESENT")
         job = KnowledgeIngestionJob(
             document_version_id=version.id,
             status=KnowledgeIngestionStatus.RUNNING,
@@ -345,8 +711,6 @@ class KnowledgeRegistryService:
         )
         session.add(job)
         session.flush()
-        job_id = job.id
-        version_id = version.id
         version.status = KnowledgeVersionStatus.INGESTING
         AuditService.record_security(
             session,
@@ -354,103 +718,119 @@ class KnowledgeRegistryService:
             entity_type="knowledge_ingestion_job",
             entity_id=str(job.id),
             actor_id=context.user_id,
-            metadata={"document_version_id": str(version.id)},
+            metadata={"document_version_id": str(version.id), "sha256": version.sha256},
         )
-        session.commit()
         try:
+            assert version.mime_type is not None
             parser = self.parsers.for_mime(version.mime_type)
-            content = self.storage.get(version.storage_key)
-            parsed_pages = parser.parse(content)
-            session.execute(
-                delete(KnowledgeDocumentPage).where(
-                    KnowledgeDocumentPage.document_version_id == version.id
-                )
-            )
-            for parsed in parsed_pages:
-                session.add(
-                    KnowledgeDocumentPage(
-                        document_version_id=version.id,
-                        ingestion_job_id=job.id,
-                        page_number=parsed.page_number,
-                        text_content=parsed.text_content,
-                        normalized_text=parsed.normalized_text,
-                        content_hash=parsed.content_hash,
-                        character_count=parsed.character_count,
-                        extraction_status=ExtractionStatus(parsed.extraction_status),
-                        heading=parsed.heading,
-                        parser_name=parser.name,
-                        parser_version=parser.version,
-                        created_at=utcnow(),
+            job.parser_name, job.parser_version = parser.name, parser.version
+            with session.begin_nested():
+                parsed_pages = parser.parse(self._verified_file(version))
+                if not any(page.extraction_status == "EXTRACTED" for page in parsed_pages):
+                    raise ValueError("SOURCE_HAS_NO_EXTRACTED_TEXT")
+                for parsed in parsed_pages:
+                    session.add(
+                        KnowledgeDocumentPage(
+                            document_version_id=version.id,
+                            ingestion_job_id=job.id,
+                            page_number=parsed.page_number,
+                            text_content=parsed.text_content,
+                            normalized_text=parsed.normalized_text,
+                            content_hash=parsed.content_hash,
+                            character_count=parsed.character_count,
+                            extraction_status=ExtractionStatus(parsed.extraction_status),
+                            heading=parsed.heading,
+                            parser_name=parser.name,
+                            parser_version=parser.version,
+                            created_at=utcnow(),
+                        )
                     )
-                )
+                session.flush()
             job.status = KnowledgeIngestionStatus.SUCCEEDED
-            job.finished_at = utcnow()
-            job.parser_name = parser.name
-            job.parser_version = parser.version
-            job.pages_detected = len(parsed_pages)
-            version.page_count = len(parsed_pages)
+            job.pages_detected = version.page_count = len(parsed_pages)
             version.status = KnowledgeVersionStatus.REVIEW_REQUIRED
-            AuditService.record_security(
-                session,
-                event_type="standards.ingestion.succeeded",
-                entity_type="knowledge_ingestion_job",
-                entity_id=str(job.id),
-                actor_id=context.user_id,
-                metadata={"pages_detected": len(parsed_pages), "parser": parser.name},
-            )
-            session.commit()
+            event_type = "standards.ingestion.succeeded"
+            audit_metadata = {"pages_detected": len(parsed_pages), "parser": parser.name}
+        except SQLAlchemyError:
+            raise
         except Exception as exc:
-            session.rollback()
-            failed_job = session.get(KnowledgeIngestionJob, job_id)
-            version = session.get(KnowledgeDocumentVersion, version_id)
-            if failed_job is None or version is None:
-                raise
-            job = failed_job
             job.status = KnowledgeIngestionStatus.FAILED
-            job.finished_at = utcnow()
-            job.error_code = type(exc).__name__[:80]
+            job.error_code = (
+                "SOURCE_OBJECT_INTEGRITY_FAILED"
+                if isinstance(exc, StorageIntegrityError)
+                else "SOURCE_STORAGE_UNAVAILABLE"
+                if isinstance(exc, StorageError)
+                else "SOURCE_EXTRACTION_FAILED"
+            )
             job.error_message_safe = "document extraction failed"
             version.status = KnowledgeVersionStatus.REJECTED
-            AuditService.record_security(
-                session,
-                event_type="standards.ingestion.failed",
-                entity_type="knowledge_ingestion_job",
-                entity_id=str(job.id),
-                actor_id=context.user_id,
-                metadata={"error_code": job.error_code},
-            )
-            session.commit()
+            event_type = "standards.ingestion.failed"
+            audit_metadata = {"error_code": job.error_code}
+        job.finished_at = utcnow()
+        AuditService.record_security(
+            session,
+            event_type=event_type,
+            entity_type="knowledge_ingestion_job",
+            entity_id=str(job.id),
+            actor_id=context.user_id,
+            metadata=audit_metadata,
+        )
+        session.commit()
         return job
 
     def _review_context(self, context: TenantContext) -> None:
-        AuthorizationService.require_permission(context, "standards.document.review")
+        _platform(context, "standards.document.review")
 
     def approve(
-        self, session: Session, context: TenantContext, *, version_id: uuid.UUID
+        self,
+        session: Session,
+        context: TenantContext,
+        *,
+        version_id: uuid.UUID,
+        expected_sha256: str,
     ) -> KnowledgeDocumentVersion:
         self._review_context(context)
-        version = session.get(KnowledgeDocumentVersion, version_id)
-        if version is None:
-            raise ValueError("document version does not exist")
-        if version.status not in {
-            KnowledgeVersionStatus.INGESTED,
-            KnowledgeVersionStatus.REVIEW_REQUIRED,
-        }:
+        version = _version(session, version_id, lock=True)
+        if context.user_id == version.created_by_user_id:
+            raise AuthorizationError("SOURCE_INDEPENDENT_CONTENT_REVIEW_REQUIRED")
+        if expected_sha256 != version.sha256 or not content_rights_permit(version):
+            raise SourceConflict("SOURCE_CONTENT_CHECKSUM_OR_RIGHTS_MISMATCH")
+        if (
+            version.status == KnowledgeVersionStatus.APPROVED
+            and version.approved_by_user_id == context.user_id
+        ):
+            return version
+        completed = [
+            job
+            for job in version.ingestion_jobs
+            if job.status == KnowledgeIngestionStatus.SUCCEEDED
+        ]
+        if version.status != KnowledgeVersionStatus.REVIEW_REQUIRED or len(completed) != 1:
             raise ValueError("only successfully ingested versions can be approved")
-        if not version.pages:
-            raise ValueError("document version has no extracted pages")
+        job = completed[0]
+        if (
+            not version.pages
+            or len(version.pages) != version.page_count
+            or len(version.pages) != job.pages_detected
+            or any(
+                page.ingestion_job_id != job.id
+                or page.parser_name != job.parser_name
+                or page.parser_version != job.parser_version
+                for page in version.pages
+            )
+        ):
+            raise SourceConflict("SOURCE_INGESTION_EVIDENCE_MISMATCH")
+        self._verified_file(version)
         version.status = KnowledgeVersionStatus.APPROVED
-        version.reviewed_at = utcnow()
-        version.reviewed_by_user_id = context.user_id
-        version.approved_at = utcnow()
-        version.approved_by_user_id = context.user_id
+        version.reviewed_at = version.approved_at = utcnow()
+        version.reviewed_by_user_id = version.approved_by_user_id = context.user_id
         AuditService.record_security(
             session,
             event_type="standards.document.approved",
             entity_type="knowledge_document_version",
             entity_id=str(version.id),
             actor_id=context.user_id,
-            metadata={"source_id": str(version.source_id)},
+            metadata={"source_id": str(version.source_id), "sha256": expected_sha256},
         )
         session.commit()
         return version
@@ -459,11 +839,17 @@ class KnowledgeRegistryService:
         self, session: Session, context: TenantContext, *, version_id: uuid.UUID, reason: str
     ) -> KnowledgeDocumentVersion:
         self._review_context(context)
-        version = session.get(KnowledgeDocumentVersion, version_id)
-        if version is None:
-            raise ValueError("document version does not exist")
-        if version.status in {KnowledgeVersionStatus.APPROVED, KnowledgeVersionStatus.SUPERSEDED}:
+        version = _version(session, version_id, lock=True)
+        if context.user_id == version.created_by_user_id:
+            raise AuthorizationError("SOURCE_INDEPENDENT_CONTENT_REVIEW_REQUIRED")
+        if version.status in {
+            KnowledgeVersionStatus.APPROVED,
+            KnowledgeVersionStatus.SUPERSEDED,
+            KnowledgeVersionStatus.RETIRED,
+        }:
             raise ValueError("approved versions require a new revision")
+        if not reason.strip():
+            raise ValueError("SOURCE_REJECTION_REASON_REQUIRED")
         version.status = KnowledgeVersionStatus.REJECTED
         version.reviewed_at = utcnow()
         version.reviewed_by_user_id = context.user_id
@@ -488,17 +874,20 @@ class KnowledgeRegistryService:
         new_version_id: uuid.UUID,
     ) -> None:
         self._review_context(context)
-        old = session.get(KnowledgeDocumentVersion, old_version_id)
-        new = session.get(KnowledgeDocumentVersion, new_version_id)
-        if old is None or new is None or old.source_id != new.source_id:
-            raise ValueError("versions must exist and belong to the same source")
+        first, second = sorted((old_version_id, new_version_id))
+        versions = {
+            identifier: _version(session, identifier, lock=True) for identifier in (first, second)
+        }
+        old, new = versions[old_version_id], versions[new_version_id]
         if (
-            old.status is not KnowledgeVersionStatus.APPROVED
+            old.id == new.id
+            or old.source_id != new.source_id
+            or new.supersedes_document_version_id != old.id
+            or old.status is not KnowledgeVersionStatus.APPROVED
             or new.status is not KnowledgeVersionStatus.APPROVED
         ):
             raise ValueError("only approved versions can be superseded")
         old.status = KnowledgeVersionStatus.SUPERSEDED
-        new.supersedes_document_version_id = old.id
         AuditService.record_security(
             session,
             event_type="standards.document.superseded",
@@ -517,17 +906,16 @@ class KnowledgeRegistryService:
         version_id: uuid.UUID,
         **fields: object,
     ) -> KnowledgeLegalMetadata:
-        AuthorizationService.require_permission(context, "standards.document.manage")
-        version = session.get(KnowledgeDocumentVersion, version_id)
-        if version is None or version.status in {
-            KnowledgeVersionStatus.APPROVED,
-            KnowledgeVersionStatus.SUPERSEDED,
-        }:
+        _platform(context, "standards.document.manage")
+        version = _version(session, version_id, lock=True)
+        if version.status != KnowledgeVersionStatus.DRAFT:
             raise ValueError("approved document legal metadata is immutable")
         legal = version.legal_metadata or KnowledgeLegalMetadata(document_version_id=version.id)
+        if legal.decision_checksum is not None:
+            raise SourceConflict("SOURCE_RIGHTS_DECISION_IMMUTABLE")
         for key, value in fields.items():
-            if not hasattr(legal, key):
-                raise ValueError(f"unsupported legal metadata field: {key}")
+            if key not in {"rights_holder", "licence_type", "legal_notes"}:
+                raise ValueError("SOURCE_RIGHTS_REVIEW_REQUIRED")
             setattr(legal, key, value)
         session.add(legal)
         session.flush()
@@ -591,8 +979,13 @@ class KnowledgeRegistryService:
         effective = [
             version
             for version in candidates
-            if (version.effective_from is None or version.effective_from <= point)
-            and (version.effective_until is None or version.effective_until > point)
+            if (
+                version.effective_from is None or (_aware(version.effective_from) or point) <= point
+            )
+            and (
+                version.effective_until is None
+                or (_aware(version.effective_until) or point) > point
+            )
         ]
         superseded_ids = {
             version.supersedes_document_version_id

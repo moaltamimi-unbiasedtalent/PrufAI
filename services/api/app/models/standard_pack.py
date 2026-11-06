@@ -143,6 +143,7 @@ class StandardPackSourceBinding(UUIDPrimaryKeyMixin, Base):
         ForeignKey("knowledge_document_versions.id", ondelete="RESTRICT")
     )
     document_checksum: Mapped[Optional[str]] = mapped_column(String(64))
+    source_metadata_checksum: Mapped[Optional[str]] = mapped_column(String(64))
     binding_type: Mapped[StandardPackBindingType] = mapped_column(
         enum_type(StandardPackBindingType), nullable=False
     )

@@ -99,6 +99,7 @@ export const metadataSections: Record<string, Section> = {
           ["document_version_id", "Document version"],
           ["binding_type", "Binding type"],
           ["required", "Required"],
+          ["source_metadata_checksum", "Source metadata checksum"],
           ["document_checksum", "Document checksum"],
         ],
       },
@@ -107,7 +108,7 @@ export const metadataSections: Record<string, Section> = {
   "source-registry": {
     title: "Source Registry",
     description:
-      "Source provenance and rights metadata only. Copyrighted source text, downloads and ingestion controls are not exposed here.",
+      "Inspect exact source provenance and rights. Official sources are registered as metadata. Only separately permitted original synthetic files can use the private ingestion workflow.",
     views: {
       sources: {
         label: "Sources",
@@ -131,6 +132,8 @@ export const metadataSections: Record<string, Section> = {
           ["source_title", "Source"],
           ["id", "Document version"],
           ["version_label", "Version"],
+          ["content_mode", "Content mode"],
+          ["metadata_checksum", "Metadata checksum"],
           ["status", "Status"],
           ["copyright_status", "Copyright status"],
           ["licence_type", "Licence"],
@@ -396,7 +399,15 @@ export const metadataSections: Record<string, Section> = {
   },
 };
 
-export function MetadataBrowser({ section }: { section: string }) {
+export function MetadataBrowser({
+  section,
+  workbench,
+  onInspect,
+}: {
+  section: string;
+  workbench?: React.ReactNode;
+  onInspect?: (id: string) => void;
+}) {
   const config = metadataSections[section];
   const { user } = useAuth();
   const { overview } = usePlatformOverview();
@@ -468,9 +479,12 @@ export function MetadataBrowser({ section }: { section: string }) {
   }
   return (
     <>
-      <p className={css.eyebrow}>Read-only platform governance</p>
+      <p className={css.eyebrow}>
+        {workbench ? "Platform governance" : "Read-only platform governance"}
+      </p>
       <h1>{config.title}</h1>
       <p className={css.intro}>{config.description}</p>
+      {workbench}
       {Object.keys(config.views).length > 1 && (
         <label className={css.filters}>
           Metadata view{" "}
@@ -547,6 +561,13 @@ export function MetadataBrowser({ section }: { section: string }) {
               columns={view.columns}
               rows={page.items}
               organisationLinks={section === "organisations"}
+              onInspect={
+                (section === "source-registry" &&
+                  selectedKind === "documents") ||
+                (section === "standards" && selectedKind === "versions")
+                  ? onInspect
+                  : undefined
+              }
             />
           )}
           <Pagination page={page} setOffset={setOffset} />
@@ -617,11 +638,13 @@ export function MetadataTable({
   columns,
   rows,
   organisationLinks = false,
+  onInspect,
 }: {
   caption: string;
   columns: readonly Column[];
   rows: MetadataRow[];
   organisationLinks?: boolean;
+  onInspect?: (id: string) => void;
 }) {
   const { user } = useAuth();
   return (
@@ -640,6 +663,7 @@ export function MetadataTable({
                 {label}
               </th>
             ))}
+            {onInspect && <th scope="col">Inspect</th>}
           </tr>
         </thead>
         <tbody>
@@ -674,6 +698,19 @@ export function MetadataTable({
                   )}
                 </td>
               ))}
+              {onInspect && (
+                <td>
+                  {typeof row.id === "string" && (
+                    <button
+                      type="button"
+                      className={css.secondary}
+                      onClick={() => onInspect(String(row.id))}
+                    >
+                      Inspect version {row.id}
+                    </button>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

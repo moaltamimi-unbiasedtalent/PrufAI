@@ -12,6 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import TenantContext
+from app.dtz_policy import (
+    DTZ_PACK_CODE,
+    DTZ_PUBLICATION_BLOCKED,
+    DTZ_PUBLICATION_BLOCKERS,
+    DTZ_SCHEMA,
+    is_dtz_family,
+    is_dtz_pack,
+)
 from app.models import (
     KnowledgeDocumentVersion,
     KnowledgeSource,
@@ -118,6 +126,8 @@ class StandardPackService:
         description: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> StandardPack:
+        if code.strip().upper() == DTZ_PACK_CODE or is_dtz_family(exam_family):
+            raise ValueError("DTZ uses its exact-source draft workflow")
         if code.strip().upper() == B1_FOUNDATION_CODE:
             raise ValueError("the B1 foundation uses its exact-source creation workflow")
         pack = StandardPack(
@@ -149,6 +159,8 @@ class StandardPackService:
         notes: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> StandardPackVersion:
+        if pack.code.strip().upper() == DTZ_PACK_CODE or is_dtz_family(pack.exam_family):
+            raise ValueError("DTZ uses its exact-source draft workflow")
         if pack.code == B1_FOUNDATION_CODE:
             raise ValueError("the B1 foundation uses its exact-source creation workflow")
         version = StandardPackVersion(
@@ -255,6 +267,9 @@ class StandardPackService:
                 None,
             )
         issues: list[ValidationIssue] = []
+        if is_dtz_pack(version):
+            for code, message in DTZ_PUBLICATION_BLOCKERS:
+                issues.append(ValidationIssue(code, "FAIL", "publication", message))
         if (
             pack.code == B1_FOUNDATION_CODE
             or version.configuration_schema_version == B1_FOUNDATION_SCHEMA
@@ -536,6 +551,8 @@ class StandardPackService:
         actor_id: Optional[uuid.UUID] = None,
         context: Optional[TenantContext] = None,
     ) -> PackValidationResult:
+        if is_dtz_pack(version):
+            raise ValueError(DTZ_PUBLICATION_BLOCKED)
         if (
             version.configuration_schema_version == B1_FOUNDATION_SCHEMA
             or version.standard_pack.code == B1_FOUNDATION_CODE
@@ -592,6 +609,8 @@ class StandardPackService:
 
     @staticmethod
     def ensure_mutable(version: StandardPackVersion) -> None:
+        if is_dtz_pack(version):
+            raise ValueError("the DTZ draft is sealed to its exact evidence")
         if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
             raise ValueError("the B1 foundation draft is sealed to its exact source mapping")
         if version.status in {
@@ -605,11 +624,13 @@ class StandardPackService:
     _ensure_mutable = ensure_mutable
 
     @staticmethod
-    def canonical(version: StandardPackVersion) -> dict[str, Any]:
+    def canonical(
+        version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None
+    ) -> dict[str, Any]:
         def effective_date(value: datetime | None) -> str | None:
             if value is None:
                 return None
-            if version.configuration_schema_version == B1_FOUNDATION_SCHEMA:
+            if version.configuration_schema_version in {B1_FOUNDATION_SCHEMA, DTZ_SCHEMA}:
                 value = (
                     value.replace(tzinfo=timezone.utc)
                     if value.tzinfo is None
@@ -617,7 +638,7 @@ class StandardPackService:
                 )
             return value.isoformat()
 
-        return {
+        payload: dict[str, Any] = {
             "schema_version": version.configuration_schema_version,
             "standard_pack_id": str(version.standard_pack_id),
             "version_label": version.version_label,
@@ -701,19 +722,37 @@ class StandardPackService:
             ],
         }
 
+        if version.configuration_schema_version == DTZ_SCHEMA:
+            provenance = version.dtz_provenance if dtz_manifest_checksum is None else None
+            payload["dtz_manifest_checksum"] = (
+                provenance.manifest_checksum if provenance else dtz_manifest_checksum
+            )
+            payload["dtz_identity"] = {
+                "code": version.standard_pack.code,
+                "exam_family": version.standard_pack.exam_family,
+                "assessment_family": version.standard_pack.assessment_family.value,
+                "language": version.standard_pack.language,
+                "authority_id": str(version.standard_pack.authority_id),
+            }
+        return payload
+
     @staticmethod
-    def canonical_json(version: StandardPackVersion) -> str:
+    def canonical_json(
+        version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None
+    ) -> str:
         return json.dumps(
-            StandardPackService.canonical(version),
+            StandardPackService.canonical(version, dtz_manifest_checksum=dtz_manifest_checksum),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
         )
 
     @staticmethod
-    def checksum(version: StandardPackVersion) -> str:
+    def checksum(version: StandardPackVersion, *, dtz_manifest_checksum: str | None = None) -> str:
         return hashlib.sha256(
-            StandardPackService.canonical_json(version).encode("utf-8")
+            StandardPackService.canonical_json(
+                version, dtz_manifest_checksum=dtz_manifest_checksum
+            ).encode("utf-8")
         ).hexdigest()
 
     @staticmethod

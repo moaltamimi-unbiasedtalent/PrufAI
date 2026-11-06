@@ -13,6 +13,7 @@ from app.models import (
     KnowledgeAuthority,
     KnowledgeDocumentVersion,
     KnowledgeSource,
+    RuleDefinition,
     RuleVersion,
     StandardPackModule,
 )
@@ -23,6 +24,7 @@ from app.models.enums import (
     KnowledgeScope,
     KnowledgeVersionStatus,
     PackValidationStatus,
+    RuleCategory,
     RuleEvidenceType,
     RuleStatus,
     StandardPackBindingType,
@@ -152,7 +154,13 @@ def test_s1_references_never_grant_normative_pack_or_rule_authority(
     with pytest.raises(ValueError, match="not eligible as normative evidence"):
         RulesService.bind_evidence(
             db,
-            RuleVersion(status=RuleStatus.DRAFT),
+            RuleVersion(
+                status=RuleStatus.DRAFT,
+                definition=RuleDefinition(
+                    code="SYNTHETIC_NORMATIVE_EVIDENCE_TEST",
+                    category=RuleCategory.SCORING,
+                ),
+            ),
             document_version_id=document.id,
             evidence_type=RuleEvidenceType.NORMATIVE,
         )

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import TenantContext
+from app.dtz_policy import DTZ_RULE_PREFIX
 from app.models import (
     KnowledgeChunk,
     KnowledgeDocumentPage,
@@ -73,6 +74,13 @@ _TRANSITIONS: dict[RuleStatus, set[RuleStatus]] = {
 }
 
 
+DTZ_RULE_PREVIEW_ONLY = "DTZ_DRAFT_RULE_PREVIEW_ONLY"
+
+
+def is_dtz_preview_rule_code(code: str) -> bool:
+    return code.strip().upper().startswith(DTZ_RULE_PREFIX)
+
+
 class RulesService:
     @staticmethod
     def create_definition(
@@ -84,6 +92,8 @@ class RulesService:
         description: Optional[str] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleDefinition:
+        if is_dtz_preview_rule_code(code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         definition = RuleDefinition(
             code=code,
             name=name,
@@ -116,6 +126,8 @@ class RulesService:
         test_cases: Optional[list[dict[str, Any]]] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleVersion:
+        if is_dtz_preview_rule_code(definition.code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         version = RuleVersion(
             rule_definition_id=definition.id,
             version_label=version_label,
@@ -199,6 +211,8 @@ class RulesService:
         context: Optional[TenantContext] = None,
     ) -> StandardPackRuleBinding:
         StandardPackService.ensure_mutable(pack_version)
+        if is_dtz_preview_rule_code(rule_version.definition.code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         if rule_version.status not in {
             RuleStatus.APPROVED,
             RuleStatus.PUBLISHED,
@@ -227,6 +241,15 @@ class RulesService:
     @staticmethod
     def validate(session: Session, version: RuleVersion) -> RuleValidationResult:
         issues: list[RuleValidationIssue] = []
+        if is_dtz_preview_rule_code(version.definition.code):
+            issues.append(
+                RuleValidationIssue(
+                    DTZ_RULE_PREVIEW_ONLY,
+                    "FAIL",
+                    "status",
+                    "DTZ draft rules require the source-pinned practice preview.",
+                )
+            )
         try:
             validate_expression(version.expression)
         except RuleExpressionError as exc:
@@ -304,6 +327,8 @@ class RulesService:
         actor_id: Optional[uuid.UUID] = None,
         context: Optional[TenantContext] = None,
     ) -> RuleValidationResult:
+        if is_dtz_preview_rule_code(version.definition.code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         if target not in _TRANSITIONS.get(version.status, set()):
             raise ValueError(f"invalid rule transition: {version.status.value} -> {target.value}")
         result = RulesService.validate(session, version)
@@ -337,6 +362,8 @@ class RulesService:
 
     @staticmethod
     def ensure_mutable(version: RuleVersion) -> None:
+        if is_dtz_preview_rule_code(version.definition.code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         if version.status in {
             RuleStatus.PUBLISHED,
             RuleStatus.ACTIVE,
@@ -356,10 +383,25 @@ class RulesService:
 
     @staticmethod
     def dry_run(version: RuleVersion, facts: dict[str, Any]) -> RuleEvaluationReport:
+        if is_dtz_preview_rule_code(version.definition.code):
+            raise ValueError(DTZ_RULE_PREVIEW_ONLY)
         return RulesEngine().evaluate([(version.definition, version)], EvaluationContext(facts))
 
     @staticmethod
     def canonical(version: RuleVersion) -> dict[str, Any]:
+        dtz_preview = is_dtz_preview_rule_code(version.definition.code)
+
+        def timestamp(value: datetime | None) -> str | None:
+            if value is None:
+                return None
+            if dtz_preview:
+                value = (
+                    value.replace(tzinfo=timezone.utc)
+                    if value.tzinfo is None
+                    else value.astimezone(timezone.utc)
+                )
+            return value.isoformat()
+
         return {
             "rule_definition_id": str(version.rule_definition_id),
             "version_label": version.version_label,
@@ -368,12 +410,8 @@ class RulesService:
             "severity": version.severity.value,
             "failure_code": version.failure_code,
             "failure_message_template": version.failure_message_template,
-            "effective_from": version.effective_from.isoformat()
-            if version.effective_from
-            else None,
-            "effective_until": version.effective_until.isoformat()
-            if version.effective_until
-            else None,
+            "effective_from": timestamp(version.effective_from),
+            "effective_until": timestamp(version.effective_until),
             "internal_policy": version.internal_policy,
             "test_cases": version.test_cases,
             "evidence": [
@@ -383,6 +421,7 @@ class RulesService:
                     "chunk_id": str(item.knowledge_chunk_id) if item.knowledge_chunk_id else None,
                     "evidence_type": item.evidence_type.value,
                     "document_checksum": item.document_checksum,
+                    **({"source_metadata_checksum": item.notes} if dtz_preview else {}),
                 }
                 for item in sorted(version.evidence_bindings, key=lambda value: str(value.id))
             ],
@@ -451,7 +490,14 @@ class RulesService:
     def resolve(
         session: Session, definition_id: uuid.UUID, *, as_of: Optional[datetime] = None
     ) -> Optional[RuleVersion]:
-        query = select(RuleVersion).where(RuleVersion.rule_definition_id == definition_id)
+        query = (
+            select(RuleVersion)
+            .join(RuleDefinition)
+            .where(
+                RuleVersion.rule_definition_id == definition_id,
+                ~RuleDefinition.code.startswith(DTZ_RULE_PREFIX, autoescape=True),
+            )
+        )
         if as_of is None:
             query = query.where(RuleVersion.status == RuleStatus.ACTIVE)
         else:

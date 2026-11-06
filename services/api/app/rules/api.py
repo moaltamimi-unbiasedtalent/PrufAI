@@ -256,7 +256,10 @@ def dry_run(
     version = session.get(RuleVersion, version_id)
     if version is None:
         raise HTTPException(status_code=404, detail="rule version not found")
-    report = RulesService.dry_run(version, payload.facts)
+    try:
+        report = RulesService.dry_run(version, payload.facts)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     RulesService._audit(
         session, context, "rule.dry_run.completed", version, {"evaluation_id": report.evaluation_id}
     )

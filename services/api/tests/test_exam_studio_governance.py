@@ -94,6 +94,8 @@ def test_rights_and_certification_are_independent_blocking_gates(
     version.classification = AssessmentClassification.OFFICIAL_CERTIFICATION
     pack = SimpleNamespace(
         id=version.standard_pack_version_id,
+        configuration_schema_version="1",
+        standard_pack=SimpleNamespace(code="SYNTHETIC_RIGHTS_TEST", exam_family=None),
         allowed_classifications=["OFFICIAL_CERTIFICATION"],
         modules=[],
         rule_bindings=[],
@@ -204,6 +206,8 @@ def test_bound_rules_fail_deterministically(monkeypatch: pytest.MonkeyPatch) -> 
     )
     pack = SimpleNamespace(
         id=version.standard_pack_version_id,
+        configuration_schema_version="1",
+        standard_pack=SimpleNamespace(code="SYNTHETIC_RULE_TEST", exam_family=None),
         allowed_classifications=["PRACTICE"],
         modules=[],
         rule_bindings=[SimpleNamespace(required=True, rule_version=rule_version)],

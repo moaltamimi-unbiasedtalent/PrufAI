@@ -688,8 +688,9 @@ def safe_contexts(contexts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def practice_result(session: Session, attempt: CandidateExamAttempt) -> dict[str, Any] | None:
-    from app.models import AssessmentResult, ResultVersion, ScoringRun
+    from app.models import AssessmentResult, ResultRelease, ResultVersion, ScoringRun
     from app.models.enums import CandidateAttemptStatus, ResultOutcome, ScoringRunStatus
+    from app.result_release.service import ResultReleaseService
     from app.standard_packs.lid_service import lid_draft_integrity
 
     practice = attempt.runtime_plan.get("lid_practice")
@@ -707,11 +708,12 @@ def practice_result(session: Session, attempt: CandidateExamAttempt) -> dict[str
     if is_original_form(form):
         assert_original_publication(session, form)
     row = session.execute(
-        select(ResultVersion, ScoringRun)
+        select(ResultVersion, ScoringRun, AssessmentResult)
         .join(AssessmentResult, ResultVersion.result_id == AssessmentResult.id)
         .join(ScoringRun, ScoringRun.id == ResultVersion.scoring_run_id)
         .where(
             AssessmentResult.attempt_id == attempt.id,
+            AssessmentResult.exam_version_id == attempt.exam_version_id,
             AssessmentResult.organisation_id == attempt.organisation_id,
             AssessmentResult.candidate_user_id == attempt.candidate_user_id,
             ScoringRun.attempt_id == attempt.id,
@@ -724,7 +726,16 @@ def practice_result(session: Session, attempt: CandidateExamAttempt) -> dict[str
     ).first()
     if row is None:
         return None
-    version, run = row
+    version, run, result = row
+    release = session.scalar(
+        select(ResultRelease).where(ResultRelease.result_version_id == version.id)
+    )
+    if release is None or ResultReleaseService.effective_status(session, release) != "RELEASED":
+        return None
+    exam = session.get(ExamVersion, attempt.exam_version_id)
+    if exam is None:
+        raise ValueError(INVALID_FORM)
+    ResultReleaseService._check_release(release, version, result, run, exam)
     preview = version.rule_provenance.get("lid_practice_preview")
     if (
         not isinstance(preview, dict)

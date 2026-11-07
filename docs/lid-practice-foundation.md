@@ -138,7 +138,8 @@ PRUFAI_API_BASE_URL=http://127.0.0.1:8185 PRUFAI_DEMO_ENABLED=1 \
    then **Inspect score, review and release**. Request human result review,
    approve the reviewed result, and release the practice result.
 4. Sign in again as the candidate to view the submitted practice state and the
-   released result. The 15/33 and 17/33 comparisons are separate, and the
+   released result. The score and comparisons appear only after the institution
+   reviews and releases the result. The 15/33 and 17/33 comparisons are separate, and the
    official outcome remains undetermined.
 5. Sign in as `platform.admin@demo.prufai.local`. Open **Standards & packs →
    Leben in Deutschland blueprint** to inspect the exact draft, source pins,

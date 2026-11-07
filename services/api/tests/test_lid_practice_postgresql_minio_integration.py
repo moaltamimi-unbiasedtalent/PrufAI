@@ -321,21 +321,44 @@ def _score(proof, practice, attempt, *, status=200):
     )
 
 
-def _assert_legacy_issuance_denied(proof, organisation_id, result, monkeypatch):
+def _release_practice_result(proof, organisation_id, attempt, run):
     prefix = f"/api/v1/organisations/{organisation_id}"
-    result_path = f"{prefix}/result-versions/{result['result_version_id']}"
+    rows = proof.http("GET", prefix + "/exam-assignments", actor="revoked")
+    result = next(
+        record["result"] for row in rows for record in row["attempts"] if record["id"] == attempt
+    )
+    assert result["scoring_run_id"] == run["id"]
+    result_path = f"{prefix}/result-versions/{result['version_id']}"
+    candidate_path = f"/exam-attempts/{attempt}/lid-practice-result"
+    assert _candidate(proof, "GET", candidate_path, status=404) == {
+        "detail": "LID_PRACTICE_RESULT_PENDING"
+    }
     assert (
         proof.http("POST", result_path + "/request-review", actor="revoked")["status"] == "PENDING"
     )
     assert proof.http("POST", result_path + "/approve", actor="revoked")["status"] == "APPROVED"
-    published = proof.http(
+    assert _candidate(proof, "GET", candidate_path, status=404) == {
+        "detail": "LID_PRACTICE_RESULT_PENDING"
+    }
+    proof.http(
+        "POST",
+        result_path + "/release",
+        actor="candidate",
+        status=403,
+        json={"operation_id": "lid-untrusted-release"},
+    )
+    released = proof.http(
         "POST",
         result_path + "/release",
         actor="revoked",
         json={"operation_id": "lid-practice-release"},
     )
-    assert published["release_status"] == "RELEASED"
-    release_id = uuid.UUID(published["release_id"])
+    assert released["release_status"] == "RELEASED"
+    return uuid.UUID(released["release_id"])
+
+
+def _assert_legacy_issuance_denied(proof, organisation_id, release_id, monkeypatch):
+    prefix = f"/api/v1/organisations/{organisation_id}"
 
     with proof.expert.factory() as session:
         release = session.get(ResultRelease, release_id)
@@ -506,6 +529,7 @@ def test_real_private_form_and_canonical_scoring(proof, practice, monkeypatch):
     _save(proof, attempt, first, right, status=409)
     run = _score(proof, practice, attempt)
     assert _score(proof, practice, attempt) == run
+    release_id = _release_practice_result(proof, practice[0], attempt, run)
     result = _candidate(proof, "GET", path + "/lid-practice-result")
     assert result["scoring_run_id"] == run["id"]
     assert result["raw_correct"] == 15 and result["total_items"] == result["answered_count"] == 33
@@ -566,7 +590,17 @@ def test_real_private_form_and_canonical_scoring(proof, practice, monkeypatch):
             session.flush()
         session.rollback()
 
-    _assert_legacy_issuance_denied(proof, practice[0], result, monkeypatch)
+    _assert_legacy_issuance_denied(proof, practice[0], release_id, monkeypatch)
+    revoked = proof.http(
+        "POST",
+        f"/api/v1/organisations/{practice[0]}/releases/{release_id}/revoke",
+        actor="revoked",
+        json={"reason": "TEST ONLY release visibility regression", "operation_id": "lid-revoke"},
+    )
+    assert revoked["status"] == "REVOKED"
+    assert _candidate(proof, "GET", path + "/lid-practice-result", status=404) == {
+        "detail": "LID_PRACTICE_RESULT_PENDING"
+    }
 
 
 def test_incomplete_and_timeout_fail_closed(proof, practice, monkeypatch):
@@ -576,7 +610,8 @@ def test_incomplete_and_timeout_fail_closed(proof, practice, monkeypatch):
     first = _items(state)[0]
     _save(proof, incomplete, first, _correct_option(first))
     _candidate(proof, "POST", path + "/submit")
-    _score(proof, practice, incomplete)
+    run = _score(proof, practice, incomplete)
+    _release_practice_result(proof, practice[0], incomplete, run)
     result = _candidate(proof, "GET", path + "/lid-practice-result")
     assert result["raw_correct"] == result["answered_count"] == 1
     assert {row["numerical_outcome"] for row in result["contexts"]} == {"UNDETERMINED"}

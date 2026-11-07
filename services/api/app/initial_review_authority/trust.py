@@ -5,6 +5,7 @@ import os
 import re
 import stat
 from datetime import datetime, timedelta, timezone
+from ipaddress import IPv4Address
 from typing import Any, Literal
 from uuid import UUID
 
@@ -45,19 +46,29 @@ class Target(StrictModel):
     environment: Literal["S5_EDITORIAL", "DISPOSABLE_TEST"]
     database: str
     port: int = Field(ge=1, le=65535)
+    server_address: str
     cluster_id: str = Field(pattern=r"^[0-9]{1,20}$")
     database_oid: int = Field(gt=0)
 
     @model_validator(mode="after")
     def require_designation(self) -> "Target":
+        address = IPv4Address(self.server_address)
         if self.environment == "S5_EDITORIAL":
-            if self.database != "prufai_s5_editorial" or self.port != 55448:
+            if (
+                self.database != "prufai_s5_editorial"
+                or self.port != 55448
+                or address != IPv4Address("127.0.0.1")
+            ):
                 raise ValueError("invalid editorial target")
         else:
             if not re.fullmatch(r"prufai_eval2_[a-z]+_[a-f0-9]{32}", self.database):
                 raise ValueError("fresh disposable child database required")
             url = f"postgresql+psycopg://prufai@127.0.0.1:{self.port}/{self.database}"
             assert_disposable_database(url, self.database, report=False)
+            if address != IPv4Address("127.0.0.1") and not (
+                self.port == 5432 and address.is_private
+            ):
+                raise ValueError("invalid disposable server address")
         return self
 
 
@@ -239,7 +250,7 @@ def verify_database(session: Session, target: Target) -> None:
     ).one()
     if tuple(row) != (
         target.database,
-        "127.0.0.1",
+        target.server_address,
         target.port,
         target.cluster_id,
         target.database_oid,

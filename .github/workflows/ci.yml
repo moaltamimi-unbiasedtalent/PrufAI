@@ -191,6 +191,16 @@ jobs:
       - run: python -m ruff format --check services/api services/ai
       - run: python -m mypy services/api/app
       - run: python -m mypy services/ai/app
+      - name: Initial scoped review authority (required PostgreSQL)
+        run: |
+          python -m pytest tests/test_initial_review_authority_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/initial-review-authority-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/initial-review-authority-required.xml" test_initial_review_authority_postgresql_integration
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@127.0.0.1:5432/prufai
       - run: python -m pytest tests
         working-directory: services/api
         env:
@@ -597,16 +607,6 @@ jobs:
         run: |
           python -m pytest tests/test_scoped_source_review_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/scoped-source-review-required.xml"
           python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/scoped-source-review-required.xml" test_scoped_source_review_postgresql_integration
-        working-directory: services/api
-        env:
-          CI: true
-          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
-          PRUFAI_DISPOSABLE_DATABASE: prufai
-          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
-      - name: Initial scoped review authority (required PostgreSQL)
-        run: |
-          python -m pytest tests/test_initial_review_authority_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/initial-review-authority-required.xml"
-          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/initial-review-authority-required.xml" test_initial_review_authority_postgresql_integration
         working-directory: services/api
         env:
           CI: true

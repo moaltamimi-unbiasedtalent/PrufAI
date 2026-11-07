@@ -52,6 +52,7 @@ role already supplies `platform.role.assign`.
    target's dedicated loopback listener at port 55448, database
    `prufai_s5_editorial`, PostgreSQL system identifier, database OID, exact
    organization UUID, single current Alembic head, and editorial inventory.
+   Verify the server-reported address is exactly `127.0.0.1`.
    Confirm the database is a writable primary and distinct from the incident,
    production and test databases. Compare the target tuple with the signed
    artifact and trusted configuration. Give the service and executor the
@@ -79,9 +80,11 @@ The trust file has `target`, `organisation_id`, `approver_id`,
 `approver_public_key`, `executor_id`, `executor_public_key`, `executor_uid`
 and optional `revoked_nonces`. Keys are lowercase hex encoded raw Ed25519
 public keys. The target comprises `environment`, `database`, `port`,
-`cluster_id` (decimal string) and `database_oid`. The live environment is
+`server_address` (exact IPv4 address returned by PostgreSQL), `cluster_id` (decimal string) and `database_oid`. The live environment is
 `S5_EDITORIAL`. `DISPOSABLE_TEST` accepts only the repository's guarded
-uniquely named test child databases. The application refuses the recovery
+uniquely named test child databases. A private PostgreSQL container address
+is permitted only for those guarded hosted test databases. The CLI connection
+URL still requires IPv4 loopback. The application refuses the recovery
 path under production settings.
 
 The envelope contains the complete `manifest`, `manifest_digest`,

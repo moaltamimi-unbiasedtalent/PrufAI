@@ -52,9 +52,9 @@ def plan(scenario):
     # Test-only keys are generated only for this test database.
     keys = [Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()]
     with scenario.factory() as session:
-        name, port, cluster, oid = session.execute(
+        name, port, server_address, cluster, oid = session.execute(
             text("""
-            SELECT current_database(), inet_server_port(),
+            SELECT current_database(), inet_server_port(), host(inet_server_addr()),
                    (SELECT system_identifier::text FROM pg_control_system()),
                    (SELECT oid::int8 FROM pg_database WHERE datname = current_database())
             """)
@@ -63,6 +63,7 @@ def plan(scenario):
         environment="DISPOSABLE_TEST",
         database=name,
         port=port,
+        server_address=server_address,
         cluster_id=cluster,
         database_oid=oid,
     )

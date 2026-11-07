@@ -527,7 +527,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       page.getByText("Autosave: Submitted", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText(/The practice result will appear after scoring/),
+      page.getByText(
+        /The practice result will appear after your institution reviews and releases it/,
+      ),
     ).toBeVisible();
     await expect(page.getByRole("radio").first()).toBeDisabled();
     const unreleased = await page.request.get(`${candidate}/releases`, {
@@ -596,6 +598,32 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       "POST",
       200,
     );
+    const candidatePage = await page.context().browser().newPage({
+      baseURL: process.env.PRUFAI_E2E_BASE_URL,
+    });
+    try {
+      await login(candidatePage, candidateEmail);
+      const pending = apiResponse(
+        candidatePage,
+        `/exam-attempts/${attemptId}/lid-practice-result`,
+      );
+      await candidatePage
+        .getByRole("article", { name: title })
+        .getByRole("link", { name: /View submitted state/ })
+        .click();
+      expect((await pending).status()).toBe(404);
+      const result = candidatePage.getByRole("region", {
+        name: "LiD practice result",
+        exact: true,
+      });
+      await expect(result).toContainText(
+        "The practice result will appear after your institution reviews and releases it.",
+      );
+      await expect(result).not.toContainText("answers correct");
+      await logout(candidatePage);
+    } finally {
+      await candidatePage.close();
+    }
     const released = await clickResponse(
       page,
       "Release approved result",

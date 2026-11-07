@@ -49,7 +49,7 @@ export function LidPracticeResultPanel({ attemptId }: { attemptId: string }) {
         <>
           <p role={state === "error" ? "alert" : "status"}>
             {state === "pending"
-              ? "Your submission is saved. The practice result will appear after scoring."
+              ? "Your submission is saved. The practice result will appear after your institution reviews and releases it."
               : "The practice result could not be loaded."}
           </p>
           <button type="button" onClick={() => setReload((value) => value + 1)}>

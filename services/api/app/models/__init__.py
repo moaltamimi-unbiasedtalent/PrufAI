@@ -58,6 +58,7 @@ from app.models.identity import (
     User,
     UserPasswordCredential,
 )
+from app.models.initial_review_authority import InitialReviewAuthority
 from app.models.knowledge import (
     KnowledgeAuthority,
     KnowledgeDocumentPage,
@@ -174,6 +175,7 @@ __all__ = [
     "EvaluationReview",
     "SpeechTranscriptionJob",
     "AuditEvent",
+    "InitialReviewAuthority",
     "AIModelProfile",
     "AIRun",
     "AIRunStep",

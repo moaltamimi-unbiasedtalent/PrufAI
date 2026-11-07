@@ -10,6 +10,8 @@ from app.audit import AuditService
 from app.auth.api import Principal
 from app.auth.security import utcnow
 from app.authorization import AuthorizationError, build_tenant_context
+from app.initial_review_authority.runtime import require_exact_initial_grant
+from app.initial_review_authority.trust import RecoveryError
 from app.models import (
     AuditEvent,
     AuthSession,
@@ -322,12 +324,28 @@ def _receipt(
     )
 
 
+def _require_initial_grant(
+    session: Session, actor: UUID, organisation_id: UUID, payload: CreateGrant
+) -> None:
+    try:
+        if _platform_roles(session, actor):
+            raise RecoveryError("SCOPED_ONLY_ISSUER_REQUIRED")
+        require_exact_initial_grant(session, actor, organisation_id, payload)
+    except RecoveryError as exc:
+        raise ScopedReviewError("GRANT_AUTHORITY_REQUIRED") from exc
+
+
 def issue(
     session: Session, principal: Principal, organisation_id: UUID, payload: CreateGrant
 ) -> dict[str, object]:
     actor = _active_actor(session, principal)
     audit(session, actor, "requested", operation_id=payload.operation_id, operation="ISSUE")
-    _issuer(session, actor)
+    try:
+        _issuer(session, actor)
+        initial = False
+    except ScopedReviewError:
+        initial = True
+        _require_initial_grant(session, actor, organisation_id, payload)
     _organisation(session, organisation_id, issue=True)
     pins = sorted(payload.resources, key=lambda pin: pin.version_id)
     scope_checksum = grant_scope_checksum(organisation_id, actor, payload)
@@ -379,6 +397,8 @@ def issue(
         resources.append(
             {**pin.canonical(), "display_checksum": canonical_checksum(_display_metadata(version))}
         )
+    if initial:
+        _require_initial_grant(session, actor, organisation_id, payload)
     now = utcnow()
     if now >= payload.expires_at:
         raise ScopedReviewError("GRANT_WINDOW_ELAPSED", 409)

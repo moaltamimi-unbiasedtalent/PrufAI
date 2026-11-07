@@ -73,7 +73,7 @@ can remain `NOT_REVIEWED`.
 | `standards.source.read` | Platform-shared source listings and version histories. |
 | `standards.document.read` | Platform-shared version detail, page and provenance metadata, eligible file integrity, and rights-filtered retrieval and citations. |
 | `standards.document.review` | Platform-shared source rights decisions and document approval and rejection. |
-| `platform.role.assign` | Platform-only role assignment through the existing service. Scoped grant issuance, suspension and revocation require this same capability. |
+| `platform.role.assign` | Platform-only role assignment through the existing service. This is also the ordinary capability for scoped grant issuance, suspension and revocation. |
 | Tenant roles | Existing role permissions apply within an active membership's selected organisation. They cannot authorize these platform actions. |
 
 The scoped paths never populate any of those capabilities. They only read
@@ -128,8 +128,9 @@ operations and safe outcome codes. The original rights service retains the
 canonical decision and private evidence.
 
 Initial platform administrator recovery and reviewer account enrollment require
-separate authorized procedures. The feature provides no bootstrap or account
-creation route. A deployment without an eligible administrator cannot issue
-grants. Provisioning in a real workspace requires a verified backup and explicit
-operator approval of the final named manifest. Browser and PostgreSQL tests use
+separate authorized procedures. A deployment without an eligible administrator
+can use the separately authorized [initial review authority procedure](initial-review-authority.md)
+when an independently verified trust root is established. It creates no
+account and is invoked offline. Provisioning in a real workspace requires a
+verified backup and explicit operator approval of the final named manifest. Browser and PostgreSQL tests use
 synthetic actors in disposable databases.

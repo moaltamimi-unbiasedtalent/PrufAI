@@ -27,7 +27,9 @@ from app.models import (
     ExamVersion,
     LidPracticeForm,
     LidPracticePoolVersion,
+    PlatformRoleAssignment,
     QuestionBankItemVersion,
+    Role,
     StandardPack,
     StandardPackVersion,
     User,
@@ -36,20 +38,91 @@ from app.models.enums import (
     AssessmentFamily,
     ExamVersionStatus,
     PackResponseMode,
+    PlatformAssignmentStatus,
     QuestionBankLifecycleStatus,
     QuestionBankRightsStatus,
     QuestionBankScoringPolicy,
     QuestionBankTaskType,
+    RoleScope,
     StandardPackStatus,
+    UserStatus,
 )
 from app.question_bank.service import QuestionBankService
 from app.scripts.seed_demo import demo_id, require_demo_environment
-from app.standard_packs.lid_service import build_lid_structure, lid_draft_integrity
+from app.services.knowledge import KnowledgeRegistryService
+from app.standard_packs.lid_service import (
+    build_lid_structure,
+    create_lid_blueprint,
+    lid_draft_integrity,
+)
+from app.standard_packs.lid_sources import LID_ENTRIES, register_lid_source
 from app.standard_packs.service import StandardPackService
 
 BERLIN = "DE-BE"
 FIXTURE_LABEL = "original-synthetic-v1"
 FIXTURE_BASIS = "TEST ONLY. Original practice scenario. No official content or exam approval."
+SOURCE_REVIEWER_EMAIL = "lid-source-reviewer@prufai.invalid"
+SOURCE_REVIEWER_NAME = "TEST ONLY LiD metadata reviewer"
+
+
+def _demo_source_reviewer(session: Session) -> TenantContext:
+    reviewer_id = demo_id("lid-fixture-source-reviewer")
+    role = session.scalar(
+        select(Role).where(Role.key == "PRUFAI_STANDARDS_ADMIN", Role.scope == RoleScope.PLATFORM)
+    )
+    if role is None:
+        raise ValueError("LID_SYNTHETIC_FIXTURE_DEMO_INSTITUTION_REQUIRED")
+    reviewer = session.scalar(select(User).where(User.normalized_email == SOURCE_REVIEWER_EMAIL))
+    if reviewer is None:
+        if session.get(User, reviewer_id) is not None:
+            raise ValueError("LID_SYNTHETIC_FIXTURE_REVIEWER_CONFLICT")
+        reviewer = User(
+            id=reviewer_id,
+            email=SOURCE_REVIEWER_EMAIL,
+            normalized_email=SOURCE_REVIEWER_EMAIL,
+            display_name=SOURCE_REVIEWER_NAME,
+        )
+        session.add(reviewer)
+        session.add(PlatformRoleAssignment(user=reviewer, role=role))
+        session.flush()
+    if (
+        reviewer.id != reviewer_id
+        or reviewer.display_name != SOURCE_REVIEWER_NAME
+        or reviewer.status is not UserStatus.ACTIVE
+        or reviewer.password_credential is not None
+        or reviewer.memberships
+        or [(assignment.role_id, assignment.status) for assignment in reviewer.platform_assignments]
+        != [(role.id, PlatformAssignmentStatus.ACTIVE)]
+    ):
+        raise ValueError("LID_SYNTHETIC_FIXTURE_REVIEWER_CONFLICT")
+    return build_tenant_context(session, reviewer.id)
+
+
+def _prepare_demo_blueprint(session: Session, platform_user_id: uuid.UUID) -> StandardPackVersion:
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtext('prufai-lid-demo-preparation'))"))
+    author = build_tenant_context(session, platform_user_id)
+    reviewer = _demo_source_reviewer(session)
+    registry = KnowledgeRegistryService()
+    pins: dict[str, tuple[uuid.UUID, str]] = {}
+    for key, entry in LID_ENTRIES.items():
+        version = register_lid_source(session, author, key)
+        checksum = version.metadata_checksum
+        if checksum is None or version.created_by_user_id != author.user_id:
+            raise ValueError("LID_SYNTHETIC_FIXTURE_SOURCE_CONFLICT")
+        registry.review_rights(
+            session,
+            reviewer,
+            version_id=version.id,
+            expected_metadata_checksum=checksum,
+            decision="METADATA_ONLY",
+            basis_reference="TEST ONLY. Simulated review for disposable LiD practice.",
+            rights_holder=entry.rights_holder,
+            licence_type="TEST ONLY metadata reference",
+            retention_policy="Disposable LiD demo fixture",
+            commit=False,
+        )
+        pins[key] = (version.id, checksum)
+    return create_lid_blueprint(session, author, pins)
 
 
 def item_content(index: int, scenario: Scenario) -> dict[str, Any]:
@@ -315,27 +388,41 @@ def seed_lid_practice(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--blueprint-version-id", type=uuid.UUID, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--blueprint-version-id", type=uuid.UUID)
+    mode.add_argument(
+        "--prepare-demo",
+        action="store_true",
+        help="Prepare the synthetic blueprint and exam in an already seeded disposable demo.",
+    )
     args = parser.parse_args()
     settings = get_settings()
     require_demo_environment(settings, enabled=os.environ.get("PRUFAI_DEMO_ENABLED") == "1")
     database = assert_disposable_database(os.environ.get("DATABASE_URL", ""))
+    assert_disposable_database(settings.database_url, database, report=False)
     with create_session_factory(settings)() as session:
-        blueprint = session.get(StandardPackVersion, args.blueprint_version_id)
-        if blueprint is None:
-            raise ValueError("LID_DRAFT_BLUEPRINT_REQUIRED")
+        if session.scalar(text("SELECT current_database()")) != database:
+            raise ValueError("DISPOSABLE_DATABASE_REQUIRED")
         organisation_id = demo_id("organisation")
+        platform_user_id = demo_id("platform-admin")
         administrator = session.scalar(
             select(User).where(User.normalized_email == "admin@demo.prufai.local")
         )
         if administrator is None:
             raise ValueError("LID_SYNTHETIC_FIXTURE_DEMO_INSTITUTION_REQUIRED")
+        blueprint = (
+            _prepare_demo_blueprint(session, platform_user_id)
+            if args.prepare_demo
+            else session.get(StandardPackVersion, args.blueprint_version_id)
+        )
+        if blueprint is None:
+            raise ValueError("LID_DRAFT_BLUEPRINT_REQUIRED")
         version = seed_lid_practice(
             session,
             disposable_database=database,
             blueprint=blueprint,
             author=build_tenant_context(session, administrator.id, organisation_id),
-            reviewer=build_tenant_context(session, demo_id("platform-admin"), organisation_id),
+            reviewer=build_tenant_context(session, platform_user_id, organisation_id),
         )
         session.commit()
         print(
@@ -344,6 +431,7 @@ def main() -> None:
                     "exam_version_id": str(version.id),
                     "exam_name": version.exam.name,
                     "bundesland": BERLIN,
+                    "blueprint_version_id": str(blueprint.id),
                 }
             )
         )

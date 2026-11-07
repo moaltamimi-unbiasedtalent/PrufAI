@@ -51,6 +51,41 @@ outcome stays `UNDETERMINED`, even when both numerical thresholds are met.
 
 ## Technical practice flow
 
+### Set up a local walkthrough
+
+From the repository root, use the same explicit disposable PostgreSQL/pgvector
+target as the [integrated browser runner](../scripts/run-integrated-browser.sh).
+Set `DATABASE_URL` and `PRUFAI_DISPOSABLE_DATABASE` to the exact newly allocated
+test database, then run these commands in the API virtual environment.
+
+```sh
+export PYTHONPATH="$PWD/services/api"
+export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
+python scripts/migrate-evaluation-disposable.py
+python -m app.scripts.seed_demo
+python -m app.scripts.seed_lid_practice --prepare-demo
+```
+
+The final command registers the five bibliographic editions, records
+`TEST ONLY` metadata-only decisions under a separate fixture identity, seals
+the technical draft, and prepares the synthetic Berlin practice exam. The
+fixture reviewer has no password. Running the command again returns the same
+blueprint and exam IDs. Use a fresh disposable database for this shortcut. An
+incompatible existing source decision or fixture causes setup to stop.
+
+Start the API with `make api-dev` in a terminal with the same disposable
+database and development settings. Start the web app in another terminal with
+`PRUFAI_API_BASE_URL=http://127.0.0.1:8000 PRUFAI_DEMO_ENABLED=1 make web-dev`.
+At [the local login page](http://localhost:3000/login), sign in as
+`admin@demo.prufai.local`.
+Open **Assign practice assessment**, select **Demo Candidate** and
+**Leben in Deutschland — Practice**, then choose **Assign assessment**.
+Sign in as `candidate@demo.prufai.local`, choose **Prepare exam**, select
+**Berlin**, and start the exam. Both accounts use the local-only password
+`Demo-PrufAI-2026!` unless `PRUFAI_DEMO_PASSWORD` was set during seeding.
+
+### Exercise the governed flow manually
+
 1. A platform operator uses **Control Centre → Standards & packs → Leben in
    Deutschland blueprint** to register sources, inspect independent metadata
    rights decisions, and create the sealed draft. The workbench shows sources,

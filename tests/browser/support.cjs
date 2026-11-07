@@ -1,4 +1,5 @@
 const { expect } = require("@playwright/test");
+const { existsSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const password = process.env.PRUFAI_DEMO_PASSWORD || "Demo-PrufAI-2026!";
 
@@ -52,4 +53,25 @@ async function screenshot(page, name) {
   });
 }
 
-module.exports = { login, logout, apiResponse, screenshot };
+async function restartOwnedApi() {
+  const directory = process.env.PRUFAI_E2E_API_RESTART_DIR;
+  if (!directory)
+    throw new Error(
+      "The guarded browser runner restart handshake is required.",
+    );
+  const completion = path.join(directory, "complete");
+  rmSync(completion, { force: true });
+  writeFileSync(path.join(directory, "request"), "restart owned API\n", {
+    flag: "wx",
+    mode: 0o600,
+  });
+  await expect
+    .poll(() => existsSync(completion), { timeout: 45_000 })
+    .toBe(true);
+  const [oldPid, newPid] = readFileSync(completion, "utf8").trim().split(" ");
+  expect(oldPid).toMatch(/^\d+$/);
+  expect(newPid).toMatch(/^\d+$/);
+  expect(newPid).not.toBe(oldPid);
+}
+
+module.exports = { login, logout, apiResponse, screenshot, restartOwnedApi };

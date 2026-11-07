@@ -44,6 +44,7 @@ export type LidBlueprint = LidBlueprintSummary & {
   allowed_classifications: string[];
   review_status: string;
   content_maturity: string;
+  official_provider_authorization: boolean;
   notice: string;
   structure: {
     general_items: number;
@@ -55,6 +56,7 @@ export type LidBlueprint = LidBlueprintSummary & {
   };
   selection_policy_version: string;
   jurisdictions: Array<{ code: string; name: string }>;
+  synthetic_fixture_jurisdictions: Array<{ code: string; name: string }>;
   question_pools: Array<{
     scope: string;
     scope_label: string;

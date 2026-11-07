@@ -59,6 +59,32 @@ def test_mac_default_database_refused_even_with_inherited_ci_markers(monkeypatch
         assert_disposable_database("postgresql+psycopg://prufai@localhost:5432/prufai", "prufai")
 
 
+def test_lid_demo_refuses_mismatched_effective_database_before_engine_creation(monkeypatch):
+    from app.config import Settings
+    from app.scripts import seed_lid_practice
+
+    monkeypatch.setenv("PRUFAI_DEMO_ENABLED", "1")
+    monkeypatch.setenv("PRUFAI_DISPOSABLE_DATABASE", NAME)
+    monkeypatch.setenv("DATABASE_URL", f"postgresql+psycopg://prufai@127.0.0.1:55438/{NAME}")
+    monkeypatch.setattr("sys.argv", ["seed_lid_practice", "--prepare-demo"])
+    monkeypatch.setattr(
+        seed_lid_practice,
+        "get_settings",
+        lambda: Settings(
+            _env_file=None,
+            environment="development",
+            database_url="postgresql+psycopg://prufai@127.0.0.1:55438/postgres",
+        ),
+    )
+    monkeypatch.setattr(
+        seed_lid_practice,
+        "create_session_factory",
+        lambda settings: pytest.fail("Unexpected database session creation"),
+    )
+    with pytest.raises(ValueError, match="DISPOSABLE_DATABASE_REQUIRED"):
+        seed_lid_practice.main()
+
+
 def test_migration_entrypoint_refuses_before_database_import_or_connection():
     import os
     import subprocess

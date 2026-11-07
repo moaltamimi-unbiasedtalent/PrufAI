@@ -1,23 +1,35 @@
 """Required S3 runtime proof using isolated Alembic PostgreSQL and real MinIO."""
 
+import json
+import os
+import subprocess
+import sys
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from psycopg import sql
+from sqlalchemy import create_engine, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Session
 
 from app.authorization import build_tenant_context
+from app.evaluation.disposable import assert_disposable_database
 from app.lid_practice import service as lid
 from app.main import app
 from app.models import (
     AuditEvent,
+    CandidateExamAssignment,
     CandidateExamAttempt,
+    CandidateResponseRevision,
     CertificateRecord,
     CertificationAuthorization,
     ExamVersion,
@@ -171,6 +183,119 @@ def _items(state):
 def _correct_option(item):
     number = int(item["version_label"].split("-")[-2])
     return f"option-{(number - 1) % 4 + 1}"
+
+
+def test_prepare_demo_replays_without_replacing_candidate_work(configured):
+    controller_url = os.environ["POSTGRES_INTEGRATION_URL"]
+    controller_name = assert_disposable_database(controller_url)
+    controller = make_url(controller_url).set(drivername="postgresql")
+    database = "prufai_eval2_lidseed_" + uuid.uuid4().hex
+    target = make_url(controller_url).set(database=database)
+    url = target.render_as_string(hide_password=False)
+    assert_disposable_database(url, database)
+    root = Path(__file__).resolve().parents[3]
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(root / "services/api"),
+        "ENVIRONMENT": "development",
+        "DATABASE_URL": url,
+        "POSTGRES_INTEGRATION_URL": url,
+        "PRUFAI_DISPOSABLE_DATABASE": database,
+        "PRUFAI_DEMO_ENABLED": "1",
+        "PRUFAI_DEMO_PASSWORD": uuid.uuid4().hex,
+    }
+    seed = [sys.executable, "-m", "app.scripts.seed_lid_practice", "--prepare-demo"]
+
+    def run(command):
+        return subprocess.run(
+            command, cwd=root, env=env, capture_output=True, text=True, timeout=90
+        )
+
+    with psycopg.connect(
+        controller.render_as_string(hide_password=False), autocommit=True
+    ) as control:
+        assert control.execute("SELECT current_database()").fetchone() == (controller_name,)
+        control.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        engine = create_engine(url)
+        try:
+            before_migration = run(seed)
+            assert before_migration.returncode != 0
+            assert "LID_SYNTHETIC_FIXTURE_ALEMBIC_HEAD_REQUIRED" in before_migration.stderr
+            migrated = run([sys.executable, "scripts/migrate-evaluation-disposable.py"])
+            assert migrated.returncode == 0, migrated.stderr
+            first = run(seed)
+            assert first.returncode == 0, first.stderr
+            fixture = json.loads(first.stdout.splitlines()[-1])
+            assignment_id = uuid.UUID(fixture["candidate_assignment_id"])
+            with Session(engine) as session:
+                assignment = session.get(CandidateExamAssignment, assignment_id)
+                assert assignment is not None and assignment.attempts == []
+                candidate = build_tenant_context(
+                    session, assignment.candidate_user_id, assignment.organisation_id
+                )
+                runtime_service = runtime.CandidateRuntimeService
+                attempt = runtime_service.create_attempt(
+                    session, candidate, assignment_id, bundesland="DE-BE"
+                )
+                assert attempt.started_at is None
+                runtime_service.start(session, candidate, attempt.id)
+                first_item = _items({"runtime_plan": attempt.runtime_plan})[0]
+                runtime_service.save_response(
+                    session,
+                    candidate,
+                    attempt.id,
+                    uuid.UUID(first_item["binding_id"]),
+                    payload={"option_id": _correct_option(first_item)},
+                    client_operation_id=uuid.uuid4(),
+                    expected_revision=0,
+                )
+                runtime_service.submit(session, candidate, attempt.id)
+                attempt_id, submitted_at = attempt.id, attempt.submitted_at
+                administrator = build_tenant_context(
+                    session, assignment.created_by_user_id, assignment.organisation_id
+                )
+                run_id = ScoringService.score(session, administrator, attempt_id).id
+                result_id = session.scalar(
+                    select(ResultVersion.id).where(ResultVersion.scoring_run_id == run_id)
+                )
+                assert result_id is not None
+                session.commit()
+
+            replay = run(seed)
+            assert replay.returncode == 0, replay.stderr
+            assert json.loads(replay.stdout.splitlines()[-1]) == fixture
+            with Session(engine) as session:
+                assignment = session.get(CandidateExamAssignment, assignment_id)
+                assert assignment is not None and [a.id for a in assignment.attempts] == [
+                    attempt_id
+                ]
+                assert assignment.attempts[0].submitted_at == submitted_at
+                revision = session.scalar(
+                    select(CandidateResponseRevision).where(
+                        CandidateResponseRevision.attempt_id == attempt_id
+                    )
+                )
+                assert revision is not None and revision.payload["option_id"] == _correct_option(
+                    first_item
+                )
+                assert list(
+                    session.scalars(
+                        select(ResultVersion.id).where(ResultVersion.scoring_run_id == run_id)
+                    )
+                ) == [result_id]
+                assignment.maximum_attempts = 2
+                session.commit()
+            conflict = run(seed)
+            assert conflict.returncode != 0
+            assert "LID_SYNTHETIC_FIXTURE_ASSIGNMENT_CONFLICT" in conflict.stderr
+            with Session(engine) as session:
+                assignment = session.get(CandidateExamAssignment, assignment_id)
+                assert assignment is not None and assignment.maximum_attempts == 2
+        finally:
+            engine.dispose()
+            control.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
+            )
 
 
 def _save(proof, attempt, item, option, *, operation=None, status=200):

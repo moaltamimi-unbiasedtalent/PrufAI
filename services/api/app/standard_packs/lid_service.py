@@ -11,18 +11,22 @@ from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import TenantContext
+from app.config import get_settings
 from app.lid_policy import (
     LID_DRAFT_PACK_CODE,
     LID_DRAFT_SCHEMA,
     LID_EXAM_FAMILY,
     LID_NOTICE,
+    LID_PRACTICE_SCHEMA,
     LID_PUBLICATION_BLOCKERS,
     LID_STATES,
     LID_STRUCTURE,
 )
-from app.models import StandardPack, StandardPackVersion
+from app.models import ExamVersion, LidPracticeForm, StandardPack, StandardPackVersion
 from app.models.enums import (
+    AssessmentClassification,
     AssessmentFamily,
+    ExamVersionStatus,
     PackNavigationMode,
     PackResponseMode,
     StandardPackBindingType,
@@ -343,6 +347,28 @@ def lid_detail(session: Session, version: StandardPackVersion) -> dict[str, Any]
                 "message": "The exact draft source or rule pins are no longer current.",
             }
         )
+    fixture_states: list[str] = []
+    if integrity is None and get_settings().environment in {"development", "test"}:
+        fixture_states = list(
+            session.scalars(
+                select(LidPracticeForm.bundesland)
+                .join(ExamVersion, ExamVersion.id == LidPracticeForm.exam_version_id)
+                .join(
+                    StandardPackVersion,
+                    StandardPackVersion.id == ExamVersion.standard_pack_version_id,
+                )
+                .where(
+                    LidPracticeForm.blueprint_version_id == version.id,
+                    ExamVersion.status == ExamVersionStatus.ACTIVE,
+                    ExamVersion.classification == AssessmentClassification.PRACTICE,
+                    StandardPackVersion.configuration_schema_version == LID_PRACTICE_SCHEMA,
+                    StandardPackVersion.status == StandardPackStatus.ACTIVE,
+                    LidPracticeForm.bundesland.in_(LID_STATES),
+                )
+                .distinct()
+                .order_by(LidPracticeForm.bundesland)
+            )
+        )
     return {
         **lid_summary(version),
         **{
@@ -368,6 +394,9 @@ def lid_detail(session: Session, version: StandardPackVersion) -> dict[str, Any]
         "publication_blockers": blockers,
         "structural_validation": "PASS" if integrity is None else "REVIEW_REQUIRED",
         "delivery_ready": False,
+        "synthetic_fixture_jurisdictions": [
+            {"code": code, "name": LID_STATES[code]} for code in fixture_states
+        ],
     }
 
 

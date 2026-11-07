@@ -475,6 +475,7 @@ class KnowledgeRegistryService:
         licence_type: str,
         retention_policy: str,
         expected_sha256: str | None = None,
+        commit: bool = True,
     ) -> KnowledgeLegalMetadata:
         self._review_context(context)
         version = _version(session, version_id, lock=True)
@@ -490,7 +491,8 @@ class KnowledgeRegistryService:
             retention_policy=retention_policy,
             expected_sha256=expected_sha256,
         )
-        session.commit()
+        if commit:
+            session.commit()
         return legal
 
     @staticmethod

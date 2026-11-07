@@ -61,6 +61,7 @@ export function LidBlueprintDetail({
   }
 
   const { structure } = draft;
+  const fixtureJurisdictions = draft.synthetic_fixture_jurisdictions ?? [];
   return (
     <article className={css.card} aria-label="Exact LiD blueprint version">
       <h2>LiD blueprint {draft.version_label}</h2>
@@ -82,6 +83,12 @@ export function LidBlueprintDetail({
         <dd>{draft.review_status}</dd>
         <dt>Standard Pack status</dt>
         <dd>{pack?.status ?? draft.status}</dd>
+        <dt>Official provider authorization</dt>
+        <dd>
+          {draft.official_provider_authorization
+            ? "Established"
+            : "Not established"}
+        </dd>
         <dt>Exact version</dt>
         <dd>
           <code>{draft.id}</code>
@@ -114,6 +121,14 @@ export function LidBlueprintDetail({
           Reference catalogue counts describe the published structure. The
           synthetic practice pool is separate.
         </p>
+        {fixtureJurisdictions.length > 0 && (
+          <p>
+            TEST ONLY practice fixture coverage:{" "}
+            {fixtureJurisdictions
+              .map((state) => `${state.name} (${state.code})`)
+              .join(", ")}
+          </p>
+        )}
         <details>
           <summary>Bundesland mapping ({draft.jurisdictions.length})</summary>
           <ul aria-label="Bundesland codes">

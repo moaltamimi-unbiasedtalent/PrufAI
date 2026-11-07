@@ -51,6 +51,112 @@ outcome stays `UNDETERMINED`, even when both numerical thresholds are met.
 
 ## Technical practice flow
 
+### Set up a local walkthrough
+
+Use Python 3.11 or newer, Node.js 22, npm and Docker Compose v2. From the
+repository root, install the API into an active virtual environment and use
+the committed frontend lockfile.
+
+```sh
+python -m pip install -e services/api
+npm ci --prefix apps/web
+```
+
+The separate Compose stack binds PostgreSQL/pgvector, Redis and MinIO to
+loopback. It uses ports 55438, 56379 and 59000. If a port is already in use,
+leave that service alone. An operator with an existing acceptance PostgreSQL
+service on 55438 can instead allocate a new matching test database there and
+supply its explicit URL and separate private Redis and MinIO targets.
+
+In a private shell, generate an owner-only environment file outside Git. Keep
+its path for the second terminal and later replays.
+
+```sh
+umask 077
+PRUFAI_LID_DEMO_ENV="$(mktemp "$HOME/.prufai-lid-demo.XXXXXXXX")"
+demo_id="$(openssl rand -hex 16)"
+pg_password="$(openssl rand -hex 24)"
+cat >"$PRUFAI_LID_DEMO_ENV" <<EOF
+ENVIRONMENT=development
+PRUFAI_DEMO_ENABLED=1
+PRUFAI_DEMO_PASSWORD=$(openssl rand -hex 24)
+PRUFAI_LID_PROJECT=prufai-lid-$demo_id
+PRUFAI_LID_PG_PASSWORD=$pg_password
+PRUFAI_DISPOSABLE_DATABASE=prufai_eval2_liddemo_$demo_id
+DATABASE_URL=postgresql+psycopg://prufai:$pg_password@127.0.0.1:55438/prufai_eval2_liddemo_$demo_id
+REDIS_URL=redis://127.0.0.1:56379/0
+AUTH_RATE_LIMIT_BACKEND=redis
+OBJECT_STORAGE_BACKEND=s3
+OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:59000
+OBJECT_STORAGE_BUCKET=prufai-lid-$demo_id
+OBJECT_STORAGE_ACCESS_KEY=lid-local-operator
+OBJECT_STORAGE_SECRET_KEY=$(openssl rand -hex 24)
+EOF
+unset demo_id pg_password
+set -a
+. "$PRUFAI_LID_DEMO_ENV"
+set +a
+export PYTHONPATH="$PWD/services/api"
+
+docker compose -p "$PRUFAI_LID_PROJECT" -f infra/compose.lid-demo.yml up -d --wait
+curl --fail --retry 10 --retry-connrefused "$OBJECT_STORAGE_ENDPOINT/minio/health/ready"
+python scripts/initialize-audio-storage.py
+python scripts/migrate-evaluation-disposable.py
+python -m app.scripts.seed_lid_practice --prepare-demo
+```
+
+The final command requires the repository's current single Alembic head.
+On a fresh target it seeds the synthetic organisation and accounts, registers
+five bibliographic editions, records `TEST ONLY` metadata decisions under a
+separate fixture identity with no password, seals the technical draft and
+assigns the Berlin exam. Replay returns the same blueprint, exam and
+assignment IDs without resetting passwords, attempts or results. An
+incompatible existing fixture stops setup. No Berlin attempt or timer starts
+during seeding.
+
+Run the API with the same private environment loaded.
+
+```sh
+python -m uvicorn app.main:app --app-dir services/api --host 127.0.0.1 --port 8185
+```
+
+Start the web app from the repository root in a second terminal.
+
+```sh
+PRUFAI_API_BASE_URL=http://127.0.0.1:8185 PRUFAI_DEMO_ENABLED=1 \
+  npm run dev --prefix apps/web -- --hostname 127.0.0.1 --port 3185
+```
+
+1. Open [local sign-in](http://127.0.0.1:3185/login). Use the
+   `PRUFAI_DEMO_PASSWORD` from the private file with the accounts below. These
+   are synthetic local identities.
+2. Sign in as `candidate@demo.prufai.local`. Open **Leben in Deutschland —
+   Practice**, choose **Prepare exam**, select **Berlin**, then choose
+   **Start exam**. Answer a question and reload to verify the saved response.
+   Complete the questions and submit.
+3. Sign in as `admin@demo.prufai.local`. Choose **Score submitted attempt**,
+   then **Inspect score, review and release**. Request human result review,
+   approve the reviewed result, and release the practice result.
+4. Sign in again as the candidate to view the submitted practice state and the
+   released result. The 15/33 and 17/33 comparisons are separate, and the
+   official outcome remains undetermined.
+5. Sign in as `platform.admin@demo.prufai.local`. Open **Standards & packs →
+   Leben in Deutschland blueprint** to inspect the exact draft, source pins,
+   and publication blockers.
+
+Stop the API and frontend with Ctrl+C. To stop only the demo services and retain
+the data, use `docker compose -p "$PRUFAI_LID_PROJECT" -f infra/compose.lid-demo.yml down`.
+After you have verified that the project is the disposable stack you created,
+add `--volumes` to that command only if you intend to delete its database and
+bucket, then remove the private environment file. Use the same file for replay
+or restart while you want to keep the demo.
+
+This local technical demo is separate from the authorized S5 editorial
+workspace. **S5B-RO.2 remains a pre-launch requirement.** The synthetic source
+decisions are limited to the disposable fixture and convey no official rights.
+
+### Exercise the governed flow manually
+
 1. A platform operator uses **Control Centre → Standards & packs → Leben in
    Deutschland blueprint** to register sources, inspect independent metadata
    rights decisions, and create the sealed draft. The workbench shows sources,

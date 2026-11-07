@@ -725,7 +725,11 @@ class CandidateRuntimeService:
                     raise StorageError("attached audio object is missing")
             return response
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
-            raise RuntimeExpired("attempt is not writable")
+            raise RuntimeExpired(
+                "RUNTIME.ATTEMPT_EXPIRED"
+                if attempt.status is CandidateAttemptStatus.EXPIRED
+                else "attempt is not writable"
+            )
         asset = None
         if mode == PackResponseMode.AUDIO.value:
             from app.config import get_settings
@@ -819,7 +823,11 @@ class CandidateRuntimeService:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS or attempt.session is None:
-            raise RuntimeExpired("attempt is not navigable")
+            raise RuntimeExpired(
+                "RUNTIME.ATTEMPT_EXPIRED"
+                if attempt.status is CandidateAttemptStatus.EXPIRED
+                else "attempt is not navigable"
+            )
         CandidateRuntimeService._binding_payload(attempt, binding_id)
         all_bindings: list[tuple[str, str]] = []
         for module in attempt.runtime_plan["modules"]:
@@ -852,7 +860,11 @@ class CandidateRuntimeService:
         if attempt.status is CandidateAttemptStatus.SUBMITTED:
             return attempt
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS:
-            raise RuntimeExpired("attempt cannot be submitted")
+            raise RuntimeExpired(
+                "RUNTIME.ATTEMPT_EXPIRED"
+                if attempt.status is CandidateAttemptStatus.EXPIRED
+                else "attempt cannot be submitted"
+            )
         SpeakingAudioService.assert_submittable(session, attempt)
         attempt.status = CandidateAttemptStatus.SUBMITTED
         attempt.submitted_at = _now()

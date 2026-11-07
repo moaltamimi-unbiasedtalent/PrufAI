@@ -133,7 +133,8 @@ PRUFAI_API_BASE_URL=http://127.0.0.1:8185 PRUFAI_DEMO_ENABLED=1 \
 2. Sign in as `candidate@demo.prufai.local`. Open **Leben in Deutschland —
    Practice**, choose **Prepare exam**, select **Berlin**, then choose
    **Start exam**. Answer a question and reload to verify the saved response.
-   Complete the questions and submit.
+   Complete the questions and confirm final submission. If time expires, the
+   attempt shows the server's read-only state and keeps saved answers visible.
 3. Sign in as `admin@demo.prufai.local`. Choose **Score submitted attempt**,
    then **Inspect score, review and release**. Request human result review,
    approve the reviewed result, and release the practice result.

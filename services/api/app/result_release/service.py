@@ -380,6 +380,22 @@ class ResultReleaseService:
         )
 
     @staticmethod
+    def has_active_result_release(
+        session: Session,
+        version: ResultVersion,
+        result: AssessmentResult,
+        run: ScoringRun,
+        exam: ExamVersion,
+    ) -> bool:
+        release = session.scalar(
+            select(ResultRelease).where(ResultRelease.result_version_id == version.id)
+        )
+        if release is None or ResultReleaseService.effective_status(session, release) != "RELEASED":
+            return False
+        ResultReleaseService._check_release(release, version, result, run, exam)
+        return True
+
+    @staticmethod
     def _moderation_blocked(session: Session, version_id: uuid.UUID) -> bool:
         blocked = session.scalar(
             select(ResultModerationCase.id)

@@ -330,6 +330,33 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await expect(
       page.getByRole("region", { name: "LiD practice form" }),
     ).toContainText("TEST ONLY practice fixture coverage: Berlin (DE-BE)");
+    const sourcePicker = page.getByRole("combobox", {
+      name: "LiD source",
+      exact: true,
+    });
+    await sourcePicker.selectOption(interactive);
+    for (const width of [320, 375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBe(width);
+      const button = page.getByRole("button", {
+        name: "Inspect exact LiD source version",
+      });
+      await sourcePicker.focus();
+      await page.keyboard.press("Tab");
+      await expect(
+        page.getByRole("button", {
+          name: "Refresh exact sources and versions",
+        }),
+      ).toBeFocused();
+      expect(
+        await button.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.left >= 0 && bounds.right <= window.innerWidth;
+        }),
+      ).toBe(true);
+    }
     await logout(page);
   });
 
@@ -466,6 +493,27 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
         .first(),
     ).toBeVisible();
 
+    // Control the display clock while intentionally dropping heartbeat requests.
+    // A normal reload restores the deadline from the real server afterwards.
+    await page.route("**/heartbeat", (route) => route.abort());
+    await page.clock.install();
+    const clock = page.locator("time[datetime]");
+    const seconds = Number(
+      (await clock.getAttribute("datetime")).match(/^PT(\d+)S$/)[1],
+    );
+    await page.clock.fastForward((seconds - 304) * 1000);
+    await expect(clock).toHaveAttribute("datetime", /PT30[1-5]S/);
+    await page.clock.fastForward(7000);
+    const live = page
+      .getByRole("region", { name: "Time remaining" })
+      .locator("[aria-live=polite]");
+    await expect(live).toHaveText("5 minutes remaining");
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(live).toHaveText("5 minutes remaining");
+    await page.unroute("**/heartbeat");
+    await page.reload();
+    await expect(clock).toHaveAttribute("datetime", /PT(35\d\d|3600)S/);
+
     for (const [index, item] of items.entries()) {
       await expect(
         page.getByText(`Current question ${index + 1}`, { exact: true }),
@@ -515,9 +563,39 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
           .getByRole("button", { name: "Next question", exact: true })
           .click();
     }
+    const trigger = page.getByRole("button", {
+      name: "Submit attempt",
+      exact: true,
+    });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", {
+      name: "Submit this practice exam?",
+    });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleDescription(
+      /you can no longer change your answers/,
+    );
+    await expect(dialog).toContainText("0 of 33 questions unanswered");
+    await expect(
+      dialog.getByRole("button", { name: "Keep working" }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      dialog.getByRole("button", { name: "Submit final answers" }),
+    ).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(
+      dialog.getByRole("button", { name: "Keep working" }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await expect(page.getByRole("radio").first()).toBeEnabled();
+    await trigger.click();
     const submitted = await clickResponse(
       page,
-      "Submit attempt",
+      "Submit final answers",
       `${candidate}/exam-attempts/${attemptId}/submit`,
       "POST",
       200,
@@ -719,9 +797,112 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       exact: true,
     });
     await expect(section).toContainText("15 of 33 answers correct");
+    await expect(section).toContainText("Practice jurisdiction: Berlin");
+    await expect(section).toContainText("Classification: PRACTICE");
+    await expect(section).toContainText(
+      "Administrative recognition: Not established.",
+    );
     await expect(section).toContainText("15/33 · Numerical threshold met");
     await expect(section).toContainText("17/33 · Below numerical threshold");
     await expect(section).toContainText("NOT OFFICIAL · NOT CERTIFIED");
     await screenshot(page, "s3-lid-candidate-practice-result.png");
+  });
+
+  await test.step("revocation removes the candidate score and a separate expired attempt remains read-only", async () => {
+    await logout(page);
+    const admin = await login(page, adminEmail);
+    const adminRoot = `/api/v1/organisations/${orgId}`;
+    const revoke = await page.request.post(
+      `${adminRoot}/releases/${releaseId}/revoke`,
+      {
+        headers: scoped(admin, orgId),
+        data: {
+          operation_id: randomUUID(),
+          reason: "TEST ONLY LiD revocation proof",
+        },
+      },
+    );
+    expect(revoke.status()).toBe(200);
+    const ownerProfile = await page.request.get(
+      `${adminRoot}/exam-assignments`,
+      {
+        headers: scoped(admin, orgId),
+      },
+    );
+    expect(ownerProfile.status()).toBe(200);
+    const ownerId = (await ownerProfile.json()).find(
+      (row) => row.id === assignmentId,
+    ).candidate_user_id;
+    const added = await page.request.post(`${adminRoot}/exam-assignments`, {
+      headers: scoped(admin, orgId),
+      data: {
+        candidate_user_id: ownerId,
+        exam_version_id: fixture.exam_version_id,
+      },
+    });
+    expect(added.status()).toBe(201);
+    const expiryAssignment = (await added.json()).id;
+    await logout(page);
+    const owner = await login(page, candidateEmail);
+    await page.goto(`/candidate/exams/${attemptId}`);
+    await expect(
+      page.getByRole("status").filter({ hasText: /reviews and releases/ }),
+    ).toBeVisible();
+    await expect(page.getByText("15 of 33 answers correct")).toHaveCount(0);
+    const withheld = await page.request.get(
+      `${candidate}/releases/${releaseId}`,
+      {
+        headers: scoped(owner, orgId),
+      },
+    );
+    expect(withheld.status()).toBe(200);
+    expect(await withheld.json()).not.toHaveProperty("result");
+
+    await page.goto(`/candidate/exams/assignment-${expiryAssignment}`);
+    await page
+      .getByRole("combobox", { name: "Practice Bundesland" })
+      .selectOption("DE-BE");
+    const prepared = await clickResponse(
+      page,
+      "Prepare exam",
+      `${candidate}/exam-assignments/${expiryAssignment}/attempts`,
+      "POST",
+      201,
+    );
+    const started = await clickResponse(
+      page,
+      "Start exam",
+      `${candidate}/exam-attempts/${prepared.id}/start`,
+      "POST",
+      200,
+    );
+    const first = started.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+    const saved = apiResponse(page, `/responses/${first.binding_id}`, "PUT");
+    await page.getByRole("radio").first().check();
+    expect((await saved).status()).toBe(200);
+    execFileSync(
+      "python3",
+      ["tests/browser/expire-lid-attempt.py", prepared.id],
+      { timeout: 30000 },
+    );
+    const denied = apiResponse(page, "/navigate", "POST");
+    await page.getByRole("button", { name: "Next question" }).click();
+    expect((await denied).status()).toBe(409);
+    for (const afterReload of [false, true]) {
+      if (afterReload) await page.reload();
+      const notice = page.getByRole("region", {
+        name: "Prüfungszeit abgelaufen",
+      });
+      await expect(notice).toHaveAttribute("lang", "de");
+      await expect(notice.getByRole("alert")).toContainText("EXPIRED");
+      await expect(
+        notice.getByRole("link", { name: "Zurück zu meinen Prüfungen" }),
+      ).toBeVisible();
+      await expect(page.getByRole("radio").first()).toBeChecked();
+      await expect(page.getByRole("radio").first()).toBeDisabled();
+      await expect(
+        page.getByRole("button", { name: "Submit attempt" }),
+      ).toBeDisabled();
+    }
   });
 });

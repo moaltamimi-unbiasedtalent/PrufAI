@@ -25,6 +25,7 @@ from app.models import (
     ExamVersionItemBinding,
     HumanReviewRequest,
     ItemScore,
+    LidPracticeForm,
     QuestionBankItemVersion,
     ResultCorrection,
     ResultCorrectionObjectiveBinding,
@@ -1412,16 +1413,38 @@ class ScoringService:
 
     @staticmethod
     def candidate_results(session: Session, context: TenantContext) -> list[dict[str, Any]]:
+        from app.result_release.service import ResultReleaseError, ResultReleaseService
+
         rows = session.execute(
-            select(ResultVersion, AssessmentResult)
+            select(ResultVersion, AssessmentResult, LidPracticeForm.exam_version_id)
             .join(AssessmentResult, ResultVersion.result_id == AssessmentResult.id)
+            .outerjoin(
+                LidPracticeForm, LidPracticeForm.exam_version_id == AssessmentResult.exam_version_id
+            )
             .where(
                 AssessmentResult.candidate_user_id == context.user_id,
                 AssessmentResult.organisation_id == context.organisation_id,
                 ResultVersion.status == ResultVersionStatus.RELEASED,
             )
         ).all()
-        return [ScoringService.safe_result(version, result) for version, result in rows]
+        visible = []
+        for version, result, lid_exam_id in rows:
+            if lid_exam_id is not None:
+                run = session.get(ScoringRun, version.scoring_run_id)
+                exam = session.get(ExamVersion, lid_exam_id)
+                try:
+                    if (
+                        run is None
+                        or exam is None
+                        or not ResultReleaseService.has_active_result_release(
+                            session, version, result, run, exam
+                        )
+                    ):
+                        continue
+                except ResultReleaseError:
+                    continue
+            visible.append(ScoringService.safe_result(version, result))
+        return visible
 
     @staticmethod
     def safe_result(version: ResultVersion, result: AssessmentResult) -> dict[str, Any]:

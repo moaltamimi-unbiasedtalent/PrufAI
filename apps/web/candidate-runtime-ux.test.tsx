@@ -6,6 +6,7 @@ import CandidateExamRuntimePage from "./app/candidate/exams/[attemptId]/page";
 import {
   RuntimeTimer,
   applySavedResponse,
+  crossedTimerMilestone,
   formatRemaining,
   runtimeStateMessage,
 } from "./app/candidate/exams/[attemptId]/runtime-ux";
@@ -20,11 +21,23 @@ describe("candidate runtime accessibility", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("renders a stable, labelled timer without per-second live announcements", () => {
-    const markup = renderToStaticMarkup(<RuntimeTimer deadlineAt={null} />);
+    const markup = renderToStaticMarkup(
+      <RuntimeTimer monotonicDeadline={null} />,
+    );
     expect(markup).toContain("Remaining time: waiting for the server deadline");
     expect(markup).toContain('aria-live="polite"');
     expect(markup).not.toContain("every second");
     expect(formatRemaining(3661)).toBe("01:01:01");
+  });
+
+  it("selects the nearest crossed milestone without repeating an elapsed threshold", () => {
+    expect(crossedTimerMilestone(301, 298)).toBe("5 minutes remaining");
+    expect(crossedTimerMilestone(298, 296)).toBeUndefined();
+    expect(crossedTimerMilestone(601, 58)).toBe("1 minute remaining");
+    expect(crossedTimerMilestone(61, 0)).toBe(
+      "Time is up. Checking the server status.",
+    );
+    expect(crossedTimerMilestone(0, 0)).toBeUndefined();
   });
 
   it("renders an accessible loading state before runtime data is available", () => {

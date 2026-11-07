@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -265,15 +265,18 @@ def diff_result(
 
 @candidate_result_router.get("/results")
 def candidate_results(
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
+    response.headers["Cache-Control"] = "no-store"
     return ScoringService.candidate_results(session, _context(principal))
 
 
 @candidate_result_router.get("/results/{result_id}")
 def candidate_result(
     result_id: uuid.UUID,
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -283,5 +286,8 @@ def candidate_result(
         if row["result_id"] == str(result_id)
     ]
     if not rows:
-        raise HTTPException(status_code=404, detail="result not found")
+        raise HTTPException(
+            status_code=404, detail="result not found", headers={"Cache-Control": "no-store"}
+        )
+    response.headers["Cache-Control"] = "no-store"
     return rows[0]

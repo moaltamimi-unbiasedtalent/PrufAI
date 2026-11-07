@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { RuntimeState as RuntimeDto } from "../../api";
 
 export function applySavedResponse(
@@ -75,36 +75,62 @@ export function runtimeStateMessage(status: RuntimeState): string | null {
   return null;
 }
 
-export function RuntimeTimer({ deadlineAt }: { deadlineAt: number | null }) {
+const timerMilestones = [
+  [0, "Time is up. Checking the server status."],
+  [60, "1 minute remaining"],
+  [300, "5 minutes remaining"],
+  [600, "10 minutes remaining"],
+] as const;
+
+export function crossedTimerMilestone(previous: number, current: number) {
+  return timerMilestones.find(
+    ([seconds]) => previous > seconds && current <= seconds,
+  )?.[1];
+}
+
+export function RuntimeTimer({
+  monotonicDeadline,
+  onDeadline,
+}: {
+  monotonicDeadline: number | null;
+  onDeadline?: () => void;
+}) {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [milestone, setMilestone] = useState<string | null>(null);
+  const previous = useRef<number | null>(null);
+  const atZero = useRef(false);
 
   useEffect(() => {
-    if (deadlineAt === null) {
+    if (monotonicDeadline === null) {
       setRemainingSeconds(null);
       return;
     }
-    const update = () =>
-      setRemainingSeconds(
-        Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)),
+    const update = () => {
+      const remaining = Math.max(
+        0,
+        Math.ceil((monotonicDeadline - performance.now()) / 1000),
       );
+      const earlier = previous.current;
+      if (earlier === null || remaining < earlier) previous.current = remaining;
+      const announcement =
+        earlier === null
+          ? undefined
+          : crossedTimerMilestone(earlier, remaining);
+      if (announcement) setMilestone(announcement);
+      if (remaining === 0 && !atZero.current) onDeadline?.();
+      atZero.current = remaining === 0;
+      setRemainingSeconds(remaining);
+    };
     update();
     const interval = window.setInterval(update, 1000);
-    return () => window.clearInterval(interval);
-  }, [deadlineAt]);
-
-  useEffect(() => {
-    if (remainingSeconds === null) return;
-    const thresholds: Record<number, string> = {
-      600: "10 minutes remaining",
-      300: "5 minutes remaining",
-      60: "1 minute remaining",
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("focus", update);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", update);
+      window.removeEventListener("focus", update);
     };
-    const threshold = Object.keys(thresholds)
-      .map(Number)
-      .find((value) => remainingSeconds === value);
-    if (threshold !== undefined) setMilestone(thresholds[threshold]);
-  }, [remainingSeconds]);
+  }, [monotonicDeadline, onDeadline]);
 
   const label =
     remainingSeconds === null
@@ -126,7 +152,7 @@ export function RuntimeTimer({ deadlineAt }: { deadlineAt: number | null }) {
             : formatRemaining(remainingSeconds)}
         </time>
       </p>
-      <p style={visuallyHidden} aria-live="polite">
+      <p style={visuallyHidden} aria-live="polite" aria-atomic="true">
         {milestone}
       </p>
       <p>

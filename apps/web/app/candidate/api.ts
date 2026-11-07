@@ -32,6 +32,7 @@ export type RuntimeState = {
   server_now: string;
   started_at: string | null;
   deadline_at: string | null;
+  monotonic_deadline?: number | null;
   runtime_plan_checksum: string;
   runtime_plan: {
     duration_seconds: number | null;
@@ -155,6 +156,20 @@ async function recordingRequest(
   return anchorRecordingClock(value, started, performance.now());
 }
 
+async function timedAttemptRequest<
+  T extends { server_now: string; deadline_at: string | null },
+>(path: string, init?: RequestInit) {
+  const started = performance.now();
+  const state = await request<T>(path, init);
+  const remaining = state.deadline_at
+    ? Date.parse(state.deadline_at) - Date.parse(state.server_now)
+    : NaN;
+  return {
+    ...state,
+    monotonic_deadline: Number.isFinite(remaining) ? started + remaining : null,
+  };
+}
+
 async function uploadAudio(
   path: string,
   content: Blob,
@@ -198,9 +213,9 @@ export const candidateApi = {
       `/exam-attempts/${attemptId}/lid-practice-result`,
     ),
   runtime: (attemptId: string) =>
-    request<RuntimeState>(`/exam-attempts/${attemptId}/runtime`),
+    timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/runtime`),
   start: (attemptId: string) =>
-    request<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
+    timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
       method: "POST",
     }),
   startAudioRecording: (
@@ -282,7 +297,7 @@ export const candidateApi = {
       { method: "POST" },
     ),
   heartbeat: (attemptId: string) =>
-    request<CandidateAttempt & { server_now: string }>(
+    timedAttemptRequest<CandidateAttempt & { server_now: string }>(
       `/exam-attempts/${attemptId}/heartbeat`,
       {
         method: "POST",

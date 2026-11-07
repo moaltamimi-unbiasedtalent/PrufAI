@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,11 +12,13 @@ from sqlalchemy.orm import Session
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
+from app.lid_policy import is_lid_pack
 from app.models import (
     CertificateRecord,
     ResultRelease,
     ResultVersion,
     ScoringRun,
+    StandardPackVersion,
     StatementOfResults,
 )
 from app.result_release.service import ResultReleaseError, ResultReleaseService
@@ -310,9 +312,11 @@ def issue_certificate(
 
 @candidate_router.get("/releases")
 def candidate_releases(
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
+    response.headers["Cache-Control"] = "no-store"
     return [
         _payload(session, release)
         for release in ResultReleaseService.candidate_releases(session, _context(principal))
@@ -334,28 +338,43 @@ def _candidate_release(
     return ResultReleaseService._owned_release(session, context, release.id)
 
 
+def _candidate_outcome_visible(session: Session, release: ResultRelease) -> bool:
+    pack = session.get(StandardPackVersion, release.standard_pack_version_id)
+    return pack is not None and (
+        not is_lid_pack(pack)
+        or ResultReleaseService.effective_status(session, release) == "RELEASED"
+    )
+
+
 @candidate_router.get("/releases/{release_id}")
 def candidate_release_detail(
     release_id: uuid.UUID,
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    return _payload(
-        session, _candidate_release(session, _context(principal), release_id), detail=True
-    )
+    release = _candidate_release(session, _context(principal), release_id)
+    response.headers["Cache-Control"] = "no-store"
+    return _payload(session, release, detail=_candidate_outcome_visible(session, release))
 
 
 @candidate_router.get("/releases/{release_id}/statement")
 def candidate_statement(
     release_id: uuid.UUID,
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     context = _context(principal)
     release = _candidate_release(session, context, release_id)
+    if not _candidate_outcome_visible(session, release):
+        raise HTTPException(
+            status_code=404, detail="statement not available", headers={"Cache-Control": "no-store"}
+        )
     statement = session.scalar(
         select(StatementOfResults).where(StatementOfResults.release_id == release.id)
     )
     if statement is None:
         raise HTTPException(status_code=404, detail="statement not found")
+    response.headers["Cache-Control"] = "no-store"
     return _artifact(session, release, statement)

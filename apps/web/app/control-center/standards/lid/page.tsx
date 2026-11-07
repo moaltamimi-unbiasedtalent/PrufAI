@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "../../../../lib/auth";
 import css from "../../control-center.module.css";
+import lidStyles from "./lid.module.css";
 import {
   sourcePath,
   standardsRequest,
@@ -110,7 +111,7 @@ export default function LidStandardsPage() {
   const readyCount = Object.keys(pins).length;
 
   return (
-    <>
+    <div className={lidStyles.page}>
       <p>
         <Link href="/control-center/standards">
           Back to Standards &amp; packs
@@ -141,7 +142,7 @@ export default function LidStandardsPage() {
           {working && <p role="status">Loading governed LiD evidence…</p>}
           <section aria-labelledby="lid-sources-heading">
             <h2 id="lid-sources-heading">LiD source register</h2>
-            <div className={css.filters}>
+            <div className={`${css.filters} ${lidStyles.sourcePicker}`}>
               <label>
                 LiD source
                 <select
@@ -366,6 +367,6 @@ export default function LidStandardsPage() {
           )}
         </>
       )}
-    </>
+    </div>
   );
 }

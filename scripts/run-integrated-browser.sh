@@ -145,7 +145,7 @@ INTEGRATED_BROWSER_PID=$!
 while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
   if [[ -f "$PRUFAI_E2E_API_RESTART_DIR/request" && ! -e "$PRUFAI_E2E_API_RESTART_DIR/complete" ]]; then
     # The request contains no target PID, command, database, or network input.
-    # Restart only the API child launched by this guarded runner, exactly once.
+    # Restart only the API child launched by this guarded runner.
     old_api_pid="$INTEGRATED_API_PID"
     kill "$old_api_pid"
     wait "$old_api_pid" || true
@@ -153,6 +153,7 @@ while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
     [[ "$INTEGRATED_API_PID" != "$old_api_pid" ]]
     wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"
     printf '%s %s\n' "$old_api_pid" "$INTEGRATED_API_PID" >"$PRUFAI_E2E_API_RESTART_DIR/complete.tmp"
+    rm -- "$PRUFAI_E2E_API_RESTART_DIR/request"
     mv -- "$PRUFAI_E2E_API_RESTART_DIR/complete.tmp" "$PRUFAI_E2E_API_RESTART_DIR/complete"
   fi
   sleep 0.2

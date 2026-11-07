@@ -8,14 +8,16 @@ import os
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
+from alembic.script import ScriptDirectory
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
 from app.authorization import TenantContext, build_tenant_context
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import create_session_factory
 from app.evaluation.disposable import assert_disposable_database
 from app.exams.service import ExamStudioService, exam_checksum
@@ -23,10 +25,12 @@ from app.lid_policy import LID_EXAM_FAMILY, LID_PRACTICE_CODE_PREFIX, LID_PRACTI
 from app.lid_practice import service as lid
 from app.lid_practice.fixture_content import BERLIN_SCENARIOS, GENERAL_SCENARIOS, Scenario
 from app.models import (
+    CandidateExamAssignment,
     Exam,
     ExamVersion,
     LidPracticeForm,
     LidPracticePoolVersion,
+    Organisation,
     PlatformRoleAssignment,
     QuestionBankItemVersion,
     Role,
@@ -36,6 +40,7 @@ from app.models import (
 )
 from app.models.enums import (
     AssessmentFamily,
+    CandidateAssignmentStatus,
     ExamVersionStatus,
     PackResponseMode,
     PlatformAssignmentStatus,
@@ -48,7 +53,8 @@ from app.models.enums import (
     UserStatus,
 )
 from app.question_bank.service import QuestionBankService
-from app.scripts.seed_demo import demo_id, require_demo_environment
+from app.runtime.service import CandidateRuntimeService
+from app.scripts.seed_demo import demo_id, reconcile_demo, require_demo_environment
 from app.services.knowledge import KnowledgeRegistryService
 from app.standard_packs.lid_service import (
     build_lid_structure,
@@ -99,7 +105,6 @@ def _demo_source_reviewer(session: Session) -> TenantContext:
 
 
 def _prepare_demo_blueprint(session: Session, platform_user_id: uuid.UUID) -> StandardPackVersion:
-    session.execute(text("SELECT pg_advisory_xact_lock(hashtext('prufai-lid-demo-preparation'))"))
     author = build_tenant_context(session, platform_user_id)
     reviewer = _demo_source_reviewer(session)
     registry = KnowledgeRegistryService()
@@ -123,6 +128,68 @@ def _prepare_demo_blueprint(session: Session, platform_user_id: uuid.UUID) -> St
         )
         pins[key] = (version.id, checksum)
     return create_lid_blueprint(session, author, pins)
+
+
+def _prepare_demo_database(session: Session, settings: Settings) -> None:
+    migrations = Path(__file__).resolve().parents[2] / "alembic"
+    heads = ScriptDirectory(str(migrations)).get_heads()
+    if (
+        len(heads) != 1
+        or session.scalar(text("SELECT to_regclass('public.alembic_version')")) is None
+        or list(session.scalars(text("SELECT version_num FROM public.alembic_version"))) != heads
+    ):
+        raise ValueError("LID_SYNTHETIC_FIXTURE_ALEMBIC_HEAD_REQUIRED")
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtext('prufai-lid-demo-preparation'))"))
+    if session.get(Organisation, demo_id("organisation")) is not None:
+        return
+    if session.scalar(select(User.id).limit(1)) or session.scalar(select(Organisation.id).limit(1)):
+        raise ValueError("LID_SYNTHETIC_FIXTURE_EMPTY_DATABASE_REQUIRED")
+    password = os.environ.get("PRUFAI_DEMO_PASSWORD")
+    if not password:
+        raise ValueError("LID_SYNTHETIC_FIXTURE_EXPLICIT_DEMO_PASSWORD_REQUIRED")
+    reconcile_demo(session, settings, enabled=True, password=password, commit=False)
+
+
+def _prepare_demo_assignment(
+    session: Session, author: TenantContext, version: ExamVersion
+) -> CandidateExamAssignment:
+    candidate = session.scalar(
+        select(User).where(User.normalized_email == "candidate@demo.prufai.local")
+    )
+    if candidate is None:
+        raise ValueError("LID_SYNTHETIC_FIXTURE_DEMO_CANDIDATE_REQUIRED")
+    context = build_tenant_context(session, candidate.id, author.organisation_id)
+    if context.membership_id is None:
+        raise ValueError("LID_SYNTHETIC_FIXTURE_DEMO_CANDIDATE_REQUIRED")
+    existing = list(
+        session.scalars(
+            select(CandidateExamAssignment).where(
+                CandidateExamAssignment.organisation_id == author.organisation_id,
+                CandidateExamAssignment.exam_version_id == version.id,
+                CandidateExamAssignment.candidate_user_id == candidate.id,
+            )
+        )
+    )
+    if not existing:
+        return CandidateRuntimeService.create_assignment(
+            session, author, candidate_user_id=candidate.id, exam_version_id=version.id
+        )
+    assignment = existing[0]
+    if (
+        len(existing) != 1
+        or assignment.created_by_user_id != author.user_id
+        or assignment.status
+        not in {
+            CandidateAssignmentStatus.ASSIGNED,
+            CandidateAssignmentStatus.COMPLETED,
+            CandidateAssignmentStatus.AVAILABLE,
+        }
+        or assignment.maximum_attempts != 1
+        or assignment.available_from is not None
+        or assignment.available_until is not None
+    ):
+        raise ValueError("LID_SYNTHETIC_FIXTURE_ASSIGNMENT_CONFLICT")
+    return assignment
 
 
 def item_content(index: int, scenario: Scenario) -> dict[str, Any]:
@@ -393,16 +460,23 @@ def main() -> None:
     mode.add_argument(
         "--prepare-demo",
         action="store_true",
-        help="Prepare the synthetic blueprint and exam in an already seeded disposable demo.",
+        help="Prepare the synthetic blueprint, exam and candidate assignment in a disposable demo.",
     )
     args = parser.parse_args()
     settings = get_settings()
     require_demo_environment(settings, enabled=os.environ.get("PRUFAI_DEMO_ENABLED") == "1")
     database = assert_disposable_database(os.environ.get("DATABASE_URL", ""))
     assert_disposable_database(settings.database_url, database, report=False)
+    if args.prepare_demo and os.environ.get("ENVIRONMENT") != "development":
+        raise ValueError("LID_SYNTHETIC_FIXTURE_EXPLICIT_DEVELOPMENT_REQUIRED")
     with create_session_factory(settings)() as session:
-        if session.scalar(text("SELECT current_database()")) != database:
+        if session.execute(text("SELECT current_database(), current_user")).one() != (
+            database,
+            "prufai",
+        ):
             raise ValueError("DISPOSABLE_DATABASE_REQUIRED")
+        if args.prepare_demo:
+            _prepare_demo_database(session, settings)
         organisation_id = demo_id("organisation")
         platform_user_id = demo_id("platform-admin")
         administrator = session.scalar(
@@ -417,12 +491,16 @@ def main() -> None:
         )
         if blueprint is None:
             raise ValueError("LID_DRAFT_BLUEPRINT_REQUIRED")
+        author = build_tenant_context(session, administrator.id, organisation_id)
         version = seed_lid_practice(
             session,
             disposable_database=database,
             blueprint=blueprint,
-            author=build_tenant_context(session, administrator.id, organisation_id),
+            author=author,
             reviewer=build_tenant_context(session, platform_user_id, organisation_id),
+        )
+        assignment = (
+            _prepare_demo_assignment(session, author, version) if args.prepare_demo else None
         )
         session.commit()
         print(
@@ -432,6 +510,7 @@ def main() -> None:
                     "exam_name": version.exam.name,
                     "bundesland": BERLIN,
                     "blueprint_version_id": str(blueprint.id),
+                    **({"candidate_assignment_id": str(assignment.id)} if assignment else {}),
                 }
             )
         )

@@ -654,7 +654,12 @@ def _historical_result(
 
 
 def reconcile_demo(
-    session: Session, settings: Settings, *, enabled: bool, password: str = PASSWORD
+    session: Session,
+    settings: Settings,
+    *,
+    enabled: bool,
+    password: str = PASSWORD,
+    commit: bool = True,
 ) -> dict[str, str]:
     require_demo_environment(settings, enabled=enabled)
     seed_defaults(session)
@@ -742,7 +747,8 @@ def reconcile_demo(
         platform_operator=platform_administrator,
         password=password,
     )
-    session.commit()
+    if commit:
+        session.commit()
     return {
         "organisation_id": str(organisation.id),
         "organisation_slug": organisation.slug,

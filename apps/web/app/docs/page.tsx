@@ -52,9 +52,8 @@ export default function DemoDocsPage() {
           </li>
         </ul>
         <p>
-          Password for all local-only accounts: <code>Demo-PrufAI-2026!</code> A
-          local seed password override takes precedence; ask the local operator
-          if this default was changed.
+          Ask the local operator for the password configured when preparing the
+          synthetic accounts.
         </p>
         <p>
           <strong>Safety:</strong> synthetic data only; never use these

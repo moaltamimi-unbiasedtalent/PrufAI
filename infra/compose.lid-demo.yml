@@ -1,0 +1,42 @@
+# Dedicated loopback infrastructure for the synthetic Berlin walkthrough.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: prufai
+      POSTGRES_PASSWORD: ${PRUFAI_LID_PG_PASSWORD:?set a local demo password}
+      POSTGRES_DB: ${PRUFAI_DISPOSABLE_DATABASE:?name the dedicated demo database}
+    ports:
+      - "127.0.0.1:55438:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U prufai -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:?set a local MinIO user}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?set a local MinIO password}
+    ports:
+      - "127.0.0.1:59000:9000"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  postgres-data:
+  minio-data:

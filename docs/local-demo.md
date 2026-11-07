@@ -28,6 +28,7 @@ governance workspace using actual stored metadata and platform permissions.
 4. From the repository root, reconcile the demo explicitly:
 
    ```sh
+   # Set PRUFAI_DEMO_PASSWORD privately in this shell before running.
    ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1 \
    PYTHONPATH=services/api python3 -m app.scripts.seed_demo
    ```
@@ -66,7 +67,7 @@ governance workspace using actual stored metadata and platform permissions.
    `NEXT_PUBLIC_ORGANISATION_ID` configuration. Organisation choices come from
    actual active memberships returned by `/auth/me`.
 
-Demo credentials/helpers/banner are rendered only when `NODE_ENV=development`
+Demo account labels, helpers and banners render only when `NODE_ENV=development`
 and `PRUFAI_DEMO_ENABLED=1`. Production builds exclude the demo guide even when
 the flag is supplied. Access tokens stay in memory; the HttpOnly refresh cookie,
 same-origin CSRF bootstrap and existing refresh/logout endpoints restore and
@@ -75,7 +76,8 @@ account's offline queue. No tokens or response payloads are put in URL parameter
 
 ## Demo access
 
-All seven accounts use the same local-only password: `Demo-PrufAI-2026!`.
+All seven accounts use the local-only password configured with
+`PRUFAI_DEMO_PASSWORD` during seeding.
 
 | Account | Role | Walkthrough |
 | --- | --- | --- |

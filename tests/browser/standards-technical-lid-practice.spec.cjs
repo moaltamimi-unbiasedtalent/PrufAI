@@ -2,7 +2,13 @@ const { execFileSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { test, expect } = require("@playwright/test");
 const { actor, clickResponse, headers } = require("./evaluation-fixture.cjs");
-const { apiResponse, login, logout, screenshot } = require("./support.cjs");
+const {
+  apiResponse,
+  login,
+  logout,
+  restartOwnedApi,
+  screenshot,
+} = require("./support.cjs");
 
 const standards = "/api/v1/platform/standards";
 const lid = `${standards}/lid`;
@@ -307,6 +313,26 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     });
   });
 
+  await test.step("Control Centre distinguishes the installed TEST ONLY fixture from the draft", async () => {
+    await openLid(page, platformEmail);
+    const detail = await clickResponse(
+      page,
+      `Inspect LiD version ${draft.version_label}`,
+      `${lid}/blueprints/${draft.id}`,
+      "GET",
+      200,
+    );
+    expect(detail).toMatchObject({
+      status: "DRAFT",
+      official_provider_authorization: false,
+      synthetic_fixture_jurisdictions: [{ code: "DE-BE", name: "Berlin" }],
+    });
+    await expect(
+      page.getByRole("region", { name: "LiD practice form" }),
+    ).toContainText("TEST ONLY practice fixture coverage: Berlin (DE-BE)");
+    await logout(page);
+  });
+
   await test.step("institution assigns an eligible synthetic practice version", async () => {
     const admin = await login(page, adminEmail);
     orgId = demoOrganisation(admin);
@@ -405,6 +431,14 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     expect(
       Date.parse(started.deadline_at) - Date.parse(started.started_at),
     ).toBe(3_600_000);
+    const changeState = await page.request.post(
+      `${candidate}/exam-assignments/${assignmentId}/attempts`,
+      { headers: scoped(owner, orgId), data: { bundesland: "DE-BY" } },
+    );
+    expect(changeState.status()).toBe(400);
+    expect(await changeState.json()).toMatchObject({
+      detail: "CONTENT_UNAVAILABLE",
+    });
     const items = started.runtime_plan.modules.flatMap((module) =>
       module.sections.flatMap((section) =>
         section.tasks.flatMap((task) => task.items),
@@ -459,6 +493,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
         page.getByText("Saved response revision: 1", { exact: true }),
       ).toBeVisible();
       if (index === 2) {
+        await restartOwnedApi();
         await page.reload();
         await expect(
           page.getByText("Selected practice Bundesland: Berlin", {
@@ -495,6 +530,15 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       page.getByText(/The practice result will appear after scoring/),
     ).toBeVisible();
     await expect(page.getByRole("radio").first()).toBeDisabled();
+    const unreleased = await page.request.get(`${candidate}/releases`, {
+      headers: scoped(owner, orgId),
+    });
+    expect(unreleased.status()).toBe(200);
+    expect(
+      (await unreleased.json()).some(
+        (release) => release.attempt_id === attemptId,
+      ),
+    ).toBe(false);
     await logout(page);
   });
 
@@ -608,7 +652,18 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
   });
 
   await test.step("candidate sees exact 15/33 practice evidence without an official outcome or credential", async () => {
-    await login(page, candidateEmail);
+    const owner = await login(page, candidateEmail);
+    const released = await page.request.get(
+      `${candidate}/releases/${releaseId}`,
+      {
+        headers: scoped(owner, orgId),
+      },
+    );
+    expect(released.status()).toBe(200);
+    expect(await released.json()).toMatchObject({
+      attempt_id: attemptId,
+      classification: "PRACTICE",
+    });
     const preview = apiResponse(
       page,
       `/exam-attempts/${attemptId}/lid-practice-result`,

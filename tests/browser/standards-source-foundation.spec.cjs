@@ -1,8 +1,6 @@
 const { test, expect } = require("@playwright/test");
 const { createHash, randomUUID } = require("node:crypto");
-const { existsSync, readFileSync, writeFileSync } = require("node:fs");
-const path = require("node:path");
-const { login, logout, screenshot } = require("./support.cjs");
+const { login, logout, screenshot, restartOwnedApi } = require("./support.cjs");
 const { actor, clickResponse, headers } = require("./evaluation-fixture.cjs");
 
 const source = "/api/v1/platform/standards";
@@ -107,33 +105,11 @@ async function decideRights(page, version, decision) {
     200,
   );
   await expect(
-    page
-      .getByRole("status")
-      .filter({
-        hasText: "Rights decision recorded for this exact source version.",
-      }),
+    page.getByRole("status").filter({
+      hasText: "Rights decision recorded for this exact source version.",
+    }),
   ).toBeVisible();
   return rights;
-}
-
-async function restartOwnedApi() {
-  const directory = process.env.PRUFAI_E2E_API_RESTART_DIR;
-  if (!directory)
-    throw new Error(
-      "The guarded browser runner restart handshake is required.",
-    );
-  const completion = path.join(directory, "complete");
-  writeFileSync(path.join(directory, "request"), "restart owned API\n", {
-    flag: "wx",
-    mode: 0o600,
-  });
-  await expect
-    .poll(() => existsSync(completion), { timeout: 45_000 })
-    .toBe(true);
-  const [oldPid, newPid] = readFileSync(completion, "utf8").trim().split(" ");
-  expect(oldPid).toMatch(/^\d+$/);
-  expect(newPid).toMatch(/^\d+$/);
-  expect(newPid).not.toBe(oldPid);
 }
 
 async function findCitation(page, versionId) {

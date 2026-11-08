@@ -1,6 +1,6 @@
 # P1A draft retention and erasure readiness contract
 
-Status **DRAFT**. Approved retention policies **0**. Physical erasure authority **none**. Treat every inventory category as `RETENTION_POLICY = UNCONFIGURED` and `DELETION_ELIGIBILITY = NOT_DETERMINED` until approved policy and operating controls exist. [Data inventory](inventory.md) · [Storage and processors](storage-processors.md)
+Status **DRAFT**. See the [P1B test-only runtime boundary](governed-privacy-cases.md). Approved retention policies **0**. Physical erasure authority **none**. Treat every inventory category as `RETENTION_POLICY = UNCONFIGURED` and `DELETION_ELIGIBILITY = NOT_DETERMINED` until approved policy and operating controls exist. [Data inventory](inventory.md) · [Storage and processors](storage-processors.md)
 
 ## Versioned policy record
 

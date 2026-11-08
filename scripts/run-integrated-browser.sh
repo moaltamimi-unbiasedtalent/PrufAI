@@ -75,6 +75,9 @@ python3 scripts/migrate-evaluation-disposable.py
 python3 -m app.scripts.seed_demo
 export PRUFAI_E2E_REFERENCE_MANIFEST="$PRUFAI_E2E_ARTIFACT_DIR/evaluation-reference.json"
 python3 scripts/seed-evaluation-browser.py
+export PRIVACY_TEST_DISCOVERY_ENABLED=1
+export PRUFAI_E2E_PRIVACY_MANIFEST="$PRUFAI_E2E_ARTIFACT_DIR/privacy-case.json"
+python3 scripts/seed-privacy-browser.py
 # Next.js records rewrites at build time. Build with this runner's exact API
 # target so a prior build cannot silently proxy to another local environment.
 npm run build --prefix apps/web >"$PRUFAI_E2E_ARTIFACT_DIR/build.log" 2>&1 || {

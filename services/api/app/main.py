@@ -29,6 +29,7 @@ from app.knowledge.retrieval_api import router as retrieval_router
 from app.lid_editorial.api import router as lid_editorial_router
 from app.lid_editorial.review_api import router as lid_editorial_review_router
 from app.memory.api import router as memory_router
+from app.privacy.api import router as privacy_router
 from app.question_bank.api import router as question_bank_router
 from app.result_governance.api import candidate_router as candidate_appeal_router
 from app.result_governance.api import institution_router as result_governance_router
@@ -81,6 +82,7 @@ def _configure_cors() -> None:
 
 _configure_cors()
 app.include_router(auth_router)
+app.include_router(privacy_router)
 app.include_router(org_router)
 app.include_router(knowledge_router)
 app.include_router(scoped_source_review_router)

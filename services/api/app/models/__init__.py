@@ -1,5 +1,6 @@
 """SQLAlchemy persistence models for the identity and governance foundation."""
 
+from app.models import privacy as _privacy  # noqa: F401
 from app.models.ai_orchestration import (
     AgentDefinition,
     AgentVersion,

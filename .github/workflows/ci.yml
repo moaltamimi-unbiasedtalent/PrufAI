@@ -424,6 +424,18 @@ jobs:
           OBJECT_STORAGE_ACCESS_KEY: prufai_ci
           OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
           OBJECT_STORAGE_SECURE: "0"
+      - name: Governed privacy discovery (required disposable PostgreSQL and real MinIO)
+        run: python scripts/run-privacy-integration.py "$RUNNER_TEMP/privacy-required.xml"
+        env:
+          CI: true
+          DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          AUDIO_MEDIA_RUNTIME: docker
+          AUDIO_MEDIA_IMAGE: prufai-media:ffmpeg-6.1.1
+          OBJECT_STORAGE_ENDPOINT: http://localhost:9000
+          OBJECT_STORAGE_ACCESS_KEY: prufai_ci
+          OBJECT_STORAGE_SECRET_KEY: prufai_ci_secret
+          OBJECT_STORAGE_SECURE: "0"
       - name: Durable transcription execution (required PostgreSQL and real MinIO)
         run: |
           python -m pytest tests/test_transcription_execution_postgresql_minio_integration.py -v --junitxml="$RUNNER_TEMP/transcription-execution-required.xml"

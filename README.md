@@ -93,6 +93,8 @@ docker compose -f infra/docker-compose.yml config
 
 ## Architecture documentation
 
+[Privacy and data lifecycle inventory](docs/security/data-lifecycle/inventory.md) maps assessment evidence, its storage and draft retention decisions.
+
 - [Phase 0 repository audit](docs/architecture/PHASE_0_REPOSITORY_AUDIT.md)
 - [Target Architecture V1](docs/architecture/TARGET_ARCHITECTURE_V1.md)
 - [Phase 0 engineering baseline report](docs/architecture/PHASE_0_ENGINEERING_BASELINE_REPORT.md)

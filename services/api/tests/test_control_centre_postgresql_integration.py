@@ -364,7 +364,11 @@ def test_safe_metadata_omits_private_audit_payloads_source_text_and_ai_configura
             "candidate_answer": marker,
             "reviewer_private_notes": marker,
             "prompt": marker,
+            "answer_key": marker,
             "audio_bytes": marker,
+            "transcript": marker,
+            "storage_key": marker,
+            "private_url": marker,
             "operation_id": str(uuid.uuid4()),
         },
     )

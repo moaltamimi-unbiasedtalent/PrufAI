@@ -36,8 +36,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-prufai_local_only}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-prufai_local_only}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
 

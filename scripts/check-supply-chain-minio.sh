@@ -12,6 +12,7 @@ export OBJECT_STORAGE_BUCKET=o1a-private OBJECT_STORAGE_SECURE=0 PRUFAI_REQUIRE_
 for file in infra/docker-compose.yml infra/compose.lid-demo.yml; do
   docker compose -f "$file" config --format json |
     jq -e '.services.minio.build.dockerfile == "minio-source.Dockerfile" and
+      (.services.minio.ports | length > 0 and all(.host_ip == "127.0.0.1")) and
       any(.services.minio.volumes[]; .type == "volume" and .target == "/data")' >/dev/null
 done
 

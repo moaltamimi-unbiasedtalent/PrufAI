@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     speaking_test_adapter_enabled: bool = False
     speaking_provider_timeout_seconds: int = Field(default=90, ge=1, le=120)
     speaking_approved_profile_fingerprints: list[str] = []
+    privacy_test_discovery_enabled: bool = False
     certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"

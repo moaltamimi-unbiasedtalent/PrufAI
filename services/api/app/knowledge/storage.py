@@ -41,6 +41,7 @@ class S3CompatibleObjectStorage:
         region: str = "us-east-1",
         secure: bool = True,
         client: Optional[Any] = None,
+        metadata_probe: bool = False,
     ) -> None:
         if not endpoint or not bucket or not access_key or not secret_key:
             raise StorageError("S3-compatible object storage is not fully configured")
@@ -50,6 +51,7 @@ class S3CompatibleObjectStorage:
             return
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:
             raise StorageError("S3-compatible object storage client is unavailable") from exc
         scheme_endpoint = endpoint
@@ -61,6 +63,11 @@ class S3CompatibleObjectStorage:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
+            config=(
+                Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1})
+                if metadata_probe
+                else None
+            ),
         )
 
     def put(self, key: str, content: bytes, mime_type: str) -> None:
@@ -124,6 +131,26 @@ class S3CompatibleObjectStorage:
         except Exception as exc:
             raise StorageError("source file is unavailable") from exc
 
+    def probe_metadata(self, key: str, expected_size: int) -> tuple[str, str | None]:
+        """Report metadata only, preserving missing, denied and unknown distinctions."""
+        from botocore.exceptions import ClientError
+
+        try:
+            result = self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code"))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return "OBJECT_MISSING", None
+            if code in {"403", "AccessDenied", "Forbidden"}:
+                return "OBJECT_INACCESSIBLE", None
+            return "METADATA_VERIFICATION_UNAVAILABLE", None
+        except Exception:
+            return "METADATA_VERIFICATION_UNAVAILABLE", None
+        if result.get("ContentLength") != expected_size:
+            return "OBJECT_METADATA_MISMATCH", None
+        version = result.get("VersionId") or result.get("ETag")
+        return "OBJECT_KNOWN", version if isinstance(version, str) else None
+
     def exists(self, key: str) -> bool:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
@@ -132,7 +159,7 @@ class S3CompatibleObjectStorage:
             return False
 
 
-def build_object_storage(settings: Any) -> ObjectStorage:
+def build_object_storage(settings: Any, *, metadata_probe: bool = False) -> ObjectStorage:
     if settings.object_storage_backend == "memory":
         if settings.environment == "production":
             raise StorageError("production object storage cannot use in-memory storage")
@@ -146,6 +173,7 @@ def build_object_storage(settings: Any) -> ObjectStorage:
         secret_key=settings.object_storage_secret_key,
         region=settings.object_storage_region,
         secure=settings.object_storage_secure,
+        metadata_probe=metadata_probe,
     )
 
 

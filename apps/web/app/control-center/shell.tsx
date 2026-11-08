@@ -28,6 +28,7 @@ export const controlLinks = [
   ["Question Bank", "/control-center/question-bank", "question_bank.read"],
   ["Exam governance", "/control-center/exams", "exam.read"],
   ["Audit evidence", "/control-center/audit", "platform.audit.read"],
+  ["Privacy workbench", "/privacy", "platform.control_center.read"],
   ["AI operations", "/control-center/ai-operations", "ai.read"],
   ["Evaluation", "/control-center/evaluation", "standards.evaluation.read"],
   [

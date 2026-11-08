@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -574,6 +574,7 @@ def get_attempt(
 @candidate_router.get("/exam-attempts/{attempt_id}/lid-practice-result")
 def get_lid_practice_result(
     attempt_id: uuid.UUID,
+    response: Response,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
@@ -583,7 +584,12 @@ def get_lid_practice_result(
     except Exception as exc:  # noqa: BLE001
         raise _runtime_error(exc) from exc
     if projection is None:
-        raise HTTPException(status_code=404, detail="LID_PRACTICE_RESULT_PENDING")
+        raise HTTPException(
+            status_code=404,
+            detail="LID_PRACTICE_RESULT_PENDING",
+            headers={"Cache-Control": "no-store"},
+        )
+    response.headers["Cache-Control"] = "no-store"
     return projection
 
 
@@ -681,7 +687,7 @@ def heartbeat(
     try:
         attempt = CandidateRuntimeService.heartbeat(session, _context(principal), attempt_id)
         session.commit()
-        return _attempt_payload(attempt) | {"server_now": datetime.now().isoformat()}
+        return _attempt_payload(attempt) | {"server_now": datetime.now(timezone.utc).isoformat()}
     except Exception as exc:  # noqa: BLE001
         session.rollback()
         raise _runtime_error(exc) from exc

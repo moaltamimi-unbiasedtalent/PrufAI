@@ -8,12 +8,31 @@ import {
 } from "../../../../lib/lid-practice";
 import { CandidateApiError, candidateApi } from "../../api";
 
-export function LidPracticeResultPanel({ attemptId }: { attemptId: string }) {
+export function LidPracticeResultPanel({
+  attemptId,
+  bundeslandLabel,
+}: {
+  attemptId: string;
+  bundeslandLabel: string;
+}) {
   const [result, setResult] = useState<LidPracticeResult | null>(null);
   const [state, setState] = useState<"loading" | "pending" | "error">(
     "loading",
   );
   const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const revalidate = () => {
+      if (document.visibilityState === "visible")
+        setReload((value) => value + 1);
+    };
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("pageshow", revalidate);
+    return () => {
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("pageshow", revalidate);
+    };
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -41,7 +60,8 @@ export function LidPracticeResultPanel({ attemptId }: { attemptId: string }) {
   return (
     <section aria-labelledby="lid-practice-result">
       <h2 id="lid-practice-result">LiD practice result</h2>
-      <p>NOT OFFICIAL · NOT CERTIFIED</p>
+      <p>Classification: PRACTICE · NOT OFFICIAL · NOT CERTIFIED</p>
+      <p>Practice jurisdiction: {bundeslandLabel}</p>
       {!result && state === "loading" && (
         <p role="status">Loading the practice result…</p>
       )}
@@ -68,7 +88,7 @@ export function LidPracticeResultPanel({ attemptId }: { attemptId: string }) {
               require a complete response set.
             </p>
           )}
-          <p>Administrative recognition: {result.administrative_recognition}</p>
+          <p>Administrative recognition: Not established.</p>
           <ul aria-label="Distinct numerical previews">
             {result.contexts.map((context) => (
               <li key={context.purpose}>

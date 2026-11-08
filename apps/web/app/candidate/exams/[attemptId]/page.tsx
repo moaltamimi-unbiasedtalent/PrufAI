@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import React, {
   useCallback,
@@ -69,13 +70,25 @@ function safeError(cause: unknown): string {
     return "Practice questions are unavailable for this Bundesland.";
   if (cause.code.includes("UNSUPPORTED_RESPONSE_MODE"))
     return "This exam contains a response type that is not available in Candidate Runtime.";
-  if (cause.status === 403 || cause.status === 404)
+  if (cause.status === 401) return "Bitte melden Sie sich erneut an.";
+  if (
+    cause.status === 403 ||
+    cause.status === 404 ||
+    cause.code === "candidate attempt not found"
+  )
     return "This exam attempt is unavailable to the authenticated candidate.";
   if (cause.code.includes("available") || cause.code.includes("limit"))
     return "This assignment cannot be started right now.";
   if (cause.status === 409)
     return "The server rejected this action because the attempt state changed. Refresh and try again.";
   return "The runtime is temporarily unavailable.";
+}
+
+function isExpired(cause: unknown): boolean {
+  return (
+    cause instanceof CandidateApiError &&
+    cause.code === "RUNTIME.ATTEMPT_EXPIRED"
+  );
 }
 
 export default function CandidateExamRuntimePage() {
@@ -117,6 +130,13 @@ export default function CandidateExamRuntimePage() {
   const [pendingSave, setPendingSave] = useState(false);
   const [audioPending, setAudioPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const submitDialogRef = useRef<HTMLDialogElement>(null);
+  const submitTriggerRef = useRef<HTMLButtonElement>(null);
+  const cancelSubmitRef = useRef<HTMLButtonElement>(null);
+  const submitTitleId = useId();
+  const submitDescriptionId = useId();
   const navigatingRef = useRef(false);
   useEffect(() => {
     navigatingRef.current = false;
@@ -168,6 +188,22 @@ export default function CandidateExamRuntimePage() {
     runtime?.responses.find((item) => item.binding_id === currentBinding)
       ?.revision ?? 0;
 
+  const markExpired = useCallback(() => {
+    const current = runtimeRef.current;
+    if (!current || current.status === "SUBMITTED") return;
+    const binding =
+      current.session.current_binding_id ??
+      flattenItems(current)[0]?.binding_id;
+    setResponse(
+      current.responses.find((answer) => answer.binding_id === binding)
+        ?.payload ?? {},
+    );
+    updateRuntime((state) => state && { ...state, status: "EXPIRED" });
+    setStatus("Expired");
+    setError(null);
+    submitDialogRef.current?.close();
+  }, [updateRuntime]);
+
   const loadRuntime = useCallback(
     async (id: string, nextScreen?: Screen) => {
       const expectedContext = currentContext.current;
@@ -183,6 +219,8 @@ export default function CandidateExamRuntimePage() {
         (item) => item.binding_id === bindingId,
       );
       setResponse(persisted?.payload ?? {});
+      if (state.status === "EXPIRED") setStatus("Expired");
+      if (state.status === "SUBMITTED") setStatus("Submitted");
       setScreen(
         nextScreen ??
           (state.status === "READY"
@@ -249,28 +287,50 @@ export default function CandidateExamRuntimePage() {
     };
   }, []);
 
-  useEffect(() => {
+  const refreshAttempt = useCallback(() => {
     if (!attemptId || !editable) return;
-    const heartbeat = window.setInterval(() => {
-      void candidateApi
-        .heartbeat(attemptId)
-        .then((state) => {
-          updateRuntime((current) =>
-            current
-              ? {
-                  ...current,
-                  status: state.status,
-                  started_at: state.started_at,
-                  deadline_at: state.deadline_at,
-                }
-              : current,
+    const expectedContext = currentContext.current;
+    void candidateApi
+      .heartbeat(attemptId)
+      .then((state) => {
+        if (
+          currentContext.current !== expectedContext ||
+          runtimeRef.current?.status !== "IN_PROGRESS"
+        )
+          return;
+        if (state.status === "EXPIRED") {
+          markExpired();
+        } else {
+          if (state.status === "SUBMITTED") {
+            setStatus("Submitted");
+            submitDialogRef.current?.close();
+          }
+          updateRuntime(
+            (current) =>
+              current && {
+                ...current,
+                status: state.status,
+                deadline_at: state.deadline_at,
+                monotonic_deadline: state.monotonic_deadline,
+              },
           );
-          if (state.status === "EXPIRED") setStatus("Expired");
-        })
-        .catch(() => undefined);
-    }, 30000);
-    return () => window.clearInterval(heartbeat);
-  }, [attemptId, editable, updateRuntime]);
+        }
+      })
+      .catch(() => undefined);
+  }, [attemptId, editable, markExpired, updateRuntime]);
+
+  useEffect(() => {
+    if (!editable) return;
+    const whenVisible = () => {
+      if (document.visibilityState === "visible") refreshAttempt();
+    };
+    const heartbeat = window.setInterval(refreshAttempt, 30000);
+    document.addEventListener("visibilitychange", whenVisible);
+    return () => {
+      window.clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", whenVisible);
+    };
+  }, [editable, refreshAttempt]);
 
   useEffect(() => {
     if (!online || !attemptId || !accountScope) return;
@@ -299,19 +359,16 @@ export default function CandidateExamRuntimePage() {
             );
             return "ack";
           } catch (cause) {
+            if (active && isExpired(cause)) {
+              expired = true;
+              saveBlocked.current = true;
+              markExpired();
+              return "expired";
+            }
             if (cause instanceof CandidateApiError && cause.status === 409) {
               saveBlocked.current = true;
               setStatus("Conflict");
               return "conflict";
-            }
-            if (
-              cause instanceof CandidateApiError &&
-              cause.code.includes("expired")
-            ) {
-              expired = true;
-              saveBlocked.current = true;
-              setStatus("Expired");
-              return "expired";
             }
             saveBlocked.current = true;
             return "conflict";
@@ -348,7 +405,7 @@ export default function CandidateExamRuntimePage() {
     return () => {
       active = false;
     };
-  }, [online, attemptId, accountScope, updateRuntime]);
+  }, [online, attemptId, accountScope, markExpired, updateRuntime]);
 
   async function prepareAttempt() {
     if (!assignmentId || (lidAssignment && !selectedPracticeState)) return;
@@ -466,13 +523,14 @@ export default function CandidateExamRuntimePage() {
           failure = cause;
           if (currentContext.current !== expectedContext) return;
           saveBlocked.current = true;
+          if (isExpired(cause)) {
+            markExpired();
+            return;
+          }
           setStatus(
             cause instanceof CandidateApiError && cause.status === 409
               ? "Conflict"
-              : cause instanceof CandidateApiError &&
-                  cause.code.includes("expired")
-                ? "Expired"
-                : "Save failed",
+              : "Save failed",
           );
           setError(safeError(cause));
         }
@@ -519,7 +577,10 @@ export default function CandidateExamRuntimePage() {
       setError(null);
       questionHeadingRef.current?.focus();
     } catch (cause) {
-      setError(safeError(cause));
+      if (currentContext.current === expectedContext) {
+        if (isExpired(cause)) markExpired();
+        else setError(safeError(cause));
+      }
     } finally {
       if (currentContext.current === expectedContext) {
         navigatingRef.current = false;
@@ -533,11 +594,21 @@ export default function CandidateExamRuntimePage() {
       !attemptId ||
       !editable ||
       audioPendingRef.current ||
-      navigatingRef.current
+      navigatingRef.current ||
+      submittingRef.current
     )
       return;
+    const expectedContext = contextKey;
+    submittingRef.current = true;
+    setSubmitting(true);
+    submitDialogRef.current?.close();
     try {
       await saveSequence.current;
+      if (
+        currentContext.current !== expectedContext ||
+        runtimeRef.current?.status !== "IN_PROGRESS"
+      )
+        return;
       if (!online || saveBlocked.current) {
         setError(
           "Synchronize all responses before submitting. Reload to resolve a conflict.",
@@ -545,12 +616,19 @@ export default function CandidateExamRuntimePage() {
         return;
       }
       const submitted = await candidateApi.submit(attemptId);
+      if (currentContext.current !== expectedContext) return;
       updateRuntime((current) =>
         current ? { ...current, status: submitted.status } : current,
       );
       setStatus("Submitted");
     } catch (cause) {
-      setError(safeError(cause));
+      if (currentContext.current === expectedContext) {
+        if (isExpired(cause)) markExpired();
+        else setError(safeError(cause));
+      }
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -568,6 +646,7 @@ export default function CandidateExamRuntimePage() {
       <main>
         <h1>Exam unavailable</h1>
         <p role="alert">{error ?? "This exam is unavailable."}</p>
+        <Link href="/candidate">Back to my exams</Link>
       </main>
     );
   if (screen === "prestart") {
@@ -665,7 +744,9 @@ export default function CandidateExamRuntimePage() {
   const selected = (response.option_ids as string[] | undefined) ?? [];
   const textValue = (response.text as string | undefined) ?? "";
   const mediaAssetId = response.media_asset_id as string | undefined;
-  const message = runtimeStateMessage(status);
+  const expired = runtime?.status === "EXPIRED";
+  const message = expired ? null : runtimeStateMessage(status);
+  const unanswered = items.length - (runtime?.responses.length ?? 0);
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -684,13 +765,33 @@ export default function CandidateExamRuntimePage() {
         </>
       )}
       <p>Attempt {attemptId} · Server time controls the deadline.</p>
-      {lidForm && runtime?.status === "SUBMITTED" ? (
+      {expired ? (
+        <section lang="de" aria-labelledby="expired-attempt">
+          <h2 id="expired-attempt">Prüfungszeit abgelaufen</h2>
+          <p role="alert">
+            Der Server hat diesen Versuch als abgelaufen markiert (EXPIRED).
+            Ihre gespeicherten Antworten bleiben erhalten. Sie können keine
+            Antworten mehr ändern oder den Versuch abgeben.
+          </p>
+          <p>
+            <Link href="/candidate">Zurück zu meinen Prüfungen</Link>. Wenden
+            Sie sich an Ihre Institution, wenn Sie Hilfe benötigen.
+          </p>
+        </section>
+      ) : lidForm && runtime?.status === "SUBMITTED" ? (
         <p>Submission state: Submitted</p>
       ) : (
         <RuntimeTimer
-          deadlineAt={
-            runtime?.deadline_at ? Date.parse(runtime.deadline_at) : null
-          }
+          key={attemptId}
+          monotonicDeadline={runtime?.monotonic_deadline ?? null}
+          onDeadline={refreshAttempt}
+        />
+      )}
+      {lidForm && attemptId && runtime?.status === "SUBMITTED" && (
+        <LidPracticeResultPanel
+          key={`${contextKey}:${attemptId}`}
+          attemptId={attemptId}
+          bundeslandLabel={lidForm.bundesland_label}
         />
       )}
       <p>
@@ -702,7 +803,7 @@ export default function CandidateExamRuntimePage() {
         role={status === "Saved" || status === "Saving" ? "status" : "alert"}
         aria-live={status === "Saved" || status === "Saving" ? "off" : "polite"}
       >
-        Autosave: {status}
+        Autosave: {expired ? "Expired" : status}
       </p>
       {message && (
         <p id={errorId} role="alert">
@@ -851,16 +952,57 @@ export default function CandidateExamRuntimePage() {
       </nav>
       <button
         type="button"
-        onClick={() => void submit()}
-        disabled={!editable || pendingSave || audioPending || navigating}
+        ref={submitTriggerRef}
+        aria-haspopup={lidForm ? "dialog" : undefined}
+        onClick={() => {
+          if (!lidForm) {
+            void submit();
+          } else {
+            submitDialogRef.current?.showModal();
+            cancelSubmitRef.current?.focus();
+          }
+        }}
+        disabled={
+          !editable || pendingSave || audioPending || navigating || submitting
+        }
       >
         Submit attempt
       </button>
-      {lidForm && attemptId && runtime?.status === "SUBMITTED" && (
-        <LidPracticeResultPanel
-          key={`${contextKey}:${attemptId}`}
-          attemptId={attemptId}
-        />
+      {lidForm && (
+        <dialog
+          ref={submitDialogRef}
+          aria-labelledby={submitTitleId}
+          aria-describedby={submitDescriptionId}
+          onClose={() => {
+            if (
+              !submittingRef.current &&
+              runtimeRef.current?.status === "IN_PROGRESS"
+            )
+              submitTriggerRef.current?.focus();
+          }}
+          style={{
+            maxWidth: "min(28rem, calc(100% - 2rem))",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <h2 id={submitTitleId}>Submit this practice exam?</h2>
+          <div id={submitDescriptionId}>
+            <p>After you submit, you can no longer change your answers.</p>
+            <p>
+              {unanswered} of {items.length} questions unanswered.
+            </p>
+          </div>
+          <button
+            type="button"
+            ref={cancelSubmitRef}
+            onClick={() => submitDialogRef.current?.close()}
+          >
+            Keep working
+          </button>{" "}
+          <button type="button" onClick={() => void submit()}>
+            Submit final answers
+          </button>
+        </dialog>
       )}
       {audioPending && (
         <p role="status">

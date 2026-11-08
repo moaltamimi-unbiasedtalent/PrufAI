@@ -688,7 +688,7 @@ def safe_contexts(contexts: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def practice_result(session: Session, attempt: CandidateExamAttempt) -> dict[str, Any] | None:
-    from app.models import AssessmentResult, ResultRelease, ResultVersion, ScoringRun
+    from app.models import AssessmentResult, ResultVersion, ScoringRun
     from app.models.enums import CandidateAttemptStatus, ResultOutcome, ScoringRunStatus
     from app.result_release.service import ResultReleaseService
     from app.standard_packs.lid_service import lid_draft_integrity
@@ -727,15 +727,11 @@ def practice_result(session: Session, attempt: CandidateExamAttempt) -> dict[str
     if row is None:
         return None
     version, run, result = row
-    release = session.scalar(
-        select(ResultRelease).where(ResultRelease.result_version_id == version.id)
-    )
-    if release is None or ResultReleaseService.effective_status(session, release) != "RELEASED":
-        return None
     exam = session.get(ExamVersion, attempt.exam_version_id)
     if exam is None:
         raise ValueError(INVALID_FORM)
-    ResultReleaseService._check_release(release, version, result, run, exam)
+    if not ResultReleaseService.has_active_result_release(session, version, result, run, exam):
+        return None
     preview = version.rule_provenance.get("lid_practice_preview")
     if (
         not isinstance(preview, dict)

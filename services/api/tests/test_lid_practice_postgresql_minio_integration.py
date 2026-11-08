@@ -330,9 +330,14 @@ def _release_practice_result(proof, organisation_id, attempt, run):
     assert result["scoring_run_id"] == run["id"]
     result_path = f"{prefix}/result-versions/{result['version_id']}"
     candidate_path = f"/exam-attempts/{attempt}/lid-practice-result"
+    candidate_result = f"/results/{result['id']}"
     assert _candidate(proof, "GET", candidate_path, status=404) == {
         "detail": "LID_PRACTICE_RESULT_PENDING"
     }
+    _candidate(proof, "GET", candidate_result, status=404)
+    assert not any(row["attempt_id"] == attempt for row in _candidate(proof, "GET", "/releases"))
+    summary = _candidate(proof, "GET", f"/exam-attempts/{attempt}")
+    assert not {"raw_awarded_points", "raw_correct", "contexts"}.intersection(summary)
     assert (
         proof.http("POST", result_path + "/request-review", actor="revoked")["status"] == "PENDING"
     )
@@ -340,6 +345,7 @@ def _release_practice_result(proof, organisation_id, attempt, run):
     assert _candidate(proof, "GET", candidate_path, status=404) == {
         "detail": "LID_PRACTICE_RESULT_PENDING"
     }
+    _candidate(proof, "GET", candidate_result, status=404)
     proof.http(
         "POST",
         result_path + "/release",
@@ -555,6 +561,7 @@ def test_real_private_form_and_canonical_scoring(proof, practice, monkeypatch):
         form = session.get(LidPracticeForm, uuid.UUID(practice[1]))
         rv = session.get(ResultVersion, uuid.UUID(result["result_version_id"]))
         assert stored is not None and form is not None and rv is not None
+        result_id = rv.result_id
         assert stored.runtime_plan["lid_practice"]["form_checksum"] == form.checksum
         assert rv.rule_provenance["lid_practice_preview"]["contexts"] == result["contexts"]
         assert rv.outcome.value == "UNDETERMINED"
@@ -591,6 +598,28 @@ def test_real_private_form_and_canonical_scoring(proof, practice, monkeypatch):
         session.rollback()
 
     _assert_legacy_issuance_denied(proof, practice[0], release_id, monkeypatch)
+    candidate_release = f"/releases/{release_id}"
+    cache_controls = []
+    with TestClient(app) as client:
+        for route in (
+            "/results",
+            f"/results/{result_id}",
+            candidate_release,
+            path + "/lid-practice-result",
+        ):
+            response = client.get(CANDIDATE + route, headers=proof.headers["candidate"])
+            assert response.status_code == 200
+            cache_controls.append(response.headers.get("Cache-Control"))
+    assert _candidate(proof, "GET", candidate_release)["result"]["raw_awarded_points"] == "15.0000"
+    for actor in ("outsider", "revoked"):
+        proof.http("GET", CANDIDATE + candidate_release, actor=actor, status=404)
+    proof.http(
+        "POST",
+        f"/api/v1/organisations/{practice[0]}/releases/{release_id}/statement",
+        actor="revoked",
+        json={"operation_id": "lid-statement-visibility"},
+    )
+    assert _candidate(proof, "GET", candidate_release + "/statement")["currently_valid"] is True
     revoked = proof.http(
         "POST",
         f"/api/v1/organisations/{practice[0]}/releases/{release_id}/revoke",
@@ -601,6 +630,13 @@ def test_real_private_form_and_canonical_scoring(proof, practice, monkeypatch):
     assert _candidate(proof, "GET", path + "/lid-practice-result", status=404) == {
         "detail": "LID_PRACTICE_RESULT_PENDING"
     }
+    assert all(row["attempt_id"] != attempt for row in _candidate(proof, "GET", "/results"))
+    _candidate(proof, "GET", f"/results/{result_id}", status=404)
+    detail = _candidate(proof, "GET", candidate_release)
+    assert detail["effective_status"] == "REVOKED"
+    assert detail.get("result") is None and not detail.get("statements")
+    _candidate(proof, "GET", candidate_release + "/statement", status=404)
+    assert all(value == "no-store" for value in cache_controls)
 
 
 def test_incomplete_and_timeout_fail_closed(proof, practice, monkeypatch):
@@ -619,11 +655,25 @@ def test_incomplete_and_timeout_fail_closed(proof, practice, monkeypatch):
     expiring = _prepare(proof, _assignment(proof, practice))["id"]
     path = f"/exam-attempts/{expiring}"
     state = _candidate(proof, "POST", path + "/start")
+    first = _items(state)[0]
+    answer = _correct_option(first)
+    _save(proof, expiring, first, answer)
     monkeypatch.setattr(
         runtime, "_now", lambda: datetime.fromisoformat(state["deadline_at"]) + timedelta(seconds=1)
     )
+    expired = {"detail": "RUNTIME.ATTEMPT_EXPIRED"}
+    assert _save(proof, expiring, first, answer, status=409) == expired
+    assert (
+        _candidate(proof, "POST", path + f"/navigate?binding_id={first['binding_id']}", status=409)
+        == expired
+    )
+    assert _candidate(proof, "POST", path + "/submit", status=409) == expired
+    reloaded = _candidate(proof, "GET", path + "/runtime")
+    assert reloaded["status"] == "EXPIRED"
+    assert reloaded["responses"] == [
+        {"binding_id": first["binding_id"], "revision": 1, "payload": {"option_id": answer}}
+    ]
     assert _candidate(proof, "POST", path + "/heartbeat")["status"] == "EXPIRED"
-    _candidate(proof, "POST", path + "/submit", status=409)
 
 
 def test_preexisting_fixture_cannot_run_in_production(proof, practice, monkeypatch):

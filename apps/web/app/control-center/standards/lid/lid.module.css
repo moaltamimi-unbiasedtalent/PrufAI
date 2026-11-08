@@ -1,0 +1,19 @@
+.page {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.sourcePicker label {
+  min-width: 0;
+  max-width: min(100%, 32rem);
+}
+
+.sourcePicker select {
+  width: 100%;
+  min-width: 0;
+}

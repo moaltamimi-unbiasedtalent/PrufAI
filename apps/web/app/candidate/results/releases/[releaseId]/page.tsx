@@ -36,6 +36,18 @@ export default function CandidateReleasedResultPage({
   const [statementLoading, setStatementLoading] = useState(false);
   const [reload, setReload] = useState(0);
   useEffect(() => {
+    const revalidate = () => {
+      if (document.visibilityState === "visible")
+        setReload((value) => value + 1);
+    };
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("pageshow", revalidate);
+    return () => {
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("pageshow", revalidate);
+    };
+  }, []);
+  useEffect(() => {
     let cancelled = false;
     setRelease(null);
     setLoadedContext(null);

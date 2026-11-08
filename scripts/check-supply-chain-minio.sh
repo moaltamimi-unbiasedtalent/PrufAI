@@ -30,9 +30,18 @@ container="$(docker run --detach --publish 127.0.0.1::9000 \
   --mount "type=volume,source=$volume,target=/data" \
   --env "MINIO_ROOT_USER=$OBJECT_STORAGE_ACCESS_KEY" --env "MINIO_ROOT_PASSWORD=$OBJECT_STORAGE_SECRET_KEY" "$image")"
 export OBJECT_STORAGE_ENDPOINT="http://$(docker port "$container" 9000/tcp)"
-if ! curl --silent --show-error --fail --retry 20 --retry-connrefused --retry-delay 1 \
-  --max-time 5 "$OBJECT_STORAGE_ENDPOINT/minio/health/ready" >/dev/null; then
+ready=0
+for _ in $(seq 1 30); do
+  if curl --silent --fail --max-time 2 "$OBJECT_STORAGE_ENDPOINT/minio/health/ready" >/dev/null; then
+    ready=1
+    break
+  fi
+  [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == true ]] || break
+  sleep 1
+done
+if [[ "$ready" != 1 ]]; then
   docker logs "$container"
+  echo "The scanned MinIO image did not become ready"
   exit 1
 fi
 

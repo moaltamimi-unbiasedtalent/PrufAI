@@ -13,7 +13,8 @@ for file in infra/docker-compose.yml infra/compose.lid-demo.yml; do
     jq -e '.services.minio.build.dockerfile == "minio-source.Dockerfile" and
       (.services.minio.ports | length > 0 and
         all(.host_ip == "127.0.0.1" and (.target == 9000 or .target == 9001))) and
-      (.services.minio.command == null and .services.minio.entrypoint == null) and
+      (.services.minio.command == null and .services.minio.entrypoint == null and
+        .services.minio.network_mode == null) and
       any(.services.minio.volumes[]; .type == "volume" and .target == "/data")' >/dev/null
 done
 
@@ -59,7 +60,7 @@ fi
 docker exec "$container" awk '
   $4 == "0A" && $2 ~ /:4A3[89]$/ {
     print $2
-    if ($2 !~ /^0100007F:4A3[89]$/) unsafe = 1
+    if ($2 !~ /^(0100007F|00000000000000000000000001000000):4A3[89]$/) unsafe = 1
     ports[$2] = 1
   }
   END { exit (unsafe || !ports["0100007F:4A38"] || !ports["0100007F:4A39"]) }

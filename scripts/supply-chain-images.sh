@@ -46,6 +46,20 @@ scan_built() {
   scan "$name" "$image" built
 }
 
+scan_decoder() {
+  local image="$1"
+  scan_built decoder infra/media-probe.Dockerfile "$image"
+  docker run --rm --network=none --read-only --cap-drop=ALL --entrypoint /bin/sh "$image" -ec '
+    for package in apt libapt-pkg6.0t64; do
+      version="$(dpkg-query -W -f="\${Version}" "$package")"
+      dpkg --compare-versions "$version" ge 2.8.4ubuntu0.1
+      printf "%s\t%s\n" "$package" "$version"
+    done
+  ' > "$out/decoder-apt-versions.tsv"
+  jq -e 'all(.Results[].Vulnerabilities[]?; .VulnerabilityID != "CVE-2026-109518")' \
+    "$out/decoder.trivy.json" >/dev/null
+}
+
 scan_go() {
   local name="$1" binary="$2"
   (
@@ -92,7 +106,7 @@ record() {
 
 decoder="prufai-o1a-decoder:$revision"
 minio="prufai-o1a-minio:$revision"
-record decoder scan_built decoder infra/media-probe.Dockerfile "$decoder"
+record decoder scan_decoder "$decoder"
 record minio-source scan_built minio-source infra/minio-source.Dockerfile "$minio"
 record ci-postgresql scan ci-postgresql "$(sed -n 's/^        image: \(pgvector\/pgvector[^ ]*\)$/\1/p' .github/workflows/ci.yml | sort -u)" pull
 record ci-redis scan ci-redis "$(sed -n 's/^        image: \(redis:[^ ]*\)$/\1/p' .github/workflows/ci.yml | sort -u)" pull

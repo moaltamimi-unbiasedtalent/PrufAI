@@ -2,7 +2,7 @@
 set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 name="prufai-audio-minio"
-image="prufai-minio:RELEASE.2025-10-15T17-29-55Z"
+image="prufai-minio:guarded-2025-10-15"
 case "${1:-}" in
   start)
     : "${OBJECT_STORAGE_ACCESS_KEY:?Set a dedicated local development access key}"
@@ -14,6 +14,10 @@ case "${1:-}" in
     # No reset, anonymous policy, or deletion. The named volume survives stop.
     if docker container inspect "$name" >/dev/null 2>&1; then
       test "$(docker inspect --format '{{index .Config.Labels "org.prufai.purpose"}}' "$name")" = local-audio-storage
+      if [[ "$(docker inspect --format '{{index .Config.Labels "org.prufai.storage-ingress"}}' "$name")" != guarded-v1 ]]; then
+        echo 'Existing audio storage container is unguarded. A separately authorized recreation is required.' >&2
+        exit 1
+      fi
       docker start "$name" >/dev/null
     else
       docker build --file "$repository_root/infra/minio-source.Dockerfile" --tag "$image" "$repository_root/infra"
@@ -21,7 +25,8 @@ case "${1:-}" in
       docker run --detach --name "$name" --label org.prufai.purpose=local-audio-storage \
         --publish 127.0.0.1:19000:9000 --publish 127.0.0.1:19001:9001 \
         --mount type=volume,source=prufai-audio-minio-data,target=/data \
-        --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD "$image" >/dev/null
+        --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD \
+        --env MINIO_BROWSER_REDIRECT_URL=http://127.0.0.1:19001 "$image" >/dev/null
     fi
     for _ in $(seq 1 45); do
       if curl --fail --silent --connect-timeout 1 --max-time 1 "$OBJECT_STORAGE_ENDPOINT/minio/health/ready" >/dev/null; then

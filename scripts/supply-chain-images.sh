@@ -66,28 +66,23 @@ scan_go() {
     cd "$(dirname "$binary")"
     sha256sum "$(basename "$binary")"
   ) > "$out/$name.sha256"
-  go version -m "$binary" | sed '1s|^.*:|minio:|' > "$out/$name.go-build-info.txt"
-  grep -q 'v0.0.0-20251015172955-9e49d5e7a648' "$out/$name.go-build-info.txt"
+  go version -m "$binary" | sed "1s|^.*:|$name:|" > "$out/$name.go-build-info.txt"
+  if [[ "$name" == minio-container-binary ]]; then
+    grep -q 'v0.0.0-20251015172955-9e49d5e7a648' "$out/$name.go-build-info.txt"
+  else
+    [[ "$(head -1 "$out/$name.go-build-info.txt")" == "$name: go1.26.10" ]]
+  fi
   govulncheck -mode binary -format json "$binary" | jq -c . > "$out/$name.govulncheck.jsonl"
   jq -e -s 'any(.[]; .config.protocol_version != null)' "$out/$name.govulncheck.jsonl" >/dev/null
 }
 
 scan_container_go() (
-  local container
-  container="$(docker create --platform "$platform" "$1")"
+  local name="$1" image="$2" binary="$3" container
+  container="$(docker create --platform "$platform" "$image")"
   trap 'docker rm "$container" >/dev/null' EXIT
-  docker cp "$container:/usr/local/bin/minio" "$cache/minio"
-  scan_go minio-container-binary "$cache/minio"
+  docker cp "$container:/usr/local/bin/$binary" "$cache/$binary"
+  scan_go "$name" "$cache/$binary"
 )
-
-scan_ci_go() {
-  mkdir "$cache/ci-bin"
-  # The native CI binary and the CGO-disabled image binary are different artifacts.
-  [[ "$(go version)" == "go version go1.24.13 linux/amd64" ]]
-  GOTOOLCHAIN=local GOBIN="$cache/ci-bin" \
-    go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
-  scan_go minio-ci-binary "$cache/ci-bin/minio"
-}
 
 failed=0
 record() {
@@ -113,7 +108,7 @@ record ci-redis scan ci-redis "$(sed -n 's/^        image: \(redis:[^ ]*\)$/\1/p
 record dev-postgresql scan dev-postgresql postgres:16-alpine pull
 record demo-redis scan demo-redis redis:7-alpine pull
 record minio-go-builder scan minio-go-builder "$(sed -n 's/^FROM \(golang:[^ ]*\) AS build$/\1/p' infra/minio-source.Dockerfile)" pull
-record minio-container-binary scan_container_go "$minio"
-record minio-ci-binary scan_ci_go
+record minio-container-binary scan_container_go minio-container-binary "$minio" minio
+record minio-ingress-binary scan_container_go minio-ingress-binary "$minio" prufai-minio-ingress
 
 exit "$failed"

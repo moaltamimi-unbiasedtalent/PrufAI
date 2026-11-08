@@ -31,8 +31,8 @@ services:
     build:
       context: .
       dockerfile: minio-source.Dockerfile
-    command: server /data --console-address ":9001"
     environment:
+      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-prufai_local_only}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-prufai_local_only}
     ports:

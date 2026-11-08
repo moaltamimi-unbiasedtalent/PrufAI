@@ -40,10 +40,6 @@ IMAGES = {
         "Local development and demo Redis service.",
         "Development infrastructure maintainer",
     ),
-    "legacy-minio": (
-        "Legacy local development and demo object-storage image.",
-        "Storage maintainer",
-    ),
     "minio-go-builder": (
         "Build stage. Only the MinIO executable crosses into the final image.",
         "Storage build maintainer",

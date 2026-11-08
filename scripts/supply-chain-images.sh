@@ -98,7 +98,6 @@ record ci-postgresql scan ci-postgresql "$(sed -n 's/^        image: \(pgvector\
 record ci-redis scan ci-redis "$(sed -n 's/^        image: \(redis:[^ ]*\)$/\1/p' .github/workflows/ci.yml | sort -u)" pull
 record dev-postgresql scan dev-postgresql postgres:16-alpine pull
 record demo-redis scan demo-redis redis:7-alpine pull
-record legacy-minio scan legacy-minio minio/minio:RELEASE.2025-04-22T22-12-26Z pull
 record minio-go-builder scan minio-go-builder "$(sed -n 's/^FROM \(golang:[^ ]*\) AS build$/\1/p' infra/minio-source.Dockerfile)" pull
 record minio-container-binary scan_container_go "$minio"
 record minio-ci-binary scan_ci_go

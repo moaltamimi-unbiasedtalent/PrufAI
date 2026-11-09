@@ -83,17 +83,22 @@ class Rig:
         return obj
 
     def remove(self, kind, name, *flags):
-        if (
-            subprocess.run(
-                ["docker", kind, "inspect", name],
-                check=False,
-                capture_output=True,
-                timeout=15,
-            ).returncode
-            == 0
-        ):
-            self.owned(kind, name)
-            self.docker(kind, "rm", *flags, name)
+        probe = subprocess.run(
+            ["docker", kind, "inspect", name],
+            check=False,
+            capture_output=True,
+            timeout=15,
+        )
+        if probe.returncode:
+            error = probe.stderr.decode(errors="replace")
+            if not any(
+                marker in error
+                for marker in (f"No such {kind}: {name}", f"{kind} {name} not found")
+            ):
+                probe.check_returncode()
+            return
+        self.owned(kind, name)
+        self.docker(kind, "rm", *flags, name)
 
     def create_network(self, name, *, register_cleanup=True):
         self.docker(
@@ -520,11 +525,16 @@ def main():
     parser.add_argument("evidence", type=Path)
     parser.add_argument("--local-image")
     args = parser.parse_args()
-    assert __debug__
+    if not __debug__:
+        parser.error("storage readiness requires Python assertions to be enabled")
     local = args.local_image is not None
-    assert (local and os.getenv("PRUFAI_DISPOSABLE_STORAGE_TEST") == "1") or (
-        not local and os.getenv("GITHUB_ACTIONS") == "true"
-    )
+    if not (
+        (local and os.getenv("PRUFAI_DISPOSABLE_STORAGE_TEST") == "1")
+        or (not local and os.getenv("GITHUB_ACTIONS") == "true")
+    ):
+        parser.error(
+            "select a disposable local Docker context or run in GitHub Actions"
+        )
     os.umask(0o077)
     out = args.evidence.resolve()
     out.mkdir(parents=True, exist_ok=True)

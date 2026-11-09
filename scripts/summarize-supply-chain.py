@@ -47,7 +47,7 @@ IMAGES = {
 }
 GO_BINARIES = {
     "minio-container-binary": "CGO-disabled MinIO executable copied from the built storage image",
-    "minio-ci-binary": "Native MinIO executable rebuilt using the required CI service recipe",
+    "minio-ingress-binary": "Guard executable copied from the same image used in application CI",
 }
 
 

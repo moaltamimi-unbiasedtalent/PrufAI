@@ -30,7 +30,6 @@ services:
     build:
       context: .
       dockerfile: minio-source.Dockerfile
-    command: server /data
     environment:
       MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:?set a local MinIO user}
       MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?set a local MinIO password}

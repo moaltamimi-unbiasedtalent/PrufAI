@@ -46,34 +46,43 @@ scan_built() {
   scan "$name" "$image" built
 }
 
+scan_decoder() {
+  local image="$1"
+  scan_built decoder infra/media-probe.Dockerfile "$image"
+  docker run --rm --network=none --read-only --cap-drop=ALL --entrypoint /bin/sh "$image" -ec '
+    for package in apt libapt-pkg6.0t64; do
+      version="$(dpkg-query -W -f="\${Version}" "$package")"
+      dpkg --compare-versions "$version" ge 2.8.4ubuntu0.1
+      printf "%s\t%s\n" "$package" "$version"
+    done
+  ' > "$out/decoder-apt-versions.tsv"
+  jq -e 'all(.Results[].Vulnerabilities[]?; .VulnerabilityID != "CVE-2026-109518")' \
+    "$out/decoder.trivy.json" >/dev/null
+}
+
 scan_go() {
   local name="$1" binary="$2"
   (
     cd "$(dirname "$binary")"
     sha256sum "$(basename "$binary")"
   ) > "$out/$name.sha256"
-  go version -m "$binary" | sed '1s|^.*:|minio:|' > "$out/$name.go-build-info.txt"
-  grep -q 'v0.0.0-20251015172955-9e49d5e7a648' "$out/$name.go-build-info.txt"
+  go version -m "$binary" | sed "1s|^.*:|$name:|" > "$out/$name.go-build-info.txt"
+  if [[ "$name" == minio-container-binary ]]; then
+    grep -q 'v0.0.0-20251015172955-9e49d5e7a648' "$out/$name.go-build-info.txt"
+  else
+    [[ "$(head -1 "$out/$name.go-build-info.txt")" == "$name: go1.26.10" ]]
+  fi
   govulncheck -mode binary -format json "$binary" | jq -c . > "$out/$name.govulncheck.jsonl"
   jq -e -s 'any(.[]; .config.protocol_version != null)' "$out/$name.govulncheck.jsonl" >/dev/null
 }
 
 scan_container_go() (
-  local container
-  container="$(docker create --platform "$platform" "$1")"
+  local name="$1" image="$2" binary="$3" container
+  container="$(docker create --platform "$platform" "$image")"
   trap 'docker rm "$container" >/dev/null' EXIT
-  docker cp "$container:/usr/local/bin/minio" "$cache/minio"
-  scan_go minio-container-binary "$cache/minio"
+  docker cp "$container:/usr/local/bin/$binary" "$cache/$binary"
+  scan_go "$name" "$cache/$binary"
 )
-
-scan_ci_go() {
-  mkdir "$cache/ci-bin"
-  # The native CI binary and the CGO-disabled image binary are different artifacts.
-  [[ "$(go version)" == "go version go1.24.13 linux/amd64" ]]
-  GOTOOLCHAIN=local GOBIN="$cache/ci-bin" \
-    go install github.com/minio/minio@RELEASE.2025-10-15T17-29-55Z
-  scan_go minio-ci-binary "$cache/ci-bin/minio"
-}
 
 failed=0
 record() {
@@ -92,14 +101,14 @@ record() {
 
 decoder="prufai-o1a-decoder:$revision"
 minio="prufai-o1a-minio:$revision"
-record decoder scan_built decoder infra/media-probe.Dockerfile "$decoder"
+record decoder scan_decoder "$decoder"
 record minio-source scan_built minio-source infra/minio-source.Dockerfile "$minio"
 record ci-postgresql scan ci-postgresql "$(sed -n 's/^        image: \(pgvector\/pgvector[^ ]*\)$/\1/p' .github/workflows/ci.yml | sort -u)" pull
 record ci-redis scan ci-redis "$(sed -n 's/^        image: \(redis:[^ ]*\)$/\1/p' .github/workflows/ci.yml | sort -u)" pull
 record dev-postgresql scan dev-postgresql postgres:16-alpine pull
 record demo-redis scan demo-redis redis:7-alpine pull
 record minio-go-builder scan minio-go-builder "$(sed -n 's/^FROM \(golang:[^ ]*\) AS build$/\1/p' infra/minio-source.Dockerfile)" pull
-record minio-container-binary scan_container_go "$minio"
-record minio-ci-binary scan_ci_go
+record minio-container-binary scan_container_go minio-container-binary "$minio" minio
+record minio-ingress-binary scan_container_go minio-ingress-binary "$minio" prufai-minio-ingress
 
 exit "$failed"

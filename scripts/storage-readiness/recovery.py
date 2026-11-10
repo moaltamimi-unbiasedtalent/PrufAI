@@ -322,7 +322,6 @@ def restore(path, manifest_sha, records, storage, database):
             Body=payload,
             ContentType=record["type"],
             Metadata=object_metadata(record),
-            ACL="private",
         )
         mapping.append(
             {

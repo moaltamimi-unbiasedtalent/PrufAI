@@ -13,9 +13,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     object_storage_endpoint: str = "http://localhost:9000"
     object_storage_bucket: str = "prufai-local"
-    object_storage_backend: Literal["memory", "s3"] = "memory"
+    object_storage_backend: Literal["memory", "s3", "aws-s3-trial"] = "memory"
     object_storage_access_key: str = ""
     object_storage_secret_key: str = ""
+    object_storage_session_token: str = Field(default="", repr=False)
+    object_storage_aws_trial_approved: bool = False
     object_storage_region: str = "us-east-1"
     object_storage_secure: bool = False
     audio_media_runtime: Literal["native", "docker"] = "native"

@@ -39,6 +39,7 @@ class S3CompatibleObjectStorage:
         access_key: str,
         secret_key: str,
         region: str = "us-east-1",
+        session_token: str | None = None,
         secure: bool = True,
         client: Optional[Any] = None,
         metadata_probe: bool = False,
@@ -62,6 +63,7 @@ class S3CompatibleObjectStorage:
             endpoint_url=scheme_endpoint,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
+            aws_session_token=session_token,
             region_name=region,
             config=(
                 Config(connect_timeout=2, read_timeout=3, retries={"total_max_attempts": 1})
@@ -77,7 +79,6 @@ class S3CompatibleObjectStorage:
                 Key=key,
                 Body=content,
                 ContentType=mime_type,
-                ACL="private",
             )
         except Exception as exc:
             raise StorageError("object storage is unavailable") from exc
@@ -164,7 +165,26 @@ def build_object_storage(settings: Any, *, metadata_probe: bool = False) -> Obje
         if settings.environment == "production":
             raise StorageError("production object storage cannot use in-memory storage")
         return InMemoryObjectStorage()
-    if settings.object_storage_backend != "s3":
+    session_token = None
+    if settings.object_storage_backend == "aws-s3-trial":
+        if settings.environment != "test" or not settings.object_storage_aws_trial_approved:
+            raise StorageError("managed S3 trial requires approved synthetic test configuration")
+        if (
+            settings.object_storage_region != "eu-central-1"
+            or not settings.object_storage_secure
+            or settings.object_storage_endpoint != "https://s3.eu-central-1.amazonaws.com"
+        ):
+            raise StorageError("managed S3 trial requires the Frankfurt HTTPS endpoint")
+        if (
+            settings.object_storage_bucket == "prufai-local"
+            or re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", settings.object_storage_bucket)
+            is None
+        ):
+            raise StorageError("managed S3 trial requires an explicit DNS-compatible bucket")
+        session_token = settings.object_storage_session_token
+        if not session_token.strip():
+            raise StorageError("managed S3 trial requires temporary credentials")
+    elif settings.object_storage_backend != "s3":
         raise StorageError("unsupported object storage backend")
     return S3CompatibleObjectStorage(
         endpoint=settings.object_storage_endpoint,
@@ -172,6 +192,7 @@ def build_object_storage(settings: Any, *, metadata_probe: bool = False) -> Obje
         access_key=settings.object_storage_access_key,
         secret_key=settings.object_storage_secret_key,
         region=settings.object_storage_region,
+        session_token=session_token,
         secure=settings.object_storage_secure,
         metadata_probe=metadata_probe,
     )

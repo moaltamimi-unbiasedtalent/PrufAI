@@ -10,8 +10,12 @@ import subprocess
 import sys
 import time
 from contextlib import ExitStack
+from datetime import UTC, datetime, timedelta
 from http.client import HTTPException
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import boto3
 from app.knowledge.storage import S3CompatibleObjectStorage
@@ -420,6 +424,10 @@ def signed_contract(rig, storage, record):
     )
     rejected(lambda: adapter.client.list_buckets(), status=403)
     rejected(
+        lambda: adapter.client.delete_object(Bucket=storage.bucket, Key=record["key"]),
+        status=403,
+    )
+    rejected(
         lambda: storage.invalid_client().get_object(
             Bucket=storage.bucket, Key=record["key"]
         ),
@@ -468,6 +476,21 @@ def signed_contract(rig, storage, record):
         ExpiresIn=60,
     )
     assert peer(rig, storage.network, signed_url=signed) == record["sha256"]
+    expired_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=2)
+    with patch("botocore.auth.get_current_datetime", return_value=expired_at):
+        expired_url = storage.client("s3", key, secret, token).generate_presigned_url(
+            "get_object",
+            Params={"Bucket": storage.bucket, "Key": record["key"]},
+            ExpiresIn=60,
+        )
+    try:
+        with urlopen(expired_url, timeout=5):
+            raise AssertionError("expired presigned read was accepted")
+    except HTTPError as error:
+        with error:
+            assert error.code == 403 and b"Request has expired" in error.read()
+    assert sha(adapter.get(record["key"])) == record["sha256"]
+    rig.evidence["private_s3_expiration_and_delete_denial"] = "PASS"
     rig.evidence["private_s3"] = (
         "PASS: scoped application adapter, cross-prefix denial, IPv4/IPv6 peer, Range, multipart, presign, content type"
     )

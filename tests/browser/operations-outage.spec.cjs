@@ -27,7 +27,7 @@ test("frontend reports a real API outage and signs in after the owned API restar
     const failure = apiResponse(page, "/api/v1/auth/login", "POST");
     await page.getByRole("button", { name: "Sign in to workspace" }).click();
     expect((await failure).status()).toBeGreaterThanOrEqual(500);
-    await expect(page.getByRole("alert")).toHaveText(
+    await expect(page.locator("form").getByRole("alert")).toHaveText(
       "Sign in is unavailable. Check that the API and database are running.",
     );
     await expect(page).toHaveURL(/\/login$/);

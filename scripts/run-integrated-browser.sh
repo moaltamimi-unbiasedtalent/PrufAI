@@ -97,7 +97,7 @@ cleanup() {
       wait "$process_id" 2>/dev/null || true
     fi
   done
-  rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/request" "$PRUFAI_E2E_API_RESTART_DIR/complete" "$PRUFAI_E2E_API_RESTART_DIR/complete.tmp"
+  rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/"{request,complete,complete.tmp,hold,paused,resume}
   rmdir -- "$PRUFAI_E2E_API_RESTART_DIR"
 }
 trap cleanup EXIT
@@ -152,6 +152,17 @@ while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
     old_api_pid="$INTEGRATED_API_PID"
     kill "$old_api_pid"
     wait "$old_api_pid" || true
+    INTEGRATED_API_PID=""
+    if [[ -f "$PRUFAI_E2E_API_RESTART_DIR/hold" ]]; then
+      touch "$PRUFAI_E2E_API_RESTART_DIR/paused"
+      # Bound the outage even if the browser assertion fails or times out.
+      for _ in $(seq 1 150); do
+        [[ ! -f "$PRUFAI_E2E_API_RESTART_DIR/resume" ]] || break
+        kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null || break
+        sleep 0.2
+      done
+      rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/"{hold,paused,resume}
+    fi
     start_api
     [[ "$INTEGRATED_API_PID" != "$old_api_pid" ]]
     wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"

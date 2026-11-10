@@ -168,7 +168,7 @@ class Rig:
 class Storage:
     bucket = "o1b2-synthetic"
 
-    def __init__(self, rig, role):
+    def __init__(self, rig, role, *, published_port=None):
         self.rig = rig
         self.network = rig.mark + f"-{role}-bridge"
         self.container = rig.mark + f"-{role}-s3"
@@ -190,7 +190,7 @@ class Storage:
             "--network-alias",
             "guarded-storage",
             "--publish",
-            "127.0.0.1::9000",
+            f"127.0.0.1:{published_port or ''}:9000",
             "--publish",
             "[::1]::9000",
             "--publish",
@@ -310,7 +310,7 @@ class Storage:
 
 
 class Database:
-    def __init__(self, rig, role):
+    def __init__(self, rig, role, *, published_port=None):
         self.rig = rig
         self.name = f"o1b2_{role}_{rig.mark.removeprefix('o1b2-')}"
         self.container = rig.mark + f"-{role}-pg"
@@ -320,7 +320,7 @@ class Database:
         rig.launch(
             self.container,
             "--publish",
-            "127.0.0.1::5432",
+            f"127.0.0.1:{published_port or ''}:5432",
             "--env",
             f"POSTGRES_DB={self.name}",
             "--env",

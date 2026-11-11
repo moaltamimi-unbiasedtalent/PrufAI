@@ -83,6 +83,8 @@ jobs:
           bash scripts/check-supply-chain-minio.sh "$RUNNER_TEMP/o1a-containers"
       - name: Rehearse guarded storage failures and reconcile a PostgreSQL and S3 restore
         run: python scripts/storage-readiness/check.py "$RUNNER_TEMP/o1a-containers"
+      - name: Rehearse isolated service failures and assessment evidence recovery
+        run: python scripts/storage-readiness/operations.py "$RUNNER_TEMP/o1a-containers"
       - name: Summarize image and binary evidence
         if: always()
         env:

@@ -36,7 +36,8 @@ jobs:
       - run: npm run build
 
   browser:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 supports Ubuntu 24.04 and cannot install Chromium on Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
@@ -83,19 +84,25 @@ jobs:
         working-directory: services/api
       - name: Install isolated browser acceptance tooling
         run: |
+          cat /etc/os-release
+          uname -m
           tool_dir="$RUNNER_TEMP/prufai-browser-tool"
           mkdir -p "$tool_dir"
           cp infra/browser-tool/package.json infra/browser-tool/package-lock.json "$tool_dir/"
           npm ci --prefix "$tool_dir" --ignore-scripts
           export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/prufai-playwright-binaries"
+          node "$tool_dir/node_modules/@playwright/test/cli.js" --version
           node "$tool_dir/node_modules/@playwright/test/cli.js" install --with-deps chromium
           echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
           node - "$tool_dir/node_modules/playwright-core" <<'JS'
+          const { execFileSync } = require('node:child_process');
           const { createHash } = require('node:crypto');
           const { createReadStream } = require('node:fs');
           const { relative } = require('node:path');
           const { registry } = require(process.argv[2] + '/lib/server/registry/index.js');
           async function recordBinaries() {
+            const chromium = registry.findExecutable('chromium').executablePath();
+            console.log(execFileSync(chromium, ['--version'], { encoding: 'utf8' }).trim());
             for (const name of ['chromium', 'chromium-headless-shell', 'ffmpeg']) {
               const path = registry.findExecutable(name).executablePath();
               const hash = createHash('sha256');

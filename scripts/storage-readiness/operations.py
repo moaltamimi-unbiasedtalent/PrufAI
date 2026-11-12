@@ -8,13 +8,16 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
-from app.scripts.seed_demo import GOLDEN_CANDIDATE_EMAIL
+from app.config import Settings
+from app.operations.readiness import CANARY_BYTES, CANARY_KEY, measure_readiness
+from app.scripts.seed_demo import GOLDEN_CANDIDATE_EMAIL, PLATFORM_ADMIN_EMAIL
 from check import ROOT, Database, Rig, Storage, provenance, run, sha
 from recovery import seed
 from redis import Redis
@@ -33,6 +36,7 @@ WORKERS = ("speech_transcription", "writing_execution", "speaking_execution")
 AUDIO_USER = "audio.candidate@demo.prufai.local"
 ADMIN = "admin@demo.prufai.local"
 AUTH = "/api/v1/auth/login"
+SYSTEM = "/api/v1/platform/control-center/system"
 
 
 def eventually(check, *, seconds=20):
@@ -111,6 +115,7 @@ def launch_redis(rig):
     volume = rig.mark + "-ops-redis-state"
     rig.create_volume(volume)
     published = port()
+    password = secrets.token_hex(20)
     rig.launch(
         name,
         "--publish",
@@ -118,11 +123,14 @@ def launch_redis(rig):
         "--mount",
         f"type=volume,source={volume},target=/data",
         REDIS,
+        "redis-server",
+        "--requirepass",
+        password,
     )
     binding = rig.owned("container", name)["NetworkSettings"]["Ports"]["6379/tcp"]
     assert len(binding) == 1 and binding[0]["HostIp"] == "127.0.0.1"
 
-    url = f"redis://127.0.0.1:{binding[0]['HostPort']}/0"
+    url = f"redis://:{password}@127.0.0.1:{binding[0]['HostPort']}/0"
 
     def ready():
         try:
@@ -159,6 +167,8 @@ def settings(db, storage, redis_url, decoder, secret):
         "OBJECT_STORAGE_ACCESS_KEY": storage.key,
         "OBJECT_STORAGE_SECRET_KEY": storage.secret,
         "OBJECT_STORAGE_SECURE": "false",
+        "OPERATIONS_STORAGE_GUARD_PROBE_ENABLED": "true",
+        "OPERATIONS_STORAGE_CANARY_ENABLED": "true",
         "AUDIO_MEDIA_RUNTIME": "docker",
         "AUDIO_MEDIA_IMAGE": decoder,
         "AWS_MAX_ATTEMPTS": "1",
@@ -288,34 +298,65 @@ def read_audio(client, path, headers, content):
 
 
 def failures(
-    rig, database, storage, redis, ready, client, password, stream, actor, content
+    rig, database, storage, redis, redis_url, ready, client, password, stream, actor, content
 ):
     prior = snapshot(database, audit=False)
     ai_runs = database.sql("SELECT count(*) FROM ai_runs")
     outcome = {}
+    credentials = {"email": AUDIO_USER, "password": password}
+    token = call(
+        client, "POST", AUTH, json={"email": PLATFORM_ADMIN_EMAIL, "password": password}
+    ).json()["access_token"]
+    platform = {"Authorization": f"Bearer {token}"}
+    call(client, "GET", SYSTEM, 403, headers={"Authorization": actor["Authorization"]})
+    assert call(client, "GET", "/ready").json() == {"status": "ready"}
+    detail = call(client, "GET", SYSTEM, headers=platform).json()
+    assert detail["workers"]["process_health"] == "NOT_VERIFIED"
+    assert set(detail["workers"]["queues"]) == {"transcription", "writing", "speaking"}
+    assert detail["alert_delivery"] == "NOT_CONFIGURED"
+    assert detail["object_storage"]["canary"] == "VERIFIED"
+    assert detail["object_storage"]["provider_approval"] == "NOT_VERIFIED"
+    wrong = storage.operator().put_object(
+        Bucket=storage.bucket, Key=CANARY_KEY, Body=b"x" * len(CANARY_BYTES)
+    )
+    try:
+        capability = call(client, "GET", SYSTEM, headers=platform).json()["object_storage"]
+        assert capability["health"] == "DEGRADED"
+        assert capability["failure_category"] == "INTEGRITY_MISMATCH"
+    finally:
+        storage.operator().delete_object(
+            Bucket=storage.bucket, Key=CANARY_KEY, VersionId=wrong["VersionId"]
+        )
+    assert CANARY_KEY not in json.dumps(detail) and storage.secret not in json.dumps(detail)
+    session_count = database.sql("SELECT count(*) FROM auth_sessions")
     rig.owned("container", database.container)
     rig.docker("stop", database.container)
     try:
         call(client, "GET", "/health")
-        unavailable = call(
-            client, "POST", AUTH, 500, json={"email": AUDIO_USER, "password": password}
-        )
-        assert unavailable.text == "Internal Server Error"
+        assert call(client, "GET", "/ready", 503).json() == {"status": "unavailable"}
+        for _ in range(2):
+            unavailable = call(client, "POST", AUTH, 503, json=credentials)
+            assert unavailable.json() == {"detail": {"code": "AUTH_DATABASE_UNAVAILABLE"}}
+            assert "set-cookie" not in unavailable.headers
         outcome["postgresql_unavailable"] = {
             "liveness": 200,
-            "login": 500,
+            "readiness": 503,
+            "login": 503,
             "safe_response": True,
         }
     finally:
         rig.docker("start", database.container)
         eventually(lambda: db_ready(database))
+    assert database.sql("SELECT count(*) FROM auth_sessions") == session_count
+    call(client, "GET", "/ready")
     sign_in(client, AUDIO_USER, password, actor["X-PrufAI-Organisation-ID"])
+    session_count = database.sql("SELECT count(*) FROM auth_sessions")
     rig.owned("container", redis)
     rig.docker("stop", redis)
     try:
-        unavailable = call(
-            client, "POST", AUTH, 503, json={"email": AUDIO_USER, "password": password}
-        )
+        assert call(client, "GET", "/ready", 503).json() == {"status": "unavailable"}
+        unavailable = call(client, "POST", AUTH, 503, json=credentials)
+        assert "set-cookie" not in unavailable.headers
         assert unavailable.json() == {
             "detail": "authentication rate limiting is temporarily unavailable"
         }
@@ -323,7 +364,31 @@ def failures(
     finally:
         rig.docker("start", redis)
         eventually(ready)
+    assert database.sql("SELECT count(*) FROM auth_sessions") == session_count
+    call(client, "GET", "/ready")
     sign_in(client, AUDIO_USER, password, actor["X-PrufAI-Organisation-ID"])
+    wrong_redis = redis_url.replace(urlsplit(redis_url).password, "wrong-synthetic")
+    bad_credentials = Settings(
+        _env_file=None, environment="test", database_url=database.url,
+        redis_url=wrong_redis, auth_rate_limit_backend="redis",
+    )
+    assert measure_readiness(bad_credentials).redis.failure == "AUTHENTICATION_REJECTED"
+    rig.owned("container", redis)
+    rig.docker("pause", redis)
+    try:
+        started = time.monotonic()
+        assert call(client, "GET", "/ready", 503).json() == {"status": "unavailable"}
+        assert time.monotonic() - started < 5
+        assert call(client, "GET", SYSTEM, headers=platform).json()["redis"][
+            "failure_category"
+        ] == "TIMEOUT"
+    finally:
+        rig.docker("unpause", redis)
+        eventually(ready)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        assert list(pool.map(lambda _: client.get("/ready").status_code, range(12))) == [200] * 12
+    outcome["bounded_repeated_readiness"] = "PASS"
+    outcome["redis_authentication_and_timeout_classification"] = "PASS"
     for label, command in (
         ("minio_container_stopped", ("stop", storage.container)),
         ("storage_guard_killed", ("kill", "--signal", "KILL", storage.container)),
@@ -331,6 +396,9 @@ def failures(
         rig.owned("container", storage.container)
         rig.docker(*command)
         try:
+            call(client, "GET", "/ready")
+            storage_health = call(client, "GET", SYSTEM, headers=platform).json()["object_storage"]
+            assert storage_health["health"] == "UNAVAILABLE"
             response = call(client, "GET", stream, 503, headers=actor)
             assert response.json() == {
                 "detail": "private audio storage or upload recovery is unavailable"
@@ -340,6 +408,7 @@ def failures(
             rig.docker("start", storage.container)
             storage.wait()
         read_audio(client, stream, actor, content)
+        assert call(client, "GET", SYSTEM, headers=platform).json()["object_storage"]["canary"] == "VERIFIED"
     assert snapshot(database, audit=False) == prior
     assert database.sql("SELECT count(*) FROM ai_runs") == ai_runs
     return outcome
@@ -370,6 +439,9 @@ def exercise(rig, out, local, decoder):
     records, creator = seed(database, storage)
     ids, release, pending, foreign_org, foreign_email = seed_domains(database, password)
     ai_runs = database.sql("SELECT count(*) FROM ai_runs")
+    canary = storage.operator().put_object(
+        Bucket=storage.bucket, Key=CANARY_KEY, Body=CANARY_BYTES
+    )
     env = settings(database, storage, redis_url, decoder, secret)
     ai, _ = launch_api(
         rig,
@@ -425,6 +497,7 @@ def exercise(rig, out, local, decoder):
             database,
             storage,
             redis,
+            redis_url,
             redis_ready,
             client,
             password,
@@ -434,6 +507,15 @@ def exercise(rig, out, local, decoder):
         )
         end(api)
         assert api.returncode in (0, -15)
+        client_s3 = storage.operator()
+        versions = client_s3.list_object_versions(Bucket=storage.bucket, Prefix=CANARY_KEY)
+        assert [(entry["Key"], entry["VersionId"]) for entry in versions["Versions"]] == [
+            (CANARY_KEY, canary["VersionId"])
+        ]
+        assert not versions.get("DeleteMarkers")
+        client_s3.delete_object(
+            Bucket=storage.bucket, Key=CANARY_KEY, VersionId=canary["VersionId"]
+        )
         # The next process can reach PostgreSQL and MinIO, but its decoder is absent.
         broken_env = {
             **env,

@@ -11,6 +11,7 @@ from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.models import AssessmentResult, ResultVersion, ScoringRun
+from app.operations.telemetry import Failure, Signal, record
 from app.result_release.service import ResultReleaseService
 from app.scoring.service import ScoringService
 
@@ -223,6 +224,8 @@ def release_result(
             "effective_status": ResultReleaseService.effective_status(session, release),
         }
     except Exception as exc:  # noqa: BLE001
+        if not isinstance(exc, AuthorizationError):
+            record(Signal.RESULT_RELEASE, Failure.OPERATION_FAILED)
         session.rollback()
         raise _error(exc) from exc
 

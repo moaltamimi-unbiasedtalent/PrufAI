@@ -36,6 +36,7 @@ from app.models.enums import (
     KnowledgeDocumentType,
     KnowledgeScope,
 )
+from app.operations.telemetry import Failure, Signal, record
 from app.services.knowledge import KnowledgeRegistryService, SourceConflict
 
 router = APIRouter(prefix="/api/v1/platform/standards", tags=["standards"])
@@ -138,6 +139,8 @@ def _error(session: Session, exc: Exception) -> HTTPException:
     session.rollback()
     if isinstance(exc, AuthorizationError):
         return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, StorageIntegrityError):
+        record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
     if isinstance(exc, (StorageIntegrityError, SourceConflict)):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, IntegrityError):

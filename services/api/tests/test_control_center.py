@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
 
 from app.audit import AuditService
 from app.auth.api import Principal, get_principal
@@ -21,6 +20,8 @@ from app.db import get_db_session
 from app.main import app
 from app.models import AIModelProfile, AuditEvent
 from app.models.enums import AIArtifactStatus
+from app.operations.readiness import Dependency
+from app.operations.telemetry import Failure
 from app.result_release.service import ResultReleaseService
 from app.scoring.service import ScoringService
 from tests.integration_support.result_correction_scenario import (
@@ -130,7 +131,7 @@ def test_platform_metadata_endpoints_are_paginated_read_only_and_safe(control_ap
     assert not session.new and not session.dirty and not session.deleted
 
 
-def test_overview_only_queries_and_exposes_permitted_domains(control_api):
+def test_overview_only_queries_and_exposes_permitted_domains(control_api, monkeypatch):
     client, session, _, platform, authenticate = control_api
     read_only = replace(
         platform,
@@ -152,6 +153,8 @@ def test_overview_only_queries_and_exposes_permitted_domains(control_api):
     assert payload["service_health"] is None
     listing = client.get(PREFIX + "/organisations").json()
     assert listing["items"][0]["membership_count"] is None
+    monkeypatch.setattr("app.operations.readiness._postgres", lambda _: Dependency("HEALTHY"))
+    monkeypatch.setattr("app.control_center.service.worker_queue_counts", lambda *_: {})
     authenticate()
     before = ControlCenterRepository.recent_audit_count(session)
     event = session.scalar(select(AuditEvent))
@@ -172,7 +175,7 @@ def test_overview_only_queries_and_exposes_permitted_domains(control_api):
     assert payload["metrics"]["recent_audit_events"] == before
     assert payload["metric_scopes"]["recent_audit_events"] == "LAST_24_HOURS"
     assert len(payload["recent_audit"]) <= 5
-    assert payload["service_health"]["database"]["status"] == "reachable"
+    assert payload["service_health"]["database"]["status"] == "HEALTHY"
 
 
 def test_reference_filter_does_not_impersonate_organisation_and_requires_capability(control_api):
@@ -330,20 +333,24 @@ def test_ai_and_system_metadata_do_not_claim_live_execution_or_expose_secrets(
     authenticate()
     models = client.get(PREFIX + "/ai-operations")
     assert models.status_code == 200 and PRIVATE not in models.text
+    monkeypatch.setattr("app.operations.readiness._postgres", lambda _: Dependency("HEALTHY"))
+    monkeypatch.setattr("app.control_center.service.worker_queue_counts", lambda *_: {})
     system = client.get(PREFIX + "/system")
     assert system.status_code == 200 and PRIVATE not in system.text
-    assert system.json()["database"]["status"] == "reachable"
+    assert system.json()["database"]["status"] == "HEALTHY"
+    assert system.json()["workers"]["process_health"] == "NOT_VERIFIED"
     assert system.json()["ai_executor"]["status"] == "UNCONFIGURED"
-    assert system.json()["object_storage"]["health"] == "NOT_VERIFIED"
+    assert system.json()["object_storage"]["health"] == "NOT_CONFIGURED"
     assert system.json()["certification"]["official_issuance"] == "DISABLED"
 
-    def unavailable(_):
-        raise OperationalError(PRIVATE, {}, Exception(PRIVATE))
-
-    monkeypatch.setattr(ControlCenterRepository, "database_reachable", unavailable)
+    monkeypatch.setattr(
+        "app.operations.readiness._postgres",
+        lambda _: Dependency("UNAVAILABLE", Failure.UNAVAILABLE),
+    )
     failed = client.get(PREFIX + "/system")
     assert failed.status_code == 200 and PRIVATE not in failed.text
-    assert failed.json()["database"]["status"] == "unavailable"
+    assert failed.json()["database"]["status"] == "UNAVAILABLE"
+    assert failed.json()["workers"]["queues"] is None
 
 
 @pytest.mark.parametrize(

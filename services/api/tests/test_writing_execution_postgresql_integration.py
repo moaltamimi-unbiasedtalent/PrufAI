@@ -60,6 +60,7 @@ from app.models.enums import (
     MembershipStatus,
     SubjectiveAssessmentStatus,
 )
+from app.operations.workers import worker_queue_counts
 from app.scripts.seed_ai_writing_demo import AI_WRITING_CANDIDATE_EMAIL
 from app.scripts.seed_demo import PLATFORM_ADMIN_EMAIL
 from app.writing_assessment.service import (
@@ -453,6 +454,14 @@ def test_two_independent_postgresql_workers_claim_exclusively_and_fence_expired_
 ):
     p = writing_execution
     job = p.job(p.queue(p.submit()))
+
+    def counts():
+        with p.factory() as session:
+            projection = worker_queue_counts(session, datetime.now(timezone.utc))
+        assert projection is not None
+        return projection["writing"]
+
+    assert counts()["QUEUED"] == 1
     barrier, lock, pids = Barrier(2), Lock(), set()
 
     def claim(index):
@@ -469,6 +478,7 @@ def test_two_independent_postgresql_workers_claim_exclusively_and_fence_expired_
     with ThreadPoolExecutor(max_workers=2) as pool:
         claimed = list(pool.map(claim, range(2)))
     assert len(pids) == 2 and sum(value is not None for value in claimed) == 1
+    assert counts()["CLAIMED"] == 1
     old = p.job(job.id)
     with p.factory() as session:
         assert WritingExecutionService.heartbeat(
@@ -476,11 +486,13 @@ def test_two_independent_postgresql_workers_claim_exclusively_and_fence_expired_
         )
         session.commit()
     p.due(old, expired=True)
+    assert counts()["LEASE_EXPIRED"] == 1
     new = p.claim(worker="recovered")
     assert new.claim_token != old.claim_token
     assert p.execute(old) is None
     p.execute(new)
     assert p.job(job.id).status == "COMPLETED"
+    assert counts()["SUCCEEDED"] == 1
     assert len(p.outcomes(job)[0]) == 1
 
 

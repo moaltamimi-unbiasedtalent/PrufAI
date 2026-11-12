@@ -53,6 +53,7 @@ from app.models.enums import (
     RubricVersionStatus,
     SubjectiveAssessmentStatus,
 )
+from app.operations.telemetry import Failure, Signal, record
 from app.speaking_assessment.service import SpeakingAssessmentService
 from app.speaking_audio.evidence import resolve_submitted_audio
 from app.speaking_audio.service import SpeakingAudioService
@@ -1035,10 +1036,12 @@ class SpeakingExecutionService:
                 backend = SpeakingAudioService.durable_storage(storage)
                 original = backend.get_bounded(key, max_bytes=25_000_000, expected_size=size)
             except StorageIntegrityError as exc:
+                record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
                 raise SpeakingExecutionError("STALE_AUDIO_EVIDENCE") from exc
             except StorageError as exc:
                 raise SpeakingExecutionError("OBJECT_STORAGE_UNAVAILABLE") from exc
             if len(original) != size or hashlib.sha256(original).hexdigest() != digest:
+                record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
                 raise SpeakingExecutionError("STALE_AUDIO_EVIDENCE")
             transport = prepare_audio(original, source=source, settings=settings)
             if (
@@ -1106,6 +1109,7 @@ class SpeakingExecutionService:
             try:
                 current = backend.get_bounded(key, max_bytes=25_000_000, expected_size=size)
             except StorageIntegrityError as exc:
+                record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
                 raise SpeakingExecutionError("STALE_AUDIO_EVIDENCE") from exc
             except StorageError as exc:
                 raise SpeakingExecutionError("OBJECT_STORAGE_UNAVAILABLE") from exc

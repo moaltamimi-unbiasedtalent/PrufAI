@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { styles, useAuth } from "../../lib/auth";
+import { signInUnavailable, styles, useAuth } from "../../lib/auth";
 import { workspaceLanding } from "../../lib/access";
 
 export default function LoginPage() {
@@ -20,6 +20,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) alertRef.current?.focus();
+  }, [error]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -88,7 +92,13 @@ export default function LoginPage() {
           />
         </label>
         {(error || sessionError) && (
-          <p role="alert" style={{ color: "#a42b2b" }}>
+          <p
+            ref={alertRef}
+            role="alert"
+            tabIndex={-1}
+            lang={error === signInUnavailable ? "de" : undefined}
+            style={{ color: "#a42b2b" }}
+          >
             {error || sessionError}
           </p>
         )}

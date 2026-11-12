@@ -63,14 +63,53 @@ export default function SystemPage() {
             <dl className={css.health}>
               <dt>Environment</dt>
               <dd>{system.environment}</dd>
+              <dt>API liveness</dt>
+              <dd>{system.api?.status ?? "NOT_VERIFIED"}</dd>
+              <dt>Dependency readiness</dt>
+              <dd>{system.readiness?.status ?? "NOT_VERIFIED"}</dd>
+              <dt>Last readiness measurement (UTC)</dt>
+              <dd>
+                {system.readiness ? (
+                  <time dateTime={system.readiness.measured_at}>
+                    {new Date(system.readiness.measured_at).toISOString()}
+                  </time>
+                ) : (
+                  "NOT_VERIFIED"
+                )}
+              </dd>
               <dt>Database</dt>
-              <dd>{system.database.status}</dd>
+              <dd>
+                {[system.database.status, system.database.failure_category]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </dd>
               <dt>Object storage backend</dt>
               <dd>{system.object_storage.backend}</dd>
               <dt>Object storage health</dt>
-              <dd>{system.object_storage.health}</dd>
+              <dd>
+                {[
+                  system.object_storage.health,
+                  system.object_storage.failure_category,
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </dd>
+              <dt>Storage guard</dt>
+              <dd>{system.object_storage.guard ?? "NOT_VERIFIED"}</dd>
+              <dt>Private synthetic object</dt>
+              <dd>{system.object_storage.canary ?? "NOT_VERIFIED"}</dd>
+              <dt>Storage provider approval</dt>
+              <dd>
+                {system.object_storage.provider_approval ?? "NOT_VERIFIED"}
+              </dd>
               <dt>Redis health</dt>
-              <dd>{system.redis.health}</dd>
+              <dd>
+                {[system.redis.health, system.redis.failure_category]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </dd>
+              <dt>Alert delivery</dt>
+              <dd>{system.alert_delivery ?? "NOT_VERIFIED"}</dd>
               <dt>AI executor</dt>
               <dd>
                 {system.ai_executor.status} — {system.ai_executor.description}
@@ -102,6 +141,49 @@ export default function SystemPage() {
                   : "Disabled"}
               </dd>
             </dl>
+          </section>
+          <section className={css.card}>
+            <h2>Execution queues</h2>
+            <p>
+              Worker process health:{" "}
+              {system.workers?.process_health ?? "NOT_VERIFIED"}
+            </p>
+            {system.workers?.queues ? (
+              Object.entries(system.workers.queues).map(([name, counts]) => (
+                <section key={name}>
+                  <h3>{name}</h3>
+                  <dl className={css.health}>
+                    {Object.entries(counts).map(([state, count]) => (
+                      <div key={state}>
+                        <dt>{state}</dt>
+                        <dd>{count}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))
+            ) : (
+              <p>Queue counts are unavailable.</p>
+            )}
+          </section>
+          <section className={css.card}>
+            <h2>Observed operational failures</h2>
+            <p>Counts are local to this API process and reset on restart.</p>
+            {Object.entries(system.operational_failures ?? {}).map(
+              ([operation, counts]) => (
+                <section key={operation}>
+                  <h3>{operation}</h3>
+                  <dl className={css.health}>
+                    {Object.entries(counts).map(([category, count]) => (
+                      <div key={category}>
+                        <dt>{category}</dt>
+                        <dd>{count}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ),
+            )}
           </section>
           <p className={css.notice}>
             NOT_VERIFIED means no successful live service probe is available for

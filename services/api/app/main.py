@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from app.ai_orchestration.api import router as ai_orchestration_router
 from app.auth.api import org_router
@@ -29,6 +29,8 @@ from app.knowledge.retrieval_api import router as retrieval_router
 from app.lid_editorial.api import router as lid_editorial_router
 from app.lid_editorial.review_api import router as lid_editorial_review_router
 from app.memory.api import router as memory_router
+from app.operations.readiness import measure_readiness
+from app.operations.telemetry import API_VERSION
 from app.privacy.api import router as privacy_router
 from app.question_bank.api import router as question_bank_router
 from app.result_governance.api import candidate_router as candidate_appeal_router
@@ -49,7 +51,7 @@ from app.standard_packs.lid_api import router as lid_standards_router
 from app.writing_assessment.api import writing_router
 from app.writing_execution.api import router as writing_execution_router
 
-app = FastAPI(title="PrüfAI API", version="0.1.0")
+app = FastAPI(title="PrüfAI API", version=API_VERSION)
 
 
 @app.middleware("http")
@@ -128,6 +130,16 @@ app.include_router(institution_feedback_router)
 @app.get("/health")
 def health(settings: Settings = Depends(settings_dependency)) -> dict[str, str]:  # noqa: B008
     return {"service": settings.service_name, "status": "ok"}
+
+
+@app.get("/ready")
+def ready(settings: Settings = Depends(settings_dependency)) -> JSONResponse:  # noqa: B008
+    result = measure_readiness(settings)
+    return JSONResponse(
+        {"status": "ready" if result.ready else "unavailable"},
+        status_code=200 if result.ready else 503,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 app.include_router(writing_execution_router)

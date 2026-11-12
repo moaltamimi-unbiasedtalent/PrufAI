@@ -52,6 +52,15 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=10
+      redis:
+        image: redis:7@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -116,6 +125,8 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai_browser
           PRUFAI_DISPOSABLE_DATABASE: prufai_browser
+          PRUFAI_E2E_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          REDIS_URL: redis://localhost:6379/0
           CI: "true"
           PRUFAI_BROWSER_TOOL_DIR: ${{ runner.temp }}/prufai-browser-tool
           PRUFAI_E2E_ARTIFACT_DIR: ${{ runner.temp }}/prufai-browser-evidence

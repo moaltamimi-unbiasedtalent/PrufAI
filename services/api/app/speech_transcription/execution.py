@@ -34,6 +34,7 @@ from app.models.enums import (
     ActorType,
     TranscriptionStatus,
 )
+from app.operations.telemetry import Failure, Signal, record
 from app.speaking_audio.service import SpeakingAudioService
 from app.speech_transcription.provider import (
     EmptyProviderResult,
@@ -619,10 +620,12 @@ class TranscriptionExecutionService:
                     storage_key, max_bytes=25_000_000, expected_size=expected_size
                 )
             except StorageIntegrityError as exc:
+                record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
                 raise ExecutionError("STALE_AUDIO_EVIDENCE") from exc
             except StorageError as exc:
                 raise ExecutionError("OBJECT_STORAGE_UNAVAILABLE") from exc
             if len(audio) != expected_size or hashlib.sha256(audio).hexdigest() != expected_sha:
+                record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
                 raise ExecutionError("STALE_AUDIO_EVIDENCE")
             provider = factory(snapshot, settings)
             if (provider.provider, provider.model_name, provider.adapter_version) != (

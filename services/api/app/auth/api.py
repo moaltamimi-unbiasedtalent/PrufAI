@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, 
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.auth.flows import FakeNotificationSink, InvitationService, PasswordResetService
@@ -32,6 +33,8 @@ from app.models import (
     User,
 )
 from app.models.enums import AuthSessionStatus, MembershipStatus, RoleScope
+from app.operations.readiness import is_database_unavailable
+from app.operations.telemetry import Failure, Signal, record
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 org_router = APIRouter(prefix="/api/v1/organisations", tags=["organisation-authentication"])
@@ -181,9 +184,18 @@ def login(
             user_agent=request.headers.get("user-agent"),
         )
     except RateLimitUnavailable as exc:
+        record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="authentication rate limiting is temporarily unavailable",
+        ) from exc
+    except DBAPIError as exc:
+        if not is_database_unavailable(exc):
+            raise
+        record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "AUTH_DATABASE_UNAVAILABLE"},
         ) from exc
     except (AuthenticationError, ValueError) as exc:
         raise HTTPException(

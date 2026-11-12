@@ -111,6 +111,8 @@ test("institution invitation and candidate recovery use real disposable authenti
   try {
     const active = await germanSignIn(await other.newPage(), email, originalPassword, 200);
     await page.getByRole("link", { name: "Passwort vergessen" }).click();
+    await expect(page).toHaveURL(/\/konto\/wiederherstellen$/);
+    await expect(page.getByRole("heading", { name: "Kontozugang wiederherstellen" })).toBeVisible();
     await page.getByLabel("E-Mail-Adresse").fill(email);
     const requested = apiResponse(page, "/password-reset/request", "POST");
     await page.getByRole("button", { name: "Wiederherstellung anfragen" }).click();

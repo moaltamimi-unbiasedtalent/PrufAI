@@ -1,24 +1,20 @@
 # PrüfAI
 
-PrüfAI is a Germany-first, standards-driven AI examination platform for German-language assessments from A1 to C2 and the separate Leben in Deutschland (LiD) assessment family. The product will eventually support controlled standards, human governance, auditability, and institution-facing administration.
+PrüfAI develops governed German-language assessment and practice workflows, including the separate Leben in Deutschland (LiD) assessment family.
 
-## Current implementation status
-
-**Current state: Engineering foundation — product domains not yet implemented.**
-
-This repository currently establishes a small modular-monolith baseline: a Next.js web app, FastAPI API, independently runnable FastAPI AI boundary, PostgreSQL/Alembic database foundation, local supporting infrastructure, CI, and architecture documentation. Authentication, tenant business logic, exams, question banks, RAG, LLM calls, agents, scoring, assessment, HITL workflows, and candidate functionality are intentionally deferred.
+The candidate and institution applications and the Control Centre have automated technical acceptance for versioned practice, role boundaries, scoring, human-controlled result release, audit and operational recovery. The first release proposal is a bounded non-official Berlin LiD practice pilot. Its scope, human decisions and production evidence are pending. See the [V1 scope proposal](docs/releases/v1-scope-proposal.md) and [readiness register](docs/releases/v1-readiness-register.md).
 
 ## Repository structure
 
 ```text
-apps/web/             Next.js + TypeScript App Router frontend
-services/api/         FastAPI application and database foundation
-services/ai/          Minimal independently runnable AI service boundary
-packages/              Shared-contracts placeholder
-standard-packs/        Versioned standards placeholders (no copied content)
-docs/architecture/     Architecture baseline, audit, and ADRs
-infra/                 Local PostgreSQL, Redis, and MinIO Compose setup
-tests/                  Cross-project test placeholder
+apps/web/             Candidate, institution and Control Centre web application
+services/api/         FastAPI product APIs, workers and Alembic migrations
+services/ai/          Independently runnable AI service boundary
+packages/             Shared contracts
+standard-packs/       Versioned standards and technical fixtures
+docs/                 Architecture, governance, operations and release evidence
+infra/                Local development and disposable acceptance configuration
+tests/browser/        Integrated browser acceptance
 ```
 
 ## Prerequisites
@@ -73,7 +69,7 @@ make api-dev   # http://localhost:8000/health
 make ai-dev    # http://localhost:8001/health
 ```
 
-Run each development service in its own terminal. The API and AI service health endpoints are deliberately the only runtime product surface in this phase.
+Run each development service in its own terminal. The API exposes process liveness at `/health` and dependency readiness at `/ready`. See [local demo setup](docs/local-demo.md) for disposable product journeys.
 
 ## Validation commands
 

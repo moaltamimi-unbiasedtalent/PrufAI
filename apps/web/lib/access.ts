@@ -35,6 +35,11 @@ export function canViewRoute(
     return platformPermissions.includes("platform.control_center.read");
   if (path === "/source-review") return scopedSourceReview;
   if (path.startsWith("/candidate")) return candidateMembership(membership);
+  if (path === "/institution/enrollment")
+    return Boolean(
+      membership?.status === "ACTIVE" &&
+        membership.permissions.includes("membership.manage"),
+    );
   if (path.startsWith("/institution/overview"))
     return permissions.includes("exam_assignment.read");
   if (path.startsWith("/institution/assignments"))

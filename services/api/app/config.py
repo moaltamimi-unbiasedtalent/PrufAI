@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     auth_rate_limit_login_attempts: int = 5
     auth_rate_limit_window_seconds: int = 300
     auth_rate_limit_reset_attempts: int = 3
+    auth_enrollment_delivery_mode: Literal["DISABLED", "TEST_ONLY", "APPROVED_ADAPTER"] = "DISABLED"
+    auth_enrollment_support_contact: str = Field(default="", max_length=200)
     auth_rate_limit_refresh_attempts: int = 30
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
 
@@ -76,6 +78,10 @@ class Settings(BaseSettings):
     def transcription_deployment_boundary(self) -> "Settings":
         import re
 
+        if self.auth_enrollment_delivery_mode == "APPROVED_ADAPTER":
+            raise ValueError("No independently approved enrollment delivery adapter is installed")
+        if self.environment == "production" and self.auth_enrollment_delivery_mode == "TEST_ONLY":
+            raise ValueError("TEST ONLY enrollment delivery is forbidden in production")
         if self.environment == "production" and self.speech_transcription_test_adapter_enabled:
             raise ValueError("TEST ONLY speech transcription is forbidden in production")
         if self.environment == "production" and self.nonproduction_prompt_validation_enabled:

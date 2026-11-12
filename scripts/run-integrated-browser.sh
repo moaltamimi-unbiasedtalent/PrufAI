@@ -102,6 +102,8 @@ INTEGRATED_WEB_PID=""
 INTEGRATED_BROWSER_PID=""
 export PRUFAI_E2E_API_RESTART_DIR
 PRUFAI_E2E_API_RESTART_DIR="$(mktemp -d /tmp/prufai-browser-restart.XXXXXX)"
+enrollment_dir="$(mktemp -d /tmp/prufai-browser-enrollment.XXXXXX)"
+export PRUFAI_E2E_ENROLLMENT_CAPTURE="$enrollment_dir/messages.jsonl"
 cleanup() {
   for process_id in "$INTEGRATED_BROWSER_PID" "$INTEGRATED_API_PID" "$INTEGRATED_WEB_PID"; do
     if [[ -n "$process_id" ]]; then
@@ -111,6 +113,9 @@ cleanup() {
   done
   rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/"{request,complete,complete.tmp,hold,paused,resume}
   rmdir -- "$PRUFAI_E2E_API_RESTART_DIR"
+  rm -rf -- "$enrollment_dir/browser-results"
+  rm -f -- "$PRUFAI_E2E_ENROLLMENT_CAPTURE"
+  rmdir -- "$enrollment_dir"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -121,7 +126,7 @@ trap 'exit 143' TERM
 # sessions. Give only this guarded development child a bounded test capacity;
 # product authentication defaults and security-test settings stay unchanged.
 start_api() {
-  AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >>"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
+  AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 AUTH_ENROLLMENT_DELIVERY_MODE=TEST_ONLY python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >>"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
   INTEGRATED_API_PID=$!
 }
 start_api

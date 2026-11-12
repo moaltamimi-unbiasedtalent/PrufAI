@@ -43,7 +43,13 @@ type AuthContextValue = {
   permissions: string[];
   demoMode: boolean;
   error: string | null;
-  signIn: (email: string, password: string) => Promise<string>;
+  signIn: (
+    email: string,
+    password: string,
+    german?: boolean,
+  ) => Promise<string>;
+  german?: boolean;
+  clearRecoveredSession?: () => Promise<boolean>;
   signOut: () => Promise<void>;
   selectOrganisation: (id: string) => Promise<void>;
 };
@@ -73,6 +79,7 @@ export function AuthProvider({
   const [user, setUser] = useState<DemoUser | null>(null);
   const [organisationId, setOrganisationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [german, setGerman] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const current = useRef<{
     user: DemoUser | null;
@@ -207,7 +214,19 @@ export function AuthProvider({
       throw cause;
     }
   }
-  async function signIn(email: string, password: string) {
+  async function clearRecoveredSession() {
+    try {
+      await purgeCurrent();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      forget();
+      announce();
+    }
+  }
+
+  async function signIn(email: string, password: string, useGerman = false) {
     if (current.current.user) await signOut();
     const response = await withSessionLock(() =>
       authFetch("/api/v1/auth/login", {
@@ -233,6 +252,7 @@ export function AuthProvider({
     }
     const profile = (await me.json()) as DemoUser;
     adopt(profile);
+    setGerman(useGerman);
     announce();
     return workspaceLanding(profile, initialMembership(profile, demoMode));
   }
@@ -262,6 +282,8 @@ export function AuthProvider({
     demoMode,
     error,
     signIn,
+    german,
+    clearRecoveredSession,
     signOut,
     selectOrganisation,
   };
@@ -278,6 +300,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const {
     user,
     loading,
+    german,
     membership,
     organisationId,
     demoMode,
@@ -290,7 +313,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (platformPath && !loading && !user) router.replace("/login");
   }, [loading, platformPath, router, user]);
-  if (["/login", "/docs", "/status"].includes(pathname)) return <>{children}</>;
+  if (
+    [
+      "/login",
+      "/anmelden",
+      "/einladung",
+      "/konto/wiederherstellen",
+      "/konto/neues-passwort",
+      "/docs",
+      "/status",
+    ].includes(pathname)
+  )
+    return <>{children}</>;
   if (loading)
     return (
       <main style={styles.center}>
@@ -325,11 +359,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             style={styles.linkButton}
             onClick={() => {
               void signOut()
-                .then(() => router.push("/login"))
+                .then(() => router.push(german ? "/anmelden" : "/login"))
                 .catch(() => undefined);
             }}
           >
-            Sign out
+            {german ? "Abmelden" : "Sign out"}
           </button>
         </div>
       </header>
@@ -404,6 +438,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export const accountPage = {
+  gridTemplateColumns: "minmax(0, 1fr)",
+  padding: "clamp(1rem, 5vw, 2rem)",
+};
+
+export const accountCard = {
+  boxSizing: "border-box" as const,
+  width: "100%",
+  maxWidth: "440px",
+  minWidth: 0,
+  padding: "clamp(1rem, 5vw, 2.5rem)",
+  overflowWrap: "anywhere" as const,
+};
 
 export const styles = {
   app: {

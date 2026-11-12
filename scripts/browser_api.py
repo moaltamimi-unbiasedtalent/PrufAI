@@ -7,11 +7,14 @@ normal authentication, services, PostgreSQL and private S3 adapter unchanged.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
+import stat
 import threading
 import uuid
 from contextvars import ContextVar
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -63,6 +66,8 @@ def main() -> None:
         )
 
     import uvicorn
+    from app.auth.delivery import EnrollmentMessage, enrollment_delivery
+    from app.evaluation.disposable import assert_disposable_database
     from app.knowledge.storage import S3CompatibleObjectStorage, StorageError
     from app.main import app
     from app.models import CandidateAudioRecordingSession, CandidateMediaAsset
@@ -72,6 +77,44 @@ def main() -> None:
     from fastapi.responses import JSONResponse
     from sqlalchemy.exc import SQLAlchemyError
     from sqlalchemy.orm import Session
+
+    capture_name = os.environ.get("PRUFAI_E2E_ENROLLMENT_CAPTURE")
+    if capture_name:
+        assert_disposable_database(os.environ["DATABASE_URL"])
+        capture = Path(capture_name)
+        if (
+            os.environ.get("AUTH_ENROLLMENT_DELIVERY_MODE") != "TEST_ONLY"
+            or not capture.is_absolute()
+            or capture.name != "messages.jsonl"
+            or capture.parent.parent.resolve() != Path("/tmp").resolve()
+            or not capture.parent.name.startswith("prufai-browser-enrollment.")
+            or capture.parent.is_symlink()
+            or capture.parent.stat().st_uid != os.getuid()
+            or stat.S_IMODE(capture.parent.stat().st_mode) != 0o700
+        ):
+            raise SystemExit("Enrollment capture requires the private disposable runner directory.")
+
+        class Capture:
+            def send(self, message: EnrollmentMessage) -> None:
+                if not message.recipient.endswith(".test"):
+                    raise OSError("Synthetic enrollment recipients must use the .test domain.")
+                data = json.dumps({
+                    "purpose": message.purpose,
+                    "recipient": message.recipient,
+                    "token": message.token,
+                    "organisation_id": str(message.organisation_id) if message.organisation_id else None,
+                }).encode() + b"\n"
+                descriptor = os.open(
+                    capture, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600
+                )
+                with os.fdopen(descriptor, "ab", buffering=0) as handle:
+                    info = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+                        raise OSError("Enrollment capture file is not private.")
+                    handle.write(data)
+
+        adapter = Capture()
+        app.dependency_overrides[enrollment_delivery] = lambda: adapter
 
     original_flush = Session.flush
     original_exists = S3CompatibleObjectStorage.exists

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit import AuditService
-from app.auth.passwords import hash_password
+from app.auth.passwords import hash_password, validate_password
 from app.auth.security import generate_opaque_token, hash_token, is_expired, utcnow
 from app.auth.service import AuthenticationService
 from app.authorization import AuthorizationService, TenantContext
@@ -25,133 +24,134 @@ from app.models import (
 from app.models.enums import InvitationStatus, MembershipStatus, RoleScope, UserStatus
 from app.services.identity import normalize_email
 
+# The existing runtime uses EXAMINER for candidate access.
+CANDIDATE_ROLE = "EXAMINER"
 
-@dataclass
-class FakeNotificationSink:
-    """Safe local/test delivery sink; production adapters can implement this protocol."""
 
-    messages: list[dict[str, str]] = field(default_factory=list)
+class EnrollmentError(ValueError):
+    """Fixed public outcome for a token holder."""
 
-    def send(self, *, purpose: str, email: str, token: str) -> None:
-        self.messages.append({"purpose": purpose, "email": email, "token": token})
+
+def _validate_password(password: str) -> None:
+    try:
+        validate_password(password)
+    except ValueError as exc:
+        raise EnrollmentError("INVALID_PASSWORD") from exc
 
 
 class InvitationService:
-    def __init__(self, notification_sink: Optional[FakeNotificationSink] = None) -> None:
-        self.notifications = notification_sink or FakeNotificationSink()
-
+    @staticmethod
     def create(
-        self,
         session: Session,
         context: TenantContext,
         *,
         organisation_id: uuid.UUID,
         email: str,
         role_keys: list[str],
-        expires_in_days: int = 7,
     ) -> tuple[OrganisationInvitation, str]:
         AuthorizationService.require_permission(context, "membership.manage", organisation_id)
+        if role_keys != [CANDIDATE_ROLE]:
+            raise EnrollmentError("INVITATION_ROLE_DENIED")
         normalized = normalize_email(email)
-        roles = list(
-            session.scalars(
-                select(Role).where(Role.key.in_(role_keys), Role.scope == RoleScope.TENANT)
+        if (
+            session.scalar(
+                select(Role.id).where(Role.key == CANDIDATE_ROLE, Role.scope == RoleScope.TENANT)
             )
-        )
-        if len(roles) != len(set(role_keys)):
-            raise ValueError("invitation contains an unknown or non-tenant role")
+            is None
+        ):
+            raise EnrollmentError("INVITATION_ROLE_DENIED")
         raw_token = generate_opaque_token()
         invitation = OrganisationInvitation(
             organisation_id=organisation_id,
             email_normalized=normalized,
             status=InvitationStatus.PENDING,
-            expires_at=utcnow() + timedelta(days=expires_in_days),
+            expires_at=utcnow() + timedelta(days=7),
             token_hash=hash_token(raw_token),
             created_by_user_id=context.user_id,
-            intended_role_keys=list(dict.fromkeys(role_keys)),
+            intended_role_keys=[CANDIDATE_ROLE],
         )
         session.add(invitation)
         session.flush()
-        self.notifications.send(purpose="invitation", email=normalized, token=raw_token)
         AuditService.record_security(
             session,
             event_type="auth.invitation.created",
             entity_type="organisation_invitation",
             entity_id=str(invitation.id),
             actor_id=context.user_id,
-            metadata={"organisation_id": str(organisation_id), "email": normalized},
+            metadata={"organisation_id": str(organisation_id)},
         )
         session.commit()
         return invitation, raw_token
 
+    @staticmethod
     def accept(
-        self,
         session: Session,
         *,
         token: str,
-        password: Optional[str] = None,
-        display_name: Optional[str] = None,
+        organisation_id: uuid.UUID,
+        password: str,
+        display_name: str | None = None,
     ) -> User:
         invitation = session.scalar(
-            select(OrganisationInvitation).where(
-                OrganisationInvitation.token_hash == hash_token(token)
-            )
+            select(OrganisationInvitation)
+            .where(OrganisationInvitation.token_hash == hash_token(token))
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        if invitation is None or invitation.status is not InvitationStatus.PENDING:
-            raise ValueError("invalid or already used invitation")
-        if is_expired(invitation.expires_at):
-            invitation.status = InvitationStatus.EXPIRED
-            session.commit()
-            raise ValueError("invitation has expired")
-        user = session.scalar(
-            select(User).where(User.normalized_email == invitation.email_normalized)
+        if invitation is None:
+            raise EnrollmentError("INVITATION_INVALID")
+        if invitation.organisation_id != organisation_id:
+            raise EnrollmentError("INVITATION_WRONG_INSTITUTION")
+        if invitation.status is InvitationStatus.ACCEPTED:
+            raise EnrollmentError("INVITATION_USED")
+        if invitation.status is InvitationStatus.EXPIRED or (
+            invitation.status is InvitationStatus.PENDING and is_expired(invitation.expires_at)
+        ):
+            raise EnrollmentError("INVITATION_EXPIRED")
+        if invitation.status is not InvitationStatus.PENDING or invitation.revoked_at is not None:
+            raise EnrollmentError("INVITATION_INVALID")
+        if invitation.intended_role_keys != [CANDIDATE_ROLE]:
+            raise EnrollmentError("INVITATION_ROLE_DENIED")
+        role = session.scalar(
+            select(Role).where(Role.key == CANDIDATE_ROLE, Role.scope == RoleScope.TENANT)
         )
-        if user is None:
-            if password is None:
-                raise ValueError("password is required for a new invited user")
-            user = User(
-                email=invitation.email_normalized,
-                normalized_email=invitation.email_normalized,
-                display_name=display_name,
-                status=UserStatus.ACTIVE,
+        if role is None:
+            raise EnrollmentError("INVITATION_ROLE_DENIED")
+        _validate_password(password)
+        if (
+            session.scalar(
+                select(User.id).where(User.normalized_email == invitation.email_normalized)
             )
-            session.add(user)
+            is not None
+        ):
+            raise EnrollmentError("INVITATION_ACCOUNT_EXISTS")
+        user = User(
+            email=invitation.email_normalized,
+            normalized_email=invitation.email_normalized,
+            display_name=display_name,
+            status=UserStatus.ACTIVE,
+        )
+        session.add(user)
+        try:
             session.flush()
-            credential = UserPasswordCredential(
+        except IntegrityError as exc:
+            # Different invitations for the same address may race at the unique index.
+            if getattr(exc.orig, "sqlstate", None) != "23505":
+                raise
+            session.rollback()
+            raise EnrollmentError("INVITATION_ACCOUNT_EXISTS") from exc
+        session.add(
+            UserPasswordCredential(
                 user_id=user.id, password_hash=hash_password(password), password_changed_at=utcnow()
             )
-            session.add(credential)
-        elif password is not None and user.password_credential is None:
-            user.password_credential = UserPasswordCredential(
-                user_id=user.id, password_hash=hash_password(password), password_changed_at=utcnow()
-            )
-        elif user.status in (UserStatus.SUSPENDED, UserStatus.DISABLED):
-            raise ValueError("user is not eligible to accept an invitation")
-        if user.status is UserStatus.INVITED:
-            user.status = UserStatus.ACTIVE
-        membership = session.scalar(
-            select(OrganisationMembership).where(
-                OrganisationMembership.organisation_id == invitation.organisation_id,
-                OrganisationMembership.user_id == user.id,
-            )
         )
-        if membership is None:
-            membership = OrganisationMembership(
-                organisation_id=invitation.organisation_id,
-                user_id=user.id,
-                status=MembershipStatus.ACTIVE,
-            )
-            session.add(membership)
-            session.flush()
-        elif membership.status is MembershipStatus.SUSPENDED:
-            raise ValueError("membership is suspended")
-        for role_key in invitation.intended_role_keys:
-            role = session.scalar(
-                select(Role).where(Role.key == role_key, Role.scope == RoleScope.TENANT)
-            )
-            if role is not None and not any(
-                assignment.role_id == role.id for assignment in membership.roles
-            ):
-                membership.roles.append(MembershipRole(role_id=role.id))
+        membership = OrganisationMembership(
+            organisation_id=organisation_id,
+            user_id=user.id,
+            status=MembershipStatus.ACTIVE,
+            roles=[MembershipRole(role_id=role.id)],
+        )
+        session.add(membership)
         invitation.status = InvitationStatus.ACCEPTED
         invitation.accepted_at = utcnow()
         AuditService.record_security(
@@ -160,65 +160,87 @@ class InvitationService:
             entity_type="organisation_invitation",
             entity_id=str(invitation.id),
             actor_id=user.id,
-            metadata={"organisation_id": str(invitation.organisation_id)},
+            metadata={"organisation_id": str(organisation_id)},
         )
         session.commit()
         return user
 
 
 class PasswordResetService:
-    def __init__(self, notification_sink: Optional[FakeNotificationSink] = None) -> None:
-        self.notifications = notification_sink or FakeNotificationSink()
-
-    def request(self, session: Session, *, email: str, settings: object) -> Optional[str]:
+    @staticmethod
+    def request(session: Session, *, email: str) -> str | None:
         normalized = normalize_email(email)
-        user = session.scalar(select(User).where(User.normalized_email == normalized))
-        if user is None:
-            AuditService.record_security(
-                session, event_type="auth.password_reset.requested", entity_type="user", metadata={}
-            )
-            session.commit()
-            return None
-        raw_token = generate_opaque_token()
-        token = PasswordResetToken(
-            user_id=user.id,
-            token_hash=hash_token(raw_token),
-            expires_at=utcnow() + timedelta(hours=1),
+        user = session.scalar(
+            select(User)
+            .where(User.normalized_email == normalized, User.status == UserStatus.ACTIVE)
+            .with_for_update()
         )
-        session.add(token)
-        self.notifications.send(purpose="password_reset", email=normalized, token=raw_token)
+        raw_token = None
+        if user is not None and user.password_credential is not None:
+            raw_token = generate_opaque_token()
+            session.add(
+                PasswordResetToken(
+                    user_id=user.id,
+                    token_hash=hash_token(raw_token),
+                    expires_at=utcnow() + timedelta(hours=1),
+                )
+            )
         AuditService.record_security(
             session,
             event_type="auth.password_reset.requested",
             entity_type="user",
-            entity_id=str(user.id),
-            actor_id=user.id,
+            actor_id=user.id if user is not None else None,
+            entity_id=str(user.id) if user is not None else None,
             metadata={},
         )
         session.commit()
         return raw_token
 
+    @staticmethod
     def confirm(
-        self,
         session: Session,
         *,
         token: str,
         new_password: str,
         authentication: AuthenticationService,
-    ) -> User:
-        reset = session.scalar(
-            select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_token(token))
+    ) -> None:
+        digest = hash_token(token)
+        user_id = session.scalar(
+            select(PasswordResetToken.user_id).where(PasswordResetToken.token_hash == digest)
         )
-        if reset is None or reset.used_at is not None or reset.revoked_at is not None:
-            raise ValueError("invalid or already used password reset token")
+        if user_id is None:
+            raise EnrollmentError("RESET_INVALID")
+        # A single lock order serializes reset requests, password changes and logins for this user.
+        user = session.scalar(select(User).where(User.id == user_id).with_for_update())
+        reset = session.scalar(
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token_hash == digest)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if user is None or user.status is not UserStatus.ACTIVE or reset is None:
+            raise EnrollmentError("RESET_INVALID")
+        if reset.used_at is not None:
+            raise EnrollmentError("RESET_USED")
+        if reset.revoked_at is not None:
+            raise EnrollmentError("RESET_INVALID")
         if is_expired(reset.expires_at):
-            raise ValueError("password reset token has expired")
-        user = session.get(User, reset.user_id)
-        if user is None:
-            raise ValueError("invalid password reset token")
+            raise EnrollmentError("RESET_EXPIRED")
+        _validate_password(new_password)
         authentication.set_password(session, user, new_password)
-        reset.used_at = utcnow()
-        authentication.revoke_all(session, user.id, reason="password_reset")
+        now = utcnow()
+        reset.used_at = now
+        session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.id != reset.id,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        authentication.revoke_all(session, user.id, reason="password_reset", commit=False)
         AuditService.record_security(
             session,
             event_type="auth.password_reset.completed",
@@ -228,4 +250,3 @@ class PasswordResetService:
             metadata={},
         )
         session.commit()
-        return user

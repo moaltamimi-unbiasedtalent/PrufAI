@@ -1,16 +1,20 @@
 import uuid
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import jwt
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.auth.flows import FakeNotificationSink, InvitationService, PasswordResetService
+from app.auth.delivery import EnrollmentDelivery, EnrollmentMessage, enrollment_delivery
+from app.auth.flows import CANDIDATE_ROLE, EnrollmentError, InvitationService, PasswordResetService
 from app.auth.security import (
     InMemoryRateLimiter,
     RateLimiter,
@@ -35,11 +39,28 @@ from app.models import (
 from app.models.enums import AuthSessionStatus, MembershipStatus, RoleScope
 from app.operations.readiness import is_database_unavailable
 from app.operations.telemetry import Failure, Signal, record
+from app.services.identity import normalize_email
 
-router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
-org_router = APIRouter(prefix="/api/v1/organisations", tags=["organisation-authentication"])
+
+class SecretRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handle = super().get_route_handler()
+
+        async def redact_validation(request: Request) -> Response:
+            try:
+                return await handle(request)
+            except RequestValidationError:
+                # FastAPI's default validation response echoes the submitted input.
+                raise HTTPException(status_code=422, detail={"code": "INVALID_INPUT"}) from None
+
+        return redact_validation
+
+
+router = APIRouter(prefix="/api/v1/auth", tags=["authentication"], route_class=SecretRoute)
+org_router = APIRouter(
+    prefix="/api/v1/organisations", tags=["organisation-authentication"], route_class=SecretRoute
+)
 bearer = HTTPBearer(auto_error=False)
-_notifications = FakeNotificationSink()
 _rate_limiters: dict[tuple[str, str], RateLimiter] = {}
 
 
@@ -57,23 +78,28 @@ class RefreshRequest(BaseModel):
 
 
 class InvitationAcceptRequest(BaseModel):
-    token: str = Field(min_length=20)
-    password: Optional[str] = None
-    display_name: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+    token: SecretStr = Field(min_length=20, max_length=128)
+    organisation_id: uuid.UUID
+    password: SecretStr = Field(max_length=128)
+    display_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class PasswordResetRequest(BaseModel):
-    email: str
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(max_length=320)
 
 
 class PasswordResetConfirmRequest(BaseModel):
-    token: str = Field(min_length=20)
-    new_password: str
+    model_config = ConfigDict(extra="forbid")
+    token: SecretStr = Field(min_length=20, max_length=128)
+    new_password: SecretStr = Field(max_length=128)
 
 
 class InvitationCreateRequest(BaseModel):
-    email: str
-    role_keys: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(max_length=320)
+    role_keys: list[str] = Field(default_factory=lambda: [CANDIDATE_ROLE], max_length=1)
 
 
 @dataclass(frozen=True)
@@ -396,62 +422,124 @@ def revoke_session(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _delivery_enabled(settings: Settings, delivery: EnrollmentDelivery | None) -> bool:
+    return (
+        settings.environment in {"development", "test"}
+        and settings.auth_enrollment_delivery_mode == "TEST_ONLY"
+        and delivery is not None
+    )
+
+
+def _require_delivery(
+    settings: Settings, delivery: EnrollmentDelivery | None
+) -> EnrollmentDelivery:
+    if delivery is None or not _delivery_enabled(settings, delivery):
+        raise HTTPException(status_code=503, detail={"code": "DELIVERY_DISABLED"})
+    return delivery
+
+
+def _enrollment_limit(
+    request: Request, settings: Settings, scope: str, account: str | None = None
+) -> None:
+    source = request.client.host if request.client else "unknown"
+    limit = settings.auth_rate_limit_reset_attempts
+    window = settings.auth_rate_limit_window_seconds
+    limiter = _rate_limiter(settings)
+    try:
+        if not limiter.allow(rate_limit_key(scope, source), limit * 10, window) or (
+            account is not None
+            and not limiter.allow(rate_limit_key(scope, "account", account), limit, window)
+        ):
+            raise HTTPException(status_code=429, detail={"code": "TRY_LATER"})
+    except RateLimitUnavailable as exc:
+        record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
+        raise HTTPException(status_code=503, detail={"code": "AUTH_UNAVAILABLE"}) from exc
+
+
+@router.get("/enrollment")
+def enrollment_options(
+    response: Response,
+    settings: Settings = Depends(auth_settings_dependency),
+    delivery: EnrollmentDelivery | None = Depends(enrollment_delivery),
+) -> dict[str, str | bool]:
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "enabled": _delivery_enabled(settings, delivery),
+        "support_contact": settings.auth_enrollment_support_contact.strip(),
+    }
+
+
 @router.post("/invitations/accept")
 def accept_invitation(
+    request: Request,
     payload: InvitationAcceptRequest = Body(..., embed=False),
     session: Session = Depends(get_db_session),
+    settings: Settings = Depends(auth_settings_dependency),
+    delivery: EnrollmentDelivery | None = Depends(enrollment_delivery),
 ) -> dict[str, str]:
+    _require_delivery(settings, delivery)
+    _enrollment_limit(request, settings, "invitation-accept")
     try:
-        user = InvitationService(_notifications).accept(
+        user = InvitationService.accept(
             session,
-            token=payload.token,
-            password=payload.password,
+            token=payload.token.get_secret_value(),
+            organisation_id=payload.organisation_id,
+            password=payload.password.get_secret_value(),
             display_name=payload.display_name,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
     return {"user_id": str(user.id), "status": user.status.value}
 
 
-@router.post("/password-reset/request")
+@router.post("/password-reset/request", status_code=202)
 def password_reset_request(
+    request: Request,
     payload: PasswordResetRequest = Body(..., embed=False),
     session: Session = Depends(get_db_session),
     settings: Settings = Depends(auth_settings_dependency),
+    delivery: EnrollmentDelivery | None = Depends(enrollment_delivery),
 ) -> dict[str, str]:
+    adapter = _require_delivery(settings, delivery)
+    email = payload.email.strip().casefold()
+    _enrollment_limit(request, settings, "password-reset", email)
     try:
-        allowed = _rate_limiter(settings).allow(
-            rate_limit_key("password-reset", payload.email),
-            settings.auth_rate_limit_reset_attempts,
-            settings.auth_rate_limit_window_seconds,
-        )
-    except RateLimitUnavailable as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="authentication rate limiting is temporarily unavailable",
-        ) from exc
-    if not allowed:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="try again later")
-    PasswordResetService(_notifications).request(session, email=payload.email, settings=settings)
-    return {"message": "If an account exists, password reset instructions have been sent."}
+        normalize_email(email)
+    except ValueError:
+        # Malformed addresses receive the same public response as unknown accounts.
+        return {"status": "accepted"}
+    token = PasswordResetService.request(session, email=email)
+    if token is not None:
+        try:
+            adapter.send(EnrollmentMessage("password_reset", email, token))
+        except OSError:
+            # A delivery error must not disclose whether this account exists.
+            record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
+    return {"status": "accepted"}
 
 
 @router.post("/password-reset/confirm")
 def password_reset_confirm(
+    request: Request,
+    response: Response,
     payload: PasswordResetConfirmRequest = Body(..., embed=False),
     session: Session = Depends(get_db_session),
     settings: Settings = Depends(auth_settings_dependency),
+    delivery: EnrollmentDelivery | None = Depends(enrollment_delivery),
 ) -> dict[str, str]:
+    _require_delivery(settings, delivery)
+    _enrollment_limit(request, settings, "password-reset-confirm")
     try:
-        user = PasswordResetService(_notifications).confirm(
+        PasswordResetService.confirm(
             session,
-            token=payload.token,
-            new_password=payload.new_password,
+            token=payload.token.get_secret_value(),
+            new_password=payload.new_password.get_secret_value(),
             authentication=_service(settings),
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return {"user_id": str(user.id), "message": "Password reset completed; please log in again."}
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    _clear_auth_cookies(response, settings)
+    return {"status": "password_changed"}
 
 
 @org_router.post("/{organisation_id}/invitations")
@@ -460,21 +548,34 @@ def create_invitation(
     payload: InvitationCreateRequest = Body(..., embed=False),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
+    settings: Settings = Depends(auth_settings_dependency),
+    delivery: EnrollmentDelivery | None = Depends(enrollment_delivery),
 ) -> dict[str, object]:
     if principal.tenant_context is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="organisation context required"
         )
+    adapter = _require_delivery(settings, delivery)
     try:
-        invitation, _ = InvitationService(_notifications).create(
+        email = normalize_email(payload.email)
+        invitation, token = InvitationService.create(
             session,
             principal.tenant_context,
             organisation_id=organisation_id,
-            email=payload.email,
+            email=email,
             role_keys=payload.role_keys,
         )
-    except (ValueError, PermissionError) as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail={"code": "INVITATION_DENIED"}) from exc
+    except EnrollmentError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_INPUT"}) from exc
+    try:
+        adapter.send(EnrollmentMessage("invitation", email, token, organisation_id))
+    except OSError as exc:
+        record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
+        raise HTTPException(status_code=503, detail={"code": "AUTH_UNAVAILABLE"}) from exc
     return {
         "id": str(invitation.id),
         "status": invitation.status.value,

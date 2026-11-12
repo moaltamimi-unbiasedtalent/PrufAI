@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.auth.flows import FakeNotificationSink, InvitationService, PasswordResetService
+from app.auth.flows import InvitationService, PasswordResetService
 from app.auth.security import (
     InMemoryRateLimiter,
     RateLimitUnavailable,
@@ -151,28 +151,32 @@ def test_invitation_and_password_reset_tokens_are_one_time(auth_session: Session
         auth_session, platform_context, membership_id=member.id, role_key="INSTITUTION_ADMIN"
     )
     tenant = build_tenant_context(auth_session, admin.id, organisation.id)
-    notifications = FakeNotificationSink()
-    invitations = InvitationService(notifications)
+    invitations = InvitationService()
     invitation, raw_invite = invitations.create(
         auth_session,
         tenant,
         organisation_id=organisation.id,
         email="new@example.test",
-        role_keys=["TEACHER"],
+        role_keys=["EXAMINER"],
     )
     assert invitation.token_hash != raw_invite
     invited = invitations.accept(
-        auth_session, token=raw_invite, password="correct horse battery staple"
+        auth_session,
+        token=raw_invite,
+        organisation_id=organisation.id,
+        password="correct horse battery staple",
     )
     assert invited.normalized_email == "new@example.test"
     with pytest.raises(ValueError):
-        invitations.accept(auth_session, token=raw_invite, password="correct horse battery staple")
+        invitations.accept(
+            auth_session,
+            token=raw_invite,
+            organisation_id=organisation.id,
+            password="correct horse battery staple",
+        )
 
-    reset_notifications = FakeNotificationSink()
-    reset = PasswordResetService(reset_notifications)
-    raw_reset = reset.request(
-        auth_session, email="new@example.test", settings=Settings(environment="test")
-    )
+    reset = PasswordResetService()
+    raw_reset = reset.request(auth_session, email="new@example.test")
     assert raw_reset is not None
     reset.confirm(
         auth_session,

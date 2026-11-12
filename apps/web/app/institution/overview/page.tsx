@@ -137,6 +137,11 @@ export default function InstitutionOverviewPage() {
 
   return (
     <section>
+      {permissions.includes("membership.manage") && (
+        <p>
+          <Link href="/institution/enrollment">Person zur Übung einladen</Link>
+        </p>
+      )}
       <h1>Institution inspection</h1>
       {permissions.includes("exam_assignment.manage") &&
         permissions.includes("exam.read") &&

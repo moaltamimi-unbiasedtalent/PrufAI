@@ -668,6 +668,17 @@ jobs:
         working-directory: services/api
         env:
           POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai
+      - name: Candidate enrollment and recovery (required PostgreSQL and Redis)
+        run: |
+          python -m pytest tests/test_enrollment_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/enrollment-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/enrollment-required.xml" test_enrollment_postgresql_integration
+        working-directory: services/api
+        env:
+          CI: true
+          PRUFAI_REQUIRE_POSTGRES_INTEGRATION: "1"
+          PRUFAI_DISPOSABLE_DATABASE: prufai
+          POSTGRES_INTEGRATION_URL: postgresql+psycopg://prufai:prufai_ci@127.0.0.1:5432/prufai
+          REDIS_INTEGRATION_URL: redis://127.0.0.1:6379/0
       - run: python -m pytest tests/test_redis_integration.py
         working-directory: services/api
         env:

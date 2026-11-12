@@ -89,7 +89,9 @@ class AuthenticationService:
             self.settings.auth_rate_limit_window_seconds,
         ):
             raise AuthenticationError("invalid email or password")
-        user = session.scalar(select(User).where(User.normalized_email == normalized))
+        user = session.scalar(
+            select(User).where(User.normalized_email == normalized).with_for_update()
+        )
         credential = (
             session.scalar(
                 select(UserPasswordCredential).where(UserPasswordCredential.user_id == user.id)
@@ -185,7 +187,9 @@ class AuthenticationService:
             session_id = uuid.UUID(refresh_token.split(".", 1)[0])
         except (ValueError, IndexError):
             raise AuthenticationError("invalid refresh token") from None
-        auth_session = session.get(AuthSession, session_id)
+        auth_session = session.scalar(
+            select(AuthSession).where(AuthSession.id == session_id).with_for_update()
+        )
         if auth_session is None:
             raise AuthenticationError("invalid refresh token")
         if auth_session.status is not AuthSessionStatus.ACTIVE:
@@ -248,7 +252,9 @@ class AuthenticationService:
         if commit:
             session.commit()
 
-    def revoke_all(self, session: Session, user_id: uuid.UUID, *, reason: str) -> int:
+    def revoke_all(
+        self, session: Session, user_id: uuid.UUID, *, reason: str, commit: bool = True
+    ) -> int:
         sessions = list(
             session.scalars(
                 select(AuthSession).where(
@@ -259,5 +265,6 @@ class AuthenticationService:
         )
         for auth_session in sessions:
             self.revoke_session(session, auth_session, reason=reason, commit=False)
-        session.commit()
+        if commit:
+            session.commit()
         return len(sessions)

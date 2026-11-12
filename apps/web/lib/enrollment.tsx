@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { authFetch } from "./api";
-import { styles, useAuth } from "./auth";
+import { accountCard, accountPage, styles, useAuth } from "./auth";
 
 export type EnrollmentOptions = {
   enabled: boolean;
@@ -161,8 +161,8 @@ export default function EnrollmentForm({ flow }: { flow: keyof typeof flows }) {
   }
 
   return (
-    <main style={styles.center} lang="de">
-      <section style={{ ...styles.card, width: "min(100%, 440px)" }}>
+    <main style={{ ...styles.center, ...accountPage }} lang="de">
+      <section style={{ ...styles.card, ...accountCard }}>
         <p style={styles.kicker}>PrüfAI</p>
         <h1>{title}</h1>
         {flow === "invitation" && (

@@ -3,7 +3,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signInUnavailable, styles, useAuth } from "../../lib/auth";
+import {
+  accountCard,
+  accountPage,
+  signInUnavailable,
+  styles,
+  useAuth,
+} from "../../lib/auth";
 import { workspaceLanding } from "../../lib/access";
 
 export default function LoginForm({ german = false }: { german?: boolean }) {
@@ -48,11 +54,11 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
     }
   }
   return (
-    <main style={styles.center} lang={german ? "de" : undefined}>
-      <form
-        onSubmit={submit}
-        style={{ ...styles.card, width: "min(100%, 440px)" }}
-      >
+    <main
+      style={{ ...styles.center, ...accountPage }}
+      lang={german ? "de" : undefined}
+    >
+      <form onSubmit={submit} style={{ ...styles.card, ...accountCard }}>
         <p style={styles.kicker}>PrüfAI</p>
         <h1>{german ? "Anmelden" : "Sign in"}</h1>
         {loading && (
@@ -158,4 +164,5 @@ const inputStyle = {
   border: "1px solid #bbc6dc",
   borderRadius: "0.35rem",
   fontSize: "1rem",
+  minWidth: 0,
 };

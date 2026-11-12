@@ -439,6 +439,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+export const accountPage = {
+  gridTemplateColumns: "minmax(0, 1fr)",
+  padding: "clamp(1rem, 5vw, 2rem)",
+};
+
+export const accountCard = {
+  boxSizing: "border-box" as const,
+  width: "100%",
+  maxWidth: "440px",
+  minWidth: 0,
+  padding: "clamp(1rem, 5vw, 2.5rem)",
+  overflowWrap: "anywhere" as const,
+};
+
 export const styles = {
   app: {
     minHeight: "100vh",

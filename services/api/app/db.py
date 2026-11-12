@@ -1,7 +1,7 @@
 from collections.abc import Generator
 
 from fastapi import Depends
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
@@ -11,7 +11,9 @@ from app.models import Base
 def create_db_engine(settings: Settings) -> Engine:
     """Create the SQLAlchemy engine without opening a connection at import time."""
 
-    return create_engine(settings.database_url, pool_pre_ping=True)
+    url = make_url(settings.database_url)
+    connect_args = {"connect_timeout": 2} if url.get_backend_name() == "postgresql" else {}
+    return create_engine(url, pool_pre_ping=True, connect_args=connect_args)
 
 
 def create_session_factory(settings: Settings) -> sessionmaker[Session]:

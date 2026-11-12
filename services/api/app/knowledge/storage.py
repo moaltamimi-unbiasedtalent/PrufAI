@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
+from app.operations.telemetry import Failure, Signal, record
+
 ALLOWED_MIME_TYPES = {"application/pdf", "text/plain", "text/markdown"}
 MAX_SOURCE_FILE_SIZE = 25 * 1024 * 1024
 
@@ -112,6 +114,7 @@ class S3CompatibleObjectStorage:
                 raise StorageIntegrityError("source audio size does not match evidence")
             return content
         except StorageIntegrityError:
+            record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
             raise
         except Exception as exc:
             raise StorageError("bounded source audio read failed") from exc

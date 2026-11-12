@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-from sqlalchemy import func, literal, or_, select, text
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import Executable, FromClause
 
@@ -651,10 +651,6 @@ class ControlCenterRepository:
         return [
             (record, session.get(ResultRelease, record.release_id)) for record in records
         ], total
-
-    @staticmethod
-    def database_reachable(session: Session) -> bool:
-        return bool(session.scalar(text("SELECT 1")) == 1)
 
 
 OVERVIEW_MODELS = {

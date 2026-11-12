@@ -18,9 +18,24 @@ export type PlatformOverview = {
 };
 export type PlatformSystem = {
   environment: string;
-  database: { status: string };
-  object_storage: { backend: string; health: string };
-  redis: { health: string };
+  api: { status: string };
+  database: { status: string; failure_category?: string | null };
+  object_storage: {
+    backend: string;
+    health: string;
+    guard?: string;
+    canary?: string;
+    provider_approval?: string;
+    failure_category?: string | null;
+  };
+  redis: { health: string; failure_category?: string | null };
+  readiness?: { status: string; measured_at: string };
+  workers?: {
+    process_health: string;
+    queues: Record<string, Record<string, number>> | null;
+  };
+  operational_failures?: Record<string, Record<string, number>>;
+  alert_delivery?: string;
   ai_executor: { status: string; description: string };
   writing_proposal_executor?: {
     status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";

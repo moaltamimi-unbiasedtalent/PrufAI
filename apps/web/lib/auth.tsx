@@ -60,6 +60,9 @@ const AuthContext = createContext<AuthContextValue>({
   selectOrganisation: async () => undefined,
 });
 
+export const signInUnavailable =
+  "Die Anmeldung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es erneut.";
+
 export function AuthProvider({
   children,
   demoMode = false,
@@ -213,6 +216,7 @@ export function AuthProvider({
         body: JSON.stringify({ email, password }),
       }),
     );
+    if (response.status === 503) throw new Error(signInUnavailable);
     if (!response.ok)
       throw new Error(
         response.status === 401

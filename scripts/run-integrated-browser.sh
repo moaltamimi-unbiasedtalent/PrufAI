@@ -26,7 +26,9 @@ export WRITING_TEST_ADAPTER_ENABLED=1
 export SPEAKING_TEST_ADAPTER_ENABLED=1
 export KNOWLEDGE_EMBEDDING_BACKEND=deterministic
 export KNOWLEDGE_RERANKER_BACKEND=deterministic
-export AUTH_RATE_LIMIT_BACKEND=memory
+export AUTH_RATE_LIMIT_BACKEND=redis
+: "${REDIS_URL:?Set the owned disposable Redis URL}"
+: "${PRUFAI_E2E_POSTGRES_CONTAINER_ID:?Set the owned disposable browser PostgreSQL container ID}"
 # Recorded evidence acceptance must use durable private storage. This preflight
 # never replaces a configured bucket or falls back to the standards memory mode.
 : "${OBJECT_STORAGE_ENDPOINT:?Set the real private MinIO/S3 endpoint}"
@@ -34,6 +36,16 @@ export AUTH_RATE_LIMIT_BACKEND=memory
 : "${OBJECT_STORAGE_ACCESS_KEY:?Set development storage credentials}"
 : "${OBJECT_STORAGE_SECRET_KEY:?Set development storage credentials}"
 export OBJECT_STORAGE_BACKEND=s3
+python3 scripts/browser-postgres-outage.py verify
+python3 - <<'PYTHON'
+import os
+from urllib.parse import urlsplit
+
+for key, schemes in (("REDIS_URL", {"redis", "rediss"}), ("OBJECT_STORAGE_ENDPOINT", {"http", "https"})):
+    target = urlsplit(os.environ[key])
+    if target.scheme not in schemes or target.hostname not in {"127.0.0.1", "localhost"}:
+        raise SystemExit(f"{key} must identify the disposable local browser service.")
+PYTHON
 python3 scripts/initialize-audio-storage.py
 export PRUFAI_E2E_ALLOW_DEMO=1
 export PRUFAI_E2E_AUDIO_FAILURES=1

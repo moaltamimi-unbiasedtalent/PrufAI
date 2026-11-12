@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.authorization import AuthorizationError, TenantContext
@@ -14,6 +13,9 @@ from app.config import Settings, get_settings
 from app.control_center.repository import OVERVIEW_MODELS, ControlCenterRepository
 from app.models import AIModelProfile, AuditEvent, Base
 from app.models.enums import AIArtifactStatus
+from app.operations.readiness import measure_readiness, measure_storage
+from app.operations.telemetry import counters
+from app.operations.workers import worker_queue_counts
 from app.result_release.service import ResultReleaseService
 from app.speech_transcription.runtime import validate_profile_configuration
 
@@ -772,20 +774,26 @@ class ControlCenterService:
     @staticmethod
     def system(session: Session, context: TenantContext, settings: Settings) -> dict[str, Any]:
         ControlCenterService.require(context, "platform.system.read")
-        try:
-            reachable = ControlCenterRepository.database_reachable(session)
-        except SQLAlchemyError:
-            session.rollback()
-            reachable = False
+        readiness = measure_readiness(settings)
+        storage = measure_storage(settings)
+        queues = (
+            worker_queue_counts(session, readiness.measured_at)
+            if readiness.postgres.status == "HEALTHY"
+            else None
+        )
         return {
             "environment": settings.environment,
             "api": {"status": "responding"},
-            "database": {"status": "reachable" if reachable else "unavailable"},
-            "object_storage": {
-                "backend": settings.object_storage_backend,
-                "health": "NOT_VERIFIED",
+            "database": {"status": readiness.postgres.status, **readiness.postgres.data()},
+            "object_storage": storage.data(settings),
+            "redis": readiness.redis.data(),
+            "readiness": {
+                "status": "HEALTHY" if readiness.ready else "UNAVAILABLE",
+                "measured_at": readiness.measured_at,
             },
-            "redis": {"health": "NOT_VERIFIED"},
+            "workers": {"process_health": "NOT_VERIFIED", "queues": queues},
+            "operational_failures": counters(),
+            "alert_delivery": "NOT_CONFIGURED",
             "ai_executor": {
                 "status": "UNCONFIGURED",
                 "description": "Workflow records and checkpoints are implemented. No live executor "

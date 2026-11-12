@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     object_storage_aws_trial_approved: bool = False
     object_storage_region: str = "us-east-1"
     object_storage_secure: bool = False
+    operations_storage_guard_probe_enabled: bool = False
+    operations_storage_canary_enabled: bool = False
     audio_media_runtime: Literal["native", "docker"] = "native"
     audio_media_image: str = "prufai-media:ffmpeg-6.1.1"
     audio_ffprobe_executable: str = "ffprobe"

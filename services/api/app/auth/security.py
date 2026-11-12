@@ -9,7 +9,9 @@ from typing import Any, Optional, Protocol, cast
 
 import jwt
 from redis import Redis
+from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
+from redis.retry import Retry
 
 from app.config import Settings
 
@@ -134,7 +136,13 @@ class RedisRateLimiter:
     """
 
     def __init__(self, redis_url: str, *, client: Optional[Redis] = None) -> None:
-        self.client: Redis = client or Redis.from_url(redis_url, decode_responses=True)
+        self.client: Redis = client or Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            retry=Retry(NoBackoff(), 0),
+        )
 
     def allow(self, key: str, limit: int, window_seconds: int) -> bool:
         try:

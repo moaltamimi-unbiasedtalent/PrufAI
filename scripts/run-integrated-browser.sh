@@ -113,6 +113,7 @@ cleanup() {
   done
   rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/"{request,complete,complete.tmp,hold,paused,resume}
   rmdir -- "$PRUFAI_E2E_API_RESTART_DIR"
+  rm -rf -- "$enrollment_dir/browser-results"
   rm -f -- "$PRUFAI_E2E_ENROLLMENT_CAPTURE"
   rmdir -- "$enrollment_dir"
 }

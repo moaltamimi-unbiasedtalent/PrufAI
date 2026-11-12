@@ -50,7 +50,9 @@ guidance directs the user to their inviting institution.
   disposable database before injecting the capture adapter. It accepts
   synthetic `.test` recipients and stores captures in a private temporary
   directory outside uploaded artifacts. This browser spec disables traces,
-  screenshots and video. The runner removes the capture after use.
+  screenshots and video. Playwright's text snapshots for this spec also stay
+  outside the upload directory. The runner removes them and the capture after
+  use.
 - `APPROVED_ADAPTER` is reserved and refused by this implementation. A
   separately reviewed adapter would require recorded product, privacy and
   security authorization for the delivery or staff-assisted method, target

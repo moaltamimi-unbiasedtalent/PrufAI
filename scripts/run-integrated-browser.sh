@@ -160,7 +160,9 @@ wait_ready() {
 wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"
 wait_ready "$PRUFAI_E2E_BASE_URL/login" "$INTEGRATED_WEB_PID" "$PRUFAI_E2E_ARTIFACT_DIR/web.log"
 
-node "$PRUFAI_BROWSER_TOOL_DIR/node_modules/@playwright/test/cli.js" test --config tests/browser/playwright.config.cjs &
+# Raw Playwright/Node debug streams can run before enrollment can sanitize errors.
+env -u DEBUG -u DEBUG_FILE -u PWDEBUG -u NODE_DEBUG -u NODE_DEBUG_NATIVE \
+  node "$PRUFAI_BROWSER_TOOL_DIR/node_modules/@playwright/test/cli.js" test --config tests/browser/playwright.config.cjs &
 INTEGRATED_BROWSER_PID=$!
 while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
   if [[ -f "$PRUFAI_E2E_API_RESTART_DIR/request" && ! -e "$PRUFAI_E2E_API_RESTART_DIR/complete" ]]; then

@@ -1,6 +1,7 @@
 const { test, expect } = require("@playwright/test");
 const { randomUUID } = require("node:crypto");
 const { readFileSync } = require("node:fs");
+const { enrollmentStatus, fillSecret, readSignInToken } = require("./enrollment-probes.cjs");
 const { apiResponse, login, logout, restartOwnedApi } = require("./support.cjs");
 
 // One-time codes and passwords must stay out of failure artifacts and traces.
@@ -31,14 +32,6 @@ async function captureFor(recipient, purpose) {
   return message;
 }
 
-async function fillSecret(field, value) {
-  try {
-    await field.fill(value);
-  } catch {
-    throw new Error("A private enrollment field could not be filled.");
-  }
-}
-
 async function germanSignIn(page, email, password, expectedStatus) {
   await page.goto("/anmelden");
   await page.getByLabel("E-Mail-Adresse", { exact: true }).fill(email);
@@ -48,7 +41,7 @@ async function germanSignIn(page, email, password, expectedStatus) {
   const result = await response;
   expect(result.status()).toBe(expectedStatus);
   if (expectedStatus !== 200) return;
-  const { access_token: token } = await result.json();
+  const token = await readSignInToken(result);
   await expect(page).toHaveURL(/\/candidate$/);
   return token;
 }
@@ -105,7 +98,9 @@ test("institution invitation and candidate recovery use real disposable authenti
   await expect(page).toHaveURL(/\/anmelden$/);
   const me = "/api/v1/auth/me";
   const bearer = (token) => ({ Authorization: "Bearer " + token });
-  expect((await page.request.get(me, { headers: bearer(signedOut) })).status()).toBe(401);
+  await enrollmentStatus(page.request, "signed_out_session_check", me, {
+    headers: bearer(signedOut),
+  }, 401);
 
   const other = await browser.newContext();
   try {
@@ -129,11 +124,13 @@ test("institution invitation and candidate recovery use real disposable authenti
     await page.getByRole("button", { name: "Passwort ändern" }).click();
     expect((await confirmed).status()).toBe(200);
     await expect(page.getByText("Ihr Passwort wurde geändert.", { exact: false })).toBeVisible();
-    expect((await other.request.get(me, { headers: bearer(active) })).status()).toBe(401);
-    const replay = await page.request.post("/api/v1/auth/password-reset/confirm", {
+    await enrollmentStatus(other.request, "recovered_session_check", me, {
+      headers: bearer(active),
+    }, 401);
+    await enrollmentStatus(page.request, "reset_replay_check", "/api/v1/auth/password-reset/confirm", {
+      method: "POST",
       data: { token: reset.token, new_password: newPassword },
-    });
-    expect(replay.status()).toBe(400);
+    }, 400);
     await germanSignIn(page, email, originalPassword, 401);
     await expect(alert).toContainText("Anmeldung ist fehlgeschlagen");
     await germanSignIn(page, email, newPassword, 200);

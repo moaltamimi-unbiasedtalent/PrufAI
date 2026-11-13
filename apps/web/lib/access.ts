@@ -14,6 +14,7 @@ export type DemoUser = {
   platform_scope: boolean;
   platform_permissions: string[];
   scoped_source_review?: boolean;
+  v1_pilot_profile?: "DISABLED" | "BERLIN_LID_LOCKED" | "BERLIN_LID_SYNTHETIC";
 };
 
 export function candidateMembership(membership: Membership | undefined) {
@@ -23,12 +24,30 @@ export function candidateMembership(membership: Membership | undefined) {
   );
 }
 
+export function pilotActive(user: DemoUser | null | undefined): boolean {
+  return (
+    user?.v1_pilot_profile === "BERLIN_LID_SYNTHETIC" ||
+    user?.v1_pilot_profile === "BERLIN_LID_LOCKED"
+  );
+}
+
+export function pilotRouteAllowed(path: string): boolean {
+  return [
+    /^\/$/,
+    /^\/candidate(?:\/exams\/[^/]+|\/results(?:\/releases\/[^/]+)?)?$/,
+    /^\/institution\/(?:overview|assignments|enrollment|results\/[^/]+|releases(?:\/[^/]+)?)$/,
+    /^\/control-center(?:\/(?:organisations|source-registry|audit|system|standards\/lid))?$/,
+  ].some((pattern) => pattern.test(path));
+}
+
 export function canViewRoute(
   path: string,
   membership: Membership | undefined,
   platformPermissions: string[] = [],
   scopedSourceReview = false,
+  restrictedPilot = false,
 ) {
+  if (restrictedPilot && !pilotRouteAllowed(path)) return false;
   const permissions =
     membership?.status === "ACTIVE" ? membership.permissions : [];
   if (path === "/control-center" || path.startsWith("/control-center/"))
@@ -90,10 +109,12 @@ export function workspaceLanding(
   )
     return "/institution/overview";
   const first = workspaceLinks.find(
-    ([, href]) => href !== "/" && canViewRoute(href, selected),
+    ([, href]) =>
+      href !== "/" &&
+      canViewRoute(href, selected, [], false, pilotActive(user)),
   );
   if (first) return first[1];
-  if (user.scoped_source_review) return "/source-review";
+  if (user.scoped_source_review && !pilotActive(user)) return "/source-review";
   return "/";
 }
 

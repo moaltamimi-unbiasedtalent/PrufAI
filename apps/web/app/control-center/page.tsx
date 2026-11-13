@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React from "react";
+import { pilotActive, pilotRouteAllowed } from "../../lib/access";
 import { useAuth } from "../../lib/auth";
 import { ErrorNotice, MetadataTable } from "./metadata";
 import { usePlatformOverview } from "./shell";
@@ -28,6 +29,7 @@ const metrics = [
 export default function ControlCentreOverviewPage() {
   const { overview, error, refresh } = usePlatformOverview();
   const { user } = useAuth();
+  const restricted = pilotActive(user);
   return (
     <>
       <p className={css.eyebrow}>PrüfAI platform governance</p>
@@ -37,29 +39,38 @@ export default function ControlCentreOverviewPage() {
         database queries; unavailable metrics are shown without a value. This
         workspace is read-only.
       </p>
+      {restricted && (
+        <Link href="/control-center/standards/lid">
+          Inspect the Berlin LiD blueprint
+        </Link>
+      )}
       {error ? (
         <ErrorNotice message={error} retry={refresh} />
       ) : !overview ? (
         <p role="status">Loading authorized platform metrics…</p>
       ) : (
         <div className={css.grid}>
-          {metrics.map(([key, label, href]) => (
-            <article className={css.card} key={key}>
-              <h2>{label}</h2>
-              <p className={css.metric}>{overview.metrics[key] ?? "—"}</p>
-              {overview.metrics[key] === null ||
-              overview.metrics[key] === undefined ? (
-                <p>Not available for your platform permissions.</p>
-              ) : href &&
-                overview.available_sections.includes(
-                  href.split("/").at(-1) ?? "",
-                ) ? (
-                <Link href={href}>Inspect metadata →</Link>
-              ) : (
-                <p>Aggregate metadata only.</p>
-              )}
-            </article>
-          ))}
+          {metrics
+            .filter(
+              ([, , href]) => !restricted || !href || pilotRouteAllowed(href),
+            )
+            .map(([key, label, href]) => (
+              <article className={css.card} key={key}>
+                <h2>{label}</h2>
+                <p className={css.metric}>{overview.metrics[key] ?? "—"}</p>
+                {overview.metrics[key] === null ||
+                overview.metrics[key] === undefined ? (
+                  <p>Not available for your platform permissions.</p>
+                ) : href &&
+                  overview.available_sections.includes(
+                    href.split("/").at(-1) ?? "",
+                  ) ? (
+                  <Link href={href}>Inspect metadata →</Link>
+                ) : (
+                  <p>Aggregate metadata only.</p>
+                )}
+              </article>
+            ))}
         </div>
       )}
       <h2>Recent audit activity</h2>
@@ -109,8 +120,12 @@ export default function ControlCentreOverviewPage() {
             <dd>{overview.service_health.object_storage.health}</dd>
             <dt>Redis</dt>
             <dd>{overview.service_health.redis.health}</dd>
-            <dt>AI executor</dt>
-            <dd>{overview.service_health.ai_executor.status}</dd>
+            {!restricted && (
+              <>
+                <dt>AI executor</dt>
+                <dd>{overview.service_health.ai_executor.status}</dd>
+              </>
+            )}
           </dl>
           <p>
             <Link href="/control-center/system">

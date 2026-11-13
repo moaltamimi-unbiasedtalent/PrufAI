@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import TenantContext
 from app.knowledge.storage import ObjectStorage, S3CompatibleObjectStorage, StorageError
@@ -131,6 +132,7 @@ class SpeakingAudioService:
 
     @staticmethod
     def durable_storage(storage: ObjectStorage) -> S3CompatibleObjectStorage:
+        pilot.require_unrestricted()
         if not isinstance(storage, S3CompatibleObjectStorage):
             raise StorageError("recorded audio requires durable private S3 storage")
         try:
@@ -245,6 +247,7 @@ class SpeakingAudioService:
         operation_id: uuid.UUID,
         storage: ObjectStorage,
     ) -> CandidateAudioRecordingSession:
+        pilot.require_unrestricted()
         SpeakingAudioService.durable_storage(storage)
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         policy, identity = SpeakingAudioService.identity(session, attempt, binding_id)
@@ -394,6 +397,7 @@ class SpeakingAudioService:
         storage: ObjectStorage,
         context: TenantContext | None = None,
     ) -> CandidateMediaAsset:
+        pilot.require_unrestricted()
         from app.speaking_audio.media import AudioMediaError, validate_recorded_media
 
         if context is None:
@@ -480,6 +484,7 @@ class SpeakingAudioService:
         storage: ObjectStorage,
         filename: str | None = None,
     ) -> CandidateMediaAsset:
+        pilot.require_unrestricted()
         backend = SpeakingAudioService.durable_storage(storage)
         attempt, recording = SpeakingAudioService.locked_recording(session, context, recording_id)
         existing = session.scalar(

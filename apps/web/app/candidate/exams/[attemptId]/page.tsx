@@ -70,6 +70,10 @@ function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
 function safeError(cause: unknown, german = false): string {
   if (german) {
     if (cause instanceof CandidateApiError) {
+      if (cause.code === "PILOT_APPROVED_MANIFEST_REQUIRED")
+        return "Diese Übung ist noch nicht zur Teilnahme freigegeben.";
+      if (cause.code === "PILOT_SCOPE_DENIED")
+        return "Dieses Angebot ist im Berliner Übungsbereich nicht verfügbar.";
       if (cause.status === 401)
         return "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.";
       if (cause.code === "CONTENT_UNAVAILABLE")

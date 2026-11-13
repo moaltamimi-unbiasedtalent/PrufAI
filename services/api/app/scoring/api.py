@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
+from app.authorization.membership import require_active_tenant_permission
 from app.db import get_db_session
 from app.models import AssessmentResult, ResultVersion, ScoringRun
 from app.operations.telemetry import Failure, Signal, record
@@ -28,6 +30,17 @@ def _context(principal: Principal) -> TenantContext:
     if principal.tenant_context is None:
         raise HTTPException(status_code=403, detail="organisation context required")
     return principal.tenant_context
+
+
+def _require_result_read(
+    session: Session, context: TenantContext, organisation_id: uuid.UUID
+) -> None:
+    try:
+        AuthorizationService.require_permission(context, "result.read", organisation_id)
+        if pilot.active():
+            require_active_tenant_permission(session, context, "result.read", organisation_id)
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -99,9 +112,11 @@ def get_scoring_run(
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     context = _context(principal)
-    AuthorizationService.require_permission(context, "result.read", organisation_id)
+    _require_result_read(session, context, organisation_id)
     run = session.get(ScoringRun, run_id)
     if run is None or run.organisation_id != organisation_id:
+        raise HTTPException(status_code=404, detail="scoring run not found")
+    if not pilot.exam_allowed(session, run.exam_version_id, organisation_id):
         raise HTTPException(status_code=404, detail="scoring run not found")
     return {
         "id": str(run.id),
@@ -122,9 +137,11 @@ def get_result(
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
     context = _context(principal)
-    AuthorizationService.require_permission(context, "result.read", organisation_id)
+    _require_result_read(session, context, organisation_id)
     result = session.get(AssessmentResult, result_id)
     if result is None or result.organisation_id != organisation_id:
+        raise HTTPException(status_code=404, detail="result not found")
+    if not pilot.exam_allowed(session, result.exam_version_id, organisation_id):
         raise HTTPException(status_code=404, detail="result not found")
     current = max(
         (row for row in result.versions if row.status.value != "SUPERSEDED"),
@@ -144,9 +161,11 @@ def list_result_versions(
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     context = _context(principal)
-    AuthorizationService.require_permission(context, "result.read", organisation_id)
+    _require_result_read(session, context, organisation_id)
     result = session.get(AssessmentResult, result_id)
     if result is None or result.organisation_id != organisation_id:
+        raise HTTPException(status_code=404, detail="result not found")
+    if not pilot.exam_allowed(session, result.exam_version_id, organisation_id):
         raise HTTPException(status_code=404, detail="result not found")
     return [_admin_version(session, version, result) for version in result.versions]
 

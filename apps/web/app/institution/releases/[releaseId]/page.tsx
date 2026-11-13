@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { pilotActive } from "../../../../lib/access";
 import { useAuth } from "../../../../lib/auth";
 import {
   releaseActions,
@@ -16,7 +17,7 @@ export default function ReleaseDetailPage({
 }: {
   params: Promise<{ releaseId: string }>;
 }) {
-  const { organisationId, permissions } = useAuth();
+  const { organisationId, permissions, user } = useAuth();
   const [release, setRelease] = useState<ReleaseDetail | null>(null);
   const [message, setMessage] = useState("Loading release detail…");
   const [error, setError] = useState<string | null>(null);
@@ -187,18 +188,22 @@ export default function ReleaseDetailPage({
                 Issue Statement of Results
               </button>
             )}
-          <h2>Certificate records</h2>
-          {!release.certificates?.length && (
-            <p>
-              No certificate record is available. Certification requires
-              separate explicit scoped authority and remains disabled by
-              default.
-            </p>
+          {!pilotActive(user) && (
+            <>
+              <h2>Certificate records</h2>
+              {!release.certificates?.length && (
+                <p>
+                  No certificate record is available. Certification requires
+                  separate explicit scoped authority and remains disabled by
+                  default.
+                </p>
+              )}
+              <ArtifactList
+                artifacts={release.certificates ?? []}
+                releaseStatus={release.effective_status ?? release.status}
+              />
+            </>
           )}
-          <ArtifactList
-            artifacts={release.certificates ?? []}
-            releaseStatus={release.effective_status ?? release.status}
-          />
           {releaseActions(release.status, permissions).revoke && (
             <form
               onSubmit={(event) => void revoke(event)}

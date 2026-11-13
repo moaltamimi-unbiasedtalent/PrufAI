@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { canViewRoute, workspaceLanding } from "../../lib/access";
+import {
+  canViewRoute,
+  pilotActive,
+  pilotRouteAllowed,
+  workspaceLanding,
+} from "../../lib/access";
 import { useAuth } from "../../lib/auth";
 import { controlApi, type PlatformOverview } from "./control-api";
 import css from "./control-center.module.css";
@@ -60,6 +65,17 @@ export function ControlCentreShell({
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
+  const restricted = pilotActive(user);
+  const links = restricted
+    ? [
+        ...controlLinks.filter(([, href]) => pilotRouteAllowed(href)),
+        [
+          "Berlin LiD blueprint",
+          "/control-center/standards/lid",
+          "standard_pack.read",
+        ] as const,
+      ]
+    : controlLinks;
   const allowed = Boolean(
     user &&
       canViewRoute("/control-center", membership, user.platform_permissions),
@@ -152,7 +168,7 @@ export function ControlCentreShell({
         </header>
         <div className={css.body}>
           <nav className={css.navigation} aria-label="Platform navigation">
-            {controlLinks
+            {links
               .filter(([, , permission]) =>
                 permission
                   .split("|")
@@ -185,7 +201,15 @@ export function ControlCentreShell({
                 </button>
               </div>
             )}
-            {children}
+            {restricted && !pilotRouteAllowed(pathname) ? (
+              <section role="alert">
+                <h1>Access restricted</h1>
+                <p>This workspace is outside Berlin LiD practice.</p>
+                <Link href="/control-center">Return to Control Centre</Link>
+              </section>
+            ) : (
+              children
+            )}
           </main>
         </div>
       </div>

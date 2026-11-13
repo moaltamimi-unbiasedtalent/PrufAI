@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     speaking_provider_timeout_seconds: int = Field(default=90, ge=1, le=120)
     speaking_approved_profile_fingerprints: list[str] = []
     privacy_test_discovery_enabled: bool = False
+    v1_pilot_profile: Literal["DISABLED", "BERLIN_LID_LOCKED", "BERLIN_LID_SYNTHETIC"] = "DISABLED"
     certification_issuance_enabled: bool = False
     auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
     auth_jwt_issuer: str = "prufai-api"
@@ -78,6 +79,12 @@ class Settings(BaseSettings):
     def transcription_deployment_boundary(self) -> "Settings":
         import re
 
+        if self.v1_pilot_profile == "BERLIN_LID_SYNTHETIC":
+            from app.evaluation.disposable import assert_disposable_database
+
+            if self.environment == "production":
+                raise ValueError("Synthetic Berlin pilot is forbidden in production")
+            assert_disposable_database(self.database_url, report=False)
         if self.auth_enrollment_delivery_mode == "APPROVED_ADAPTER":
             raise ValueError("No independently approved enrollment delivery adapter is installed")
         if self.environment == "production" and self.auth_enrollment_delivery_mode == "TEST_ONLY":

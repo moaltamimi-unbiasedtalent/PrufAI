@@ -326,6 +326,7 @@ def logout(
 
 @router.get("/me")
 def me(
+    settings: Settings = Depends(auth_settings_dependency),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
@@ -379,6 +380,7 @@ def me(
         "status": principal.user.status.value,
         "memberships": membership_payloads,
         "platform_scope": bool(platform_permissions),
+        "v1_pilot_profile": settings.v1_pilot_profile,
         "platform_permissions": platform_permissions,
         "scoped_source_review": session.scalar(
             select(ScopedSourceReviewGrant.id)

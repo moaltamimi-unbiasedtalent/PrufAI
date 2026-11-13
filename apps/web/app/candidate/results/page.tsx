@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { pilotActive } from "../../../lib/access";
+import { useAuth } from "../../../lib/auth";
 import { useEffect, useState } from "react";
 import {
   releaseApi,
@@ -9,6 +11,7 @@ import {
 } from "../../institution/releases/release-api";
 
 export default function CandidateResultsPage() {
+  const restricted = pilotActive(useAuth().user);
   const [results, setResults] = useState<ResultRelease[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +44,11 @@ export default function CandidateResultsPage() {
         Candidate
       </p>
       <h1>Released results</h1>
-      <p>
-        <Link href="/candidate/results/appeals">My appeal history →</Link>
-      </p>
+      {!restricted && (
+        <p>
+          <Link href="/candidate/results/appeals">My appeal history →</Link>
+        </p>
+      )}
       {loading && <p role="status">Loading released results…</p>}
       {error && (
         <div role="alert">
@@ -75,13 +80,14 @@ export default function CandidateResultsPage() {
                   View result and Statement of Results
                 </Link>
               </p>
-              {(result.effective_status ?? result.status) === "RELEASED" && (
-                <Link
-                  href={`/candidate/results/appeal?resultVersionId=${encodeURIComponent(result.result_version_id)}`}
-                >
-                  Appeal this released result
-                </Link>
-              )}
+              {!restricted &&
+                (result.effective_status ?? result.status) === "RELEASED" && (
+                  <Link
+                    href={`/candidate/results/appeal?resultVersionId=${encodeURIComponent(result.result_version_id)}`}
+                  >
+                    Appeal this released result
+                  </Link>
+                )}
             </article>
           </li>
         ))}

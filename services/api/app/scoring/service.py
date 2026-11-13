@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import AuthorizationService, TenantContext
 from app.authorization.membership import require_active_tenant_permission
@@ -726,6 +727,7 @@ class ScoringService:
         if context.organisation_id is None:
             raise ScoringError("organisation context required")
         AuthorizationService.require_permission(context, "scoring.run", context.organisation_id)
+        pilot.require_institution(session, context, "scoring.run")
         attempt = session.get(CandidateExamAttempt, attempt_id)
         if attempt is None or attempt.organisation_id != context.organisation_id:
             raise ScoringError("attempt is not available in this organisation")
@@ -741,6 +743,7 @@ class ScoringService:
         )
         if attempt is None or attempt.status is not CandidateAttemptStatus.SUBMITTED:
             raise ScoringError("INVALID_ATTEMPT_STATE: submitted attempt changed")
+        pilot.require_attempt(session, attempt)
         snapshot_json, response_checksum = _snapshot(attempt)
         pack_reference = attempt.runtime_plan.get("standard_pack_version_id")
         pack = session.get(
@@ -1374,6 +1377,7 @@ class ScoringService:
     def _consequential_version(
         session: Session, context: TenantContext, version_id: uuid.UUID, *, permission: str
     ) -> ResultVersion:
+        pilot.require_institution(session, context, permission)
         preliminary = ScoringService._owned_version(session, context, version_id)
         parent = preliminary.result
         attempt = session.scalar(
@@ -1396,6 +1400,7 @@ class ScoringService:
         )
         if attempt is None or result is None or version is None:
             raise ScoringError("result provenance is unavailable")
+        pilot.require_attempt(session, attempt)
         if max(result.versions, key=lambda row: row.version_number).id != version.id:
             raise ScoringError("stale result version")
         run = session.get(ScoringRun, version.scoring_run_id)
@@ -1429,6 +1434,8 @@ class ScoringService:
         ).all()
         visible = []
         for version, result, lid_exam_id in rows:
+            if not pilot.exam_allowed(session, result.exam_version_id, result.organisation_id):
+                continue
             if lid_exam_id is not None:
                 run = session.get(ScoringRun, version.scoring_run_id)
                 exam = session.get(ExamVersion, lid_exam_id)

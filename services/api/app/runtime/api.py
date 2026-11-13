@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app import pilot
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.config import get_settings
@@ -113,6 +114,9 @@ def _assignment_payload(assignment: CandidateExamAssignment) -> dict[str, Any]:
 def _candidate_assignment_payload(
     session: Session, assignment: CandidateExamAssignment
 ) -> dict[str, Any]:
+    pilot.require_exam(
+        session, session.get(ExamVersion, assignment.exam_version_id), assignment.organisation_id
+    )
     payload = _assignment_payload(assignment)
     form = session.get(LidPracticeForm, assignment.exam_version_id)
     if form is not None:
@@ -121,6 +125,10 @@ def _candidate_assignment_payload(
         payload["lid_practice"] = lid.assignment_details(
             form.bundesland, original=lid.is_original_form(form)
         )
+        if pilot.active():
+            payload["lid_practice"]["bundeslaender"] = [
+                option for option in payload["lid_practice"]["bundeslaender"] if option["available"]
+            ]
     return payload
 
 
@@ -426,6 +434,7 @@ def list_organisation_assignments(
 
     try:
         AuthorizationService.require_permission(context, "exam_assignment.read", organisation_id)
+        pilot.require_institution(session, context, "exam_assignment.read")
     except AuthorizationError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -437,6 +446,8 @@ def list_organisation_assignments(
     payloads = []
     can_read_results = AuthorizationService.has_permission(context, "result.read", organisation_id)
     for assignment in rows:
+        if not pilot.exam_allowed(session, assignment.exam_version_id, organisation_id):
+            continue
         payload = _assignment_payload(assignment)
         candidate = session.get(User, assignment.candidate_user_id)
         exam_version = session.get(ExamVersion, assignment.exam_version_id)
@@ -517,7 +528,8 @@ def list_candidate_assignments(
     return [
         _candidate_assignment_payload(session, row)
         for row in CandidateRuntimeService.list_assignments(session, _context(principal))
-        if lid.assignment_visible(session, session.get(LidPracticeForm, row.exam_version_id))
+        if pilot.exam_allowed(session, row.exam_version_id, row.organisation_id)
+        and lid.assignment_visible(session, session.get(LidPracticeForm, row.exam_version_id))
     ]
 
 
@@ -597,6 +609,17 @@ def get_lid_practice_result(
         )
     response.headers["Cache-Control"] = "no-store"
     return projection
+
+
+@candidate_router.get("/exam-attempts/{attempt_id}/lid-practice-result/status")
+def lid_practice_result_status(
+    attempt_id: uuid.UUID,
+    response: Response,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    result = get_lid_practice_result(attempt_id, response, principal, session)
+    return {"result_version_id": result["result_version_id"]}
 
 
 @candidate_router.post("/exam-attempts/{attempt_id}/start")

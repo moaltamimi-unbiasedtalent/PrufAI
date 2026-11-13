@@ -31,6 +31,7 @@ from app.lid_editorial.review_api import router as lid_editorial_review_router
 from app.memory.api import router as memory_router
 from app.operations.readiness import measure_readiness
 from app.operations.telemetry import API_VERSION
+from app.pilot import enforce_route
 from app.privacy.api import router as privacy_router
 from app.question_bank.api import router as question_bank_router
 from app.result_governance.api import candidate_router as candidate_appeal_router
@@ -51,7 +52,7 @@ from app.standard_packs.lid_api import router as lid_standards_router
 from app.writing_assessment.api import writing_router
 from app.writing_execution.api import router as writing_execution_router
 
-app = FastAPI(title="PrüfAI API", version=API_VERSION)
+app = FastAPI(title="PrüfAI API", version=API_VERSION, dependencies=[Depends(enforce_route)])
 
 
 @app.middleware("http")
@@ -59,6 +60,8 @@ async def security_headers(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
     response = await call_next(request)
+    if request.url.path.startswith("/api/v1/candidate/"):
+        response.headers.setdefault("Cache-Control", "no-store")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

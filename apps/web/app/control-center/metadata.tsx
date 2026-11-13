@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React, { FormEvent, useEffect, useState } from "react";
+import { pilotActive } from "../../lib/access";
 import { useAuth } from "../../lib/auth";
 import {
   controlApi,
@@ -560,7 +561,9 @@ export function MetadataBrowser({
               caption={view.label}
               columns={view.columns}
               rows={page.items}
-              organisationLinks={section === "organisations"}
+              organisationLinks={
+                section === "organisations" && !pilotActive(user)
+              }
               onInspect={
                 (section === "source-registry" &&
                   selectedKind === "documents") ||

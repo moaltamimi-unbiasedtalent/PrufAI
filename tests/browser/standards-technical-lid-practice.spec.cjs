@@ -1425,3 +1425,365 @@ test("server deadline rejects a queued Berlin answer reconnected after time expi
     Date.parse(confirmed.deadline_at) - Date.parse(confirmed.submitted_at);
   expect(timeLeft > 0 && timeLeft <= 20_000).toBe(true);
 });
+
+test("Berlin pilot restricts role workspaces and withdraws exact results despite stale responses", async ({
+  page,
+  browser,
+}) => {
+  const { org, id } = await createPracticeAssignment(page);
+  const institution = `/api/v1/organisations/${org}`;
+  const unrestricted = await login(page, adminEmail);
+  expect(unrestricted.profile.v1_pilot_profile).toBe("DISABLED");
+  const options = await privateRequest(
+    page,
+    "GET",
+    `${institution}/exam-assignment-options`,
+    {
+      headers: scoped(unrestricted, org),
+    },
+  );
+  expect(options.status()).toBe(200);
+  const original = await options.json();
+  const other = original.exam_versions.find((version) => !version.lid_practice);
+  const candidateId = original.candidates.find(
+    (row) => row.display_name === "Demo Candidate",
+  )?.id;
+  expect(Boolean(other && candidateId)).toBe(true);
+  await logout(page);
+
+  const operatorPage = await browser.newPage({
+    baseURL: process.env.PRUFAI_E2E_BASE_URL,
+  });
+  const outsiderPage = await browser.newPage({
+    baseURL: process.env.PRUFAI_E2E_BASE_URL,
+  });
+  const scorePage = await browser.newPage({
+    baseURL: process.env.PRUFAI_E2E_BASE_URL,
+  });
+  try {
+    await restartOwnedApi("BERLIN_LID_SYNTHETIC");
+    const platform = await login(page, platformEmail);
+    expect(platform.profile.v1_pilot_profile).toBe("BERLIN_LID_SYNTHETIC");
+    await expect(
+      page.getByRole("link", { name: "Berlin LiD blueprint", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "AI operations" })).toHaveCount(
+      0,
+    );
+    await page
+      .getByRole("link", { name: "Berlin LiD blueprint", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Leben in Deutschland blueprint" }),
+    ).toBeVisible();
+    await page.goto("/control-center/ai-operations");
+    await expect(
+      page.getByRole("heading", { name: "Access restricted" }),
+    ).toBeVisible();
+    const denied = await privateRequest(
+      page,
+      "POST",
+      `/api/v1/platform/ai/workflow-versions/${randomUUID()}/run`,
+      {
+        headers: headers(platform),
+        data: { request_id: randomUUID() },
+      },
+    );
+    expect(denied.status()).toBe(403);
+    expect(await denied.json()).toEqual({ detail: "PILOT_SCOPE_DENIED" });
+    const classified = await privateRequest(
+      page,
+      "POST",
+      `/api/v1/platform/exams/${other.exam_id}/versions`,
+      {
+        headers: scoped(platform, org),
+        data: { classification: "OFFICIAL_CERTIFICATION" },
+      },
+    );
+    expect(classified.status()).toBe(403);
+    expect(await classified.json()).toEqual({ detail: "PILOT_SCOPE_DENIED" });
+    await logout(page);
+
+    const operator = await login(operatorPage, adminEmail);
+    await expect(
+      operatorPage.getByRole("link", { name: "Writing review" }),
+    ).toHaveCount(0);
+    await operatorPage.goto("/institution/speaking-reviews");
+    await expect(
+      operatorPage.getByRole("heading", { name: "Access restricted" }),
+    ).toBeVisible();
+    const forbidden = await privateRequest(
+      operatorPage,
+      "POST",
+      `${institution}/exam-assignments`,
+      {
+        headers: scoped(operator, org),
+        data: { candidate_user_id: candidateId, exam_version_id: other.id },
+      },
+    );
+    expect(forbidden.status()).toBe(403);
+    expect(await forbidden.json()).toEqual({ detail: "PILOT_SCOPE_DENIED" });
+    const available = await privateRequest(
+      operatorPage,
+      "GET",
+      `${institution}/exam-assignment-options`,
+      { headers: scoped(operator, org) },
+    );
+    const offered = (await available.json()).exam_versions;
+    expect(
+      offered.length > 0 && offered.every((exam) => exam.lid_practice),
+    ).toBe(true);
+
+    const owner = await login(page, candidateEmail);
+    const choice = await privateRequest(
+      page,
+      "POST",
+      `${candidate}/exam-assignments/${id}/attempts`,
+      {
+        headers: scoped(owner, org),
+        data: { bundesland: "DE-BY" },
+      },
+    );
+    expect(choice.status()).toBe(403);
+    expect(await choice.json()).toEqual({ detail: "PILOT_SCOPE_DENIED" });
+    const runtime = await startFromKeyboard(page, id);
+    const attempt = runtime.attempt_id;
+    const attemptPath = `${candidate}/exam-attempts/${attempt}`;
+    const first = runtime.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+    const audio = await privateRequest(
+      page,
+      "POST",
+      `${candidate}/attempts/${attempt}/items/${first.binding_id}/audio-recordings`,
+      { headers: scoped(owner, org) },
+    );
+    expect(audio.status()).toBe(403);
+    expect(await audio.json()).toEqual({ detail: "PILOT_SCOPE_DENIED" });
+    const answered = await privateRequest(
+      page,
+      "PUT",
+      `${attemptPath}/responses/${first.binding_id}`,
+      {
+        headers: scoped(owner, org),
+        data: {
+          client_operation_id: randomUUID(),
+          expected_revision: 0,
+          payload: { option_id: first.content.options[0].option_id },
+        },
+      },
+    );
+    expect(answered.status()).toBe(200);
+    expect(
+      (
+        await privateRequest(page, "POST", `${attemptPath}/submit`, {
+          headers: scoped(owner, org),
+        })
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await privateRequest(
+          operatorPage,
+          "POST",
+          `${institution}/exam-attempts/${attempt}/score`,
+          { headers: scoped(operator, org) },
+        )
+      ).status(),
+    ).toBe(200);
+    const rows = await privateRequest(
+      operatorPage,
+      "GET",
+      `${institution}/exam-assignments`,
+      { headers: scoped(operator, org) },
+    );
+    const assignment = (await rows.json()).find((row) => row.id === id);
+    const result = assignment.attempts.find((row) => row.id === attempt).result;
+    const legacy = `${candidate}/results/${result.id}`;
+    const releaseAction = `${institution}/result-versions/${result.version_id}`;
+    const ownerRequest = (method, path, data) =>
+      privateRequest(page, method, path, { headers: scoped(owner, org), data });
+    const staff = (method, path, data) =>
+      privateRequest(operatorPage, method, path, {
+        headers: scoped(operator, org),
+        data,
+      });
+    expect((await ownerRequest("GET", legacy)).status()).toBe(404);
+    expect(
+      (
+        await ownerRequest("GET", `${attemptPath}/lid-practice-result/status`)
+      ).status(),
+    ).toBe(404);
+    expect(
+      (await ownerRequest("POST", `${releaseAction}/approve`)).status(),
+    ).toBe(403);
+    expect(
+      (
+        await ownerRequest("POST", `${releaseAction}/release`, {
+          operation_id: randomUUID(),
+        })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await staff("POST", `${releaseAction}/release`, {
+          operation_id: randomUUID(),
+        })
+      ).status(),
+    ).toBe(409);
+    expect(
+      (await staff("POST", `${releaseAction}/request-review`)).status(),
+    ).toBe(200);
+    expect((await staff("POST", `${releaseAction}/approve`)).status()).toBe(
+      200,
+    );
+    const releaseInput = { operation_id: randomUUID() };
+    const released = await staff(
+      "POST",
+      `${releaseAction}/release`,
+      releaseInput,
+    );
+    expect(released.status()).toBe(200);
+    const { release_id: releaseId } = await released.json();
+    expect(
+      (
+        await (
+          await staff("POST", `${releaseAction}/release`, releaseInput)
+        ).json()
+      ).release_id,
+    ).toBe(releaseId);
+    expect(
+      (
+        await staff(
+          "POST",
+          `${institution}/releases/${releaseId}/certificate?authorization_id=${randomUUID()}`,
+          { operation_id: randomUUID() },
+        )
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await staff("POST", `${institution}/releases/${releaseId}/statement`, {
+          operation_id: randomUUID(),
+        })
+      ).status(),
+    ).toBe(200);
+    expect((await ownerRequest("GET", legacy)).status()).toBe(200);
+
+    const outsider = await login(
+      outsiderPage,
+      "speaking.outsider@demo.prufai.local",
+    );
+    const outside = outsider.profile.memberships[0].organisation_id;
+    expect(outside).not.toBe(org);
+    await outsiderPage.goto(`/candidate/results/releases/${releaseId}`);
+    await expect(
+      outsiderPage.getByText("release not found", { exact: true }),
+    ).toBeVisible();
+    for (const path of [
+      legacy,
+      `${candidate}/releases/${releaseId}/statement`,
+    ]) {
+      expect(
+        (
+          await privateRequest(outsiderPage, "GET", path, {
+            headers: scoped(outsider, outside),
+          })
+        ).status(),
+      ).toBe(404);
+    }
+
+    await page.goto(`/candidate/exams/${attempt}`);
+    const preview = page.getByRole("region", { name: "LiD practice result" });
+    await expect(preview).toContainText("answers correct");
+    await login(scorePage, candidateEmail);
+    const releasePage = `/candidate/results/releases/${releaseId}`;
+    await scorePage.goto(releasePage);
+    await expect(
+      scorePage.getByRole("heading", { name: "Released score" }),
+    ).toBeVisible();
+    await expect(
+      scorePage.getByText("Statement issued:", { exact: false }),
+    ).toBeVisible();
+    await scorePage.context().setOffline(true);
+    await expect(
+      scorePage.getByRole("heading", { name: "Released score" }),
+    ).toHaveCount(0);
+    await expect(
+      scorePage.getByText("Statement issued:", { exact: false }),
+    ).toHaveCount(0);
+
+    // Hold an actual authorized API response across revocation. The browser
+    // must check the current release before it renders the delayed outcome.
+    let resume;
+    const gate = new Promise((resolve) => {
+      resume = resolve;
+    });
+    let captured = false;
+    await page.route(`**${attemptPath}/lid-practice-result`, async (route) => {
+      const snapshot = await callUpstream(route);
+      captured = snapshot.status() === 200;
+      await gate;
+      await route.fulfill({ response: snapshot });
+    });
+    try {
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+      await expect.poll(() => captured).toBe(true);
+      await expect(preview).not.toContainText("answers correct");
+      const revoke = {
+        reason: "Synthetic confidentiality regression",
+        operation_id: randomUUID(),
+      };
+      const action = `${institution}/releases/${releaseId}/revoke`;
+      const [revoked, repeated] = [
+        await staff("POST", action, revoke),
+        await staff("POST", action, revoke),
+      ];
+      expect(revoked.status()).toBe(200);
+      expect(repeated.status()).toBe(200);
+      expect(await revoked.json()).toEqual(await repeated.json());
+    } finally {
+      resume();
+    }
+    await expect(preview).toContainText("bestätigter Freigabe");
+    await expect(preview).not.toContainText("answers correct");
+    const stale = await ownerRequest("GET", legacy);
+    expect(stale.status()).toBe(404);
+    expect(stale.headers()["cache-control"]).toContain("no-store");
+    expect(
+      (
+        await ownerRequest(
+          "GET",
+          `${candidate}/releases/${releaseId}/statement`,
+        )
+      ).status(),
+    ).toBe(404);
+    await scorePage.context().setOffline(false);
+    await scorePage.reload();
+    await expect(
+      scorePage.locator("p").filter({ hasText: /^Effective status: REVOKED$/ }),
+    ).toContainText("REVOKED");
+    await expect(
+      scorePage.getByRole("heading", { name: "Released score" }),
+    ).toHaveCount(0);
+    await expect(
+      scorePage.getByText("Statement issued:", { exact: false }),
+    ).toHaveCount(0);
+    await page.unroute(`**${attemptPath}/lid-practice-result`);
+    await page.reload();
+    await expect(preview).toContainText("reviews and releases");
+    await expect(preview).not.toContainText("answers correct");
+    await logout(page);
+    await login(page, "history@demo.prufai.local");
+    await page.goto(`/candidate/exams/${attempt}`);
+    await expect(
+      page.getByRole("region", { name: "LiD practice result" }),
+    ).toHaveCount(0);
+    await expect(page.getByText("answers correct")).toHaveCount(0);
+  } finally {
+    await Promise.all([
+      operatorPage.close(),
+      outsiderPage.close(),
+      scorePage.close(),
+    ]);
+    await restartOwnedApi();
+  }
+});

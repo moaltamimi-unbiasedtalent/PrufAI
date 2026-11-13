@@ -54,7 +54,11 @@ async function screenshot(page, name) {
   });
 }
 
-async function restartOwnedApi() {
+async function restartOwnedApi(profile = "DISABLED") {
+  if (
+    !["DISABLED", "BERLIN_LID_SYNTHETIC", "BERLIN_LID_LOCKED"].includes(profile)
+  )
+    throw new Error("Unsupported disposable acceptance profile.");
   const directory = process.env.PRUFAI_E2E_API_RESTART_DIR;
   if (!directory)
     throw new Error(
@@ -62,7 +66,7 @@ async function restartOwnedApi() {
     );
   const completion = path.join(directory, "complete");
   rmSync(completion, { force: true });
-  writeFileSync(path.join(directory, "request"), "restart owned API\n", {
+  writeFileSync(path.join(directory, "request"), `${profile}\n`, {
     flag: "wx",
     mode: 0o600,
   });

@@ -21,10 +21,15 @@ export function LidPracticeResultPanel({
   );
   const [reload, setReload] = useState(0);
 
+  function refreshResult() {
+    setResult(null);
+    setState("loading");
+    setReload((value) => value + 1);
+  }
+
   useEffect(() => {
     const revalidate = () => {
-      if (document.visibilityState === "visible")
-        setReload((value) => value + 1);
+      if (document.visibilityState === "visible") refreshResult();
     };
     document.addEventListener("visibilitychange", revalidate);
     window.addEventListener("pageshow", revalidate);
@@ -70,9 +75,15 @@ export function LidPracticeResultPanel({
           <p role={state === "error" ? "alert" : "status"}>
             {state === "pending"
               ? "Your submission is saved. The practice result will appear after your institution reviews and releases it."
-              : "The practice result could not be loaded."}
+              : "Das Übungsergebnis ist momentan nicht abrufbar. Prüfen Sie die Verbindung und versuchen Sie es erneut."}
           </p>
-          <button type="button" onClick={() => setReload((value) => value + 1)}>
+          {state === "pending" && (
+            <p lang="de">
+              Ihre Abgabe ist gespeichert. Ohne aktuelle Freigabe zeigt PrüfAI
+              kein Ergebnis an. Bei Fragen wenden Sie sich an Ihre Institution.
+            </p>
+          )}
+          <button type="button" onClick={refreshResult}>
             Refresh practice result
           </button>
         </>

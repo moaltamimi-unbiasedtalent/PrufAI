@@ -3,7 +3,7 @@
 import os
 import sys
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 from app.authorization import build_tenant_context
@@ -30,13 +30,8 @@ def main() -> None:
         if session.scalar(text("SELECT current_database()")) != name:
             raise SystemExit("Database identity mismatch.")
         attempt = session.get(CandidateExamAttempt, uuid.UUID(sys.argv[1]))
-        if (
-            attempt is None
-            or attempt.organisation_id != demo_id("organisation")
-            or attempt.status is not CandidateAttemptStatus.IN_PROGRESS
-            or attempt.deadline_at is None
-        ):
-            raise SystemExit("An active synthetic demo attempt is required.")
+        if attempt is None or attempt.organisation_id != demo_id("organisation"):
+            raise SystemExit("An exact synthetic demo attempt is required.")
         owner = session.get(User, attempt.candidate_user_id)
         form = session.get(LidPracticeForm, attempt.exam_version_id)
         if (
@@ -47,6 +42,31 @@ def main() -> None:
         ):
             raise SystemExit("An exact synthetic LiD attempt is required.")
         context = build_tenant_context(session, owner.id, attempt.organisation_id)
+        if len(sys.argv) == 3:
+            seconds = int(sys.argv[2])
+            if (
+                seconds not in {20}
+                or attempt.status is not CandidateAttemptStatus.READY
+            ):
+                raise SystemExit(
+                    "A ready synthetic attempt and allowed deadline window are required."
+                )
+            duration = attempt.runtime_plan["duration_seconds"]
+            assert duration == 3600
+            now = datetime.now(UTC)
+            with patch.object(
+                runtime,
+                "_now",
+                return_value=now - timedelta(seconds=duration - seconds),
+            ):
+                runtime.CandidateRuntimeService.start(session, context, attempt.id)
+            session.commit()
+            return
+        if (
+            attempt.status is not CandidateAttemptStatus.IN_PROGRESS
+            or attempt.deadline_at is None
+        ):
+            raise SystemExit("An active synthetic attempt is required.")
         with patch.object(
             runtime, "_now", return_value=attempt.deadline_at + timedelta(seconds=1)
         ):

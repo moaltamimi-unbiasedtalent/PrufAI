@@ -5,6 +5,7 @@ const { defineConfig } = require("@playwright/test");
 const baseURL = process.env.PRUFAI_E2E_BASE_URL;
 const capture = process.env.PRUFAI_E2E_ENROLLMENT_CAPTURE;
 const enrollmentSpec = "**/pilot-enrollment.spec.cjs";
+const lidSpec = "**/standards-technical-lid-practice.spec.cjs";
 if (!baseURL || process.env.PRUFAI_E2E_ALLOW_DEMO !== "1") {
   throw new Error(
     "Set PRUFAI_E2E_BASE_URL and PRUFAI_E2E_ALLOW_DEMO=1 for an isolated demo database.",
@@ -33,7 +34,14 @@ module.exports = defineConfig({
     "results",
   ),
   projects: [
-    { name: "regression", testIgnore: enrollmentSpec },
+    { name: "regression", testIgnore: [enrollmentSpec, lidSpec] },
+    {
+      name: "lid-practice",
+      testMatch: lidSpec,
+      outputDir: capture
+        ? path.join(path.dirname(capture), "lid-results")
+        : path.join(os.tmpdir(), "prufai-unconfigured-lid-results"),
+    },
     {
       name: "enrollment",
       testMatch: enrollmentSpec,

@@ -857,8 +857,16 @@ def migration_head(source):
 
 
 def runtime_env(database, storage, redis_url, decoder, secret):
+    # The disposable database guard requires both Actions markers in its
+    # Linux branch. Pass those markers through the restricted child env.
+    workflow = {
+        name: os.environ[name]
+        for name in ("CI", "GITHUB_ACTIONS")
+        if os.environ.get(name) == "true"
+    }
     return {
         **settings(database, storage, redis_url, decoder, secret),
+        **workflow,
         "PRUFAI_DISPOSABLE_DATABASE": database.name,
         "V1_PILOT_PROFILE": ACTIVE,
         "CERTIFICATION_ISSUANCE_ENABLED": "false",

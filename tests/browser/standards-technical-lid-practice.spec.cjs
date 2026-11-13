@@ -1711,6 +1711,16 @@ test("Berlin pilot restricts role workspaces and withdraws exact results despite
       scorePage.getByText("Statement issued:", { exact: false }),
     ).toHaveCount(0);
 
+    // Keep the existing authenticated tab open across the deployment stop.
+    await restartOwnedApi("BERLIN_LID_LOCKED");
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+    await expect(preview).not.toContainText("answers correct");
+    expect((await ownerRequest("GET", legacy)).status()).toBe(404);
+
+    await restartOwnedApi("BERLIN_LID_SYNTHETIC");
+    await page.reload();
+    await expect(preview).toContainText("answers correct");
+
     // Hold an actual authorized API response across revocation. The browser
     // must check the current release before it renders the delayed outcome.
     let resume;

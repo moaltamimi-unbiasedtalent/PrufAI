@@ -49,7 +49,11 @@ def encode(data):
 def engine_for(database):
     url = urlsplit(database.url)
     assert url.hostname == "127.0.0.1" and url.path == f"/{database.name}"
-    assert database.name.startswith("o1b2_")
+    if not database.name.startswith("o1b2_"):
+        from app.evaluation.disposable import assert_disposable_database
+
+        assert_disposable_database(database.url, database.name, report=False)
+        database.rig.owned("container", database.container)
     engine = create_engine(database.url, hide_parameters=True)
     with engine.connect() as connection:
         assert connection.scalar(text("select current_database()")) == database.name

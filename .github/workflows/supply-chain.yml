@@ -44,12 +44,13 @@ jobs:
   container-go-evidence:
     name: Container and MinIO binary scans (informational findings)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.26.10"
@@ -85,6 +86,20 @@ jobs:
         run: python scripts/storage-readiness/check.py "$RUNNER_TEMP/o1a-containers"
       - name: Rehearse isolated service failures and assessment evidence recovery
         run: python scripts/storage-readiness/operations.py "$RUNNER_TEMP/o1a-containers"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - name: Prepare synthetic release build dependencies
+        run: |
+          python -m pip install -e services/ai
+          npm ci --prefix apps/web
+      - name: Rehearse V1 synthetic release preflight, safe stop and restore
+        env:
+          PYTHONPATH: ${{ github.workspace }}/services/api
+        run: |
+          python scripts/storage-readiness/v1_release.py "$RUNNER_TEMP/o1a-containers" --profile SYNTHETIC_TEST
+          cd "$RUNNER_TEMP/o1a-containers"
+          sha256sum --check v1-e06a-release-manifest.sha256
       - name: Summarize image and binary evidence
         if: always()
         env:

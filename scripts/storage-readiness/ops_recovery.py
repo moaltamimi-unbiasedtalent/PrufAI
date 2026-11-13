@@ -203,27 +203,32 @@ def seed_domains(database, password):
         return ids, release.id, pending.result_id, foreign.id, email
 
 
-def snapshot(database, *, audit=True):
+def snapshot(database, *, audit=True, extra_tables=(), allow_empty=()):
     result = {}
-    for table in TABLES:
+    for table in (*TABLES, *extra_tables):
         if table == "audit_events" and not audit:
             continue
         statement = (
             sql.SQL(
                 "SELECT count(*)::text || ':' || "
-                "coalesce(jsonb_agg(to_jsonb(row) ORDER BY row.id)::text, '[]') "
+                "coalesce(jsonb_agg(to_jsonb(row) ORDER BY {})::text, '[]') "
                 "FROM {} AS row"
             )
-            .format(sql.Identifier(table))
+            .format(
+                sql.SQL("to_jsonb(row)::text")
+                if table in extra_tables
+                else sql.SQL("row.id"),
+                sql.Identifier(table),
+            )
             .as_string()
         )
         count, data = database.sql(statement).strip().split(b":", 1)
         result[table] = {"rows": int(count), "sha256": sha(data)}
-        assert int(count) > 0, table
+        assert int(count) > 0 or table in allow_empty, table
     return result
 
 
-def objects(database, storage):
+def objects(database, storage, *, audio_count=2):
     with session_for(database) as session:
         media = list(session.scalars(select(CandidateMediaAsset)))
         sources = list(
@@ -233,7 +238,7 @@ def objects(database, storage):
                 )
             )
         )
-        assert len(media) == 2 and len(sources) == 2
+        assert len(media) == audio_count and len(sources) == 2
         assert all(row.storage_bucket == storage.bucket for row in sources)
         refs = {
             row.storage_key: (row.sha256, row.byte_size, row.content_type)
@@ -242,7 +247,12 @@ def objects(database, storage):
             row.storage_key: (row.sha256, row.file_size, row.mime_type)
             for row in sources
         }
-    assert len(refs) == 4 and inventory(storage) == set(refs)
+    assert len(refs) == audio_count + 2
+    actual = inventory(storage)
+    assert actual == set(refs), {
+        "missing": len(set(refs) - actual),
+        "orphaned": len(actual - set(refs)),
+    }
     assert_private(storage)
     client = storage.operator()
     verified = {}
@@ -251,7 +261,8 @@ def objects(database, storage):
         with client.get_object(Bucket=storage.bucket, Key=key)["Body"] as stream:
             data = stream.read(size + 1)
         assert len(data) == head["ContentLength"] == size
-        assert sha(data) == checksum and head["ContentType"] == mime
+        assert sha(data) == checksum, "object checksum mismatch"
+        assert head["ContentType"] == mime, "object metadata mismatch"
         verified[key] = (
             data,
             mime,
@@ -260,14 +271,36 @@ def objects(database, storage):
     return verified
 
 
-def recover(source_db, source_storage, target_db, target_storage, head):
-    assert (
-        source_db.container != target_db.container
-        and source_db.volume != target_db.volume
-    )
+def recover(
+    source_db,
+    source_storage,
+    target_db,
+    target_storage,
+    head,
+    *,
+    audio_count=2,
+    extra_tables=(),
+    allow_empty=(),
+    shared_disposable_server=False,
+):
+    assert source_db.name != target_db.name
+    if shared_disposable_server:
+        from app.evaluation.disposable import assert_disposable_database
+
+        assert source_db.container == target_db.container
+        for database in (source_db, target_db):
+            assert_disposable_database(database.url, database.name, report=False)
+            database.rig.owned("container", database.container)
+    else:
+        assert (
+            source_db.container != target_db.container
+            and source_db.volume != target_db.volume
+        )
     assert source_storage.volume != target_storage.volume
-    db_snapshot = snapshot(source_db)
-    source_objects = objects(source_db, source_storage)
+    db_snapshot = snapshot(
+        source_db, extra_tables=extra_tables, allow_empty=allow_empty
+    )
+    source_objects = objects(source_db, source_storage, audio_count=audio_count)
     with tempfile.TemporaryDirectory(prefix="prufai-o2a-archive-") as folder:
         path = Path(folder)
         dump = source_db.dump()
@@ -313,8 +346,11 @@ def recover(source_db, source_storage, target_db, target_storage, head):
         target_db.sql("select version_num from alembic_version").decode().strip()
         == head
     )
-    assert snapshot(target_db) == db_snapshot
-    assert objects(target_db, target_storage) == source_objects
+    assert (
+        snapshot(target_db, extra_tables=extra_tables, allow_empty=allow_empty)
+        == db_snapshot
+    )
+    assert objects(target_db, target_storage, audio_count=audio_count) == source_objects
     for key in source_objects:
         assert (
             request(target_storage.port(), "GET", f"/{target_storage.bucket}/{key}")[0]
@@ -349,6 +385,10 @@ def recover(source_db, source_storage, target_db, target_storage, head):
         "anonymous_object_reads_denied": len(source_objects),
         "missing_or_orphaned_objects": 0,
         "checksum_and_metadata_mismatches": 0,
+        "missing_objects": 0,
+        "orphaned_objects": 0,
+        "checksum_mismatches": 0,
+        "metadata_mismatches": 0,
         "backup_scope": "plaintext synthetic archive; private temporary files removed after restore",
     }
 

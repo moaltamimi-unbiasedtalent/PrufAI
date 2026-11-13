@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from contextlib import ExitStack
+from copy import copy
 from datetime import UTC, datetime, timedelta
 from http.client import HTTPException
 from pathlib import Path
@@ -310,12 +311,21 @@ class Storage:
 
 
 class Database:
-    def __init__(self, rig, role, *, published_port=None):
+    def __init__(self, rig, role, *, published_port=None, disposable_name=None):
         self.rig = rig
-        self.name = f"o1b2_{role}_{rig.mark.removeprefix('o1b2-')}"
+        self.name = disposable_name or f"o1b2_{role}_{rig.mark.removeprefix('o1b2-')}"
+        self.username = "prufai" if disposable_name else "synthetic_operator"
         self.container = rig.mark + f"-{role}-pg"
         self.volume = rig.mark + f"-{role}-rows"
         password = secrets.token_hex(20)
+        if disposable_name:
+            from app.evaluation.disposable import assert_disposable_database
+
+            assert published_port is not None
+            proposed = (
+                f"postgresql+psycopg://prufai@127.0.0.1:{published_port}/{self.name}"
+            )
+            assert_disposable_database(proposed, self.name, report=False)
         rig.create_volume(self.volume)
         rig.launch(
             self.container,
@@ -324,7 +334,7 @@ class Database:
             "--env",
             f"POSTGRES_DB={self.name}",
             "--env",
-            "POSTGRES_USER=synthetic_operator",
+            f"POSTGRES_USER={self.username}",
             "--env",
             "POSTGRES_PASSWORD",
             "--mount",
@@ -336,7 +346,7 @@ class Database:
         assert obj["Mounts"][0]["Name"] == self.volume
         bindings = obj["NetworkSettings"]["Ports"]["5432/tcp"]
         assert len(bindings) == 1 and bindings[0]["HostIp"] == "127.0.0.1"
-        self.url = f"postgresql+psycopg://synthetic_operator:{password}@127.0.0.1:{bindings[0]['HostPort']}/{self.name}"
+        self.url = f"postgresql+psycopg://{self.username}:{password}@127.0.0.1:{bindings[0]['HostPort']}/{self.name}"
         for _ in range(30):
             try:
                 self.command("pg_isready", "-q", "-h", "127.0.0.1")
@@ -349,6 +359,24 @@ class Database:
         else:
             raise AssertionError("disposable PostgreSQL did not become ready")
 
+    def empty_sibling(self, name):
+        from app.evaluation.disposable import assert_disposable_database
+        from psycopg import sql
+        from sqlalchemy import make_url
+
+        assert_disposable_database(self.url, self.name, report=False)
+        assert name != self.name and name.startswith("prufai_eval2_")
+        target = copy(self)
+        target.name = name
+        target.url = (
+            make_url(self.url).set(database=name).render_as_string(hide_password=False)
+        )
+        assert_disposable_database(target.url, target.name, report=False)
+        assert self.sql("select current_database()").decode().strip() == self.name
+        self.sql(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)).as_string())
+        assert target.sql("select current_database()").decode().strip() == name
+        return target
+
     def command(self, name, *args, data=None):
         self.rig.owned("container", self.container)
         return self.rig.docker(
@@ -357,7 +385,7 @@ class Database:
             self.container,
             name,
             "-U",
-            "synthetic_operator",
+            self.username,
             "-d",
             self.name,
             *args,

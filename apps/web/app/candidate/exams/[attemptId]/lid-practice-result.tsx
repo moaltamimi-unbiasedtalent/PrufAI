@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { pilotActive } from "../../../../lib/access";
+import { useAuth } from "../../../../lib/auth";
+import { useCurrentResult } from "../../use-current-result";
 import {
   lidOutcomeLabel,
   lidPurposeLabel,
@@ -20,6 +23,13 @@ export function LidPracticeResultPanel({
     "loading",
   );
   const [reload, setReload] = useState(0);
+
+  const restricted = pilotActive(useAuth().user);
+  const current = useCurrentResult(
+    restricted,
+    attemptId,
+    result?.result_version_id,
+  );
 
   function refreshResult() {
     setResult(null);
@@ -88,7 +98,12 @@ export function LidPracticeResultPanel({
           </button>
         </>
       )}
-      {result && (
+      {result && !current && (
+        <p role="status">
+          Das Ergebnis wird nur bei bestätigter Freigabe angezeigt.
+        </p>
+      )}
+      {result && current && (
         <>
           <p>
             {result.raw_correct} of {result.total_items} answers correct

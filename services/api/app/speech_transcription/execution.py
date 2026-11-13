@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
 from app.authorization.membership import require_active_tenant_permission
@@ -269,6 +270,7 @@ class TranscriptionExecutionService:
         response_revision_id: uuid.UUID | None = None,
         audio_sha256: str | None = None,
     ) -> SpeechTranscriptionJob:
+        pilot.require_unrestricted(settings)
         from app.speech_transcription.profiles import approved_profile_record
         from app.speech_transcription.runtime import validate_profile_configuration
 
@@ -388,6 +390,8 @@ class TranscriptionExecutionService:
         lease_seconds: int = 90,
         now: datetime | None = None,
     ) -> SpeechTranscriptionJob | None:
+        if pilot.active():
+            return None
         timestamp = now or _now()
         if not worker_id or len(worker_id) > 120 or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid worker claim configuration")
@@ -763,6 +767,7 @@ class TranscriptionExecutionService:
         settings: Settings,
         provider_factory: ProviderFactory | None = None,
     ) -> SpeechTranscriptionJob | None:
+        pilot.require_unrestricted(settings)
         """Renew a claimed lease independently while private I/O is in flight."""
         with session_factory() as session:
             job = session.get(SpeechTranscriptionJob, job_id)

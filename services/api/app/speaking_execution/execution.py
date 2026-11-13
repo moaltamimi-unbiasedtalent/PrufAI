@@ -19,6 +19,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.ai_orchestration.service import AIOrchestrationService
 from app.audit import AuditService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
@@ -466,6 +467,7 @@ class SpeakingExecutionService:
         operation_id: uuid.UUID,
         settings: Settings,
     ) -> SpeakingExecutionJob:
+        pilot.require_unrestricted(settings)
         from app.speaking_execution.registry import (
             approved_profile_record,
             snapshot_execution_profile,
@@ -673,6 +675,8 @@ class SpeakingExecutionService:
         lease_seconds: int = 90,
         now: datetime | None = None,
     ) -> SpeakingExecutionJob | None:
+        if pilot.active():
+            return None
         timestamp = now or globals()["now"]()
         if not worker_id or len(worker_id) > 120 or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid Speaking worker configuration")
@@ -1197,6 +1201,7 @@ class SpeakingExecutionService:
         provider_factory: ProviderFactory | None = None,
         storage: ObjectStorage | None = None,
     ) -> SpeakingExecutionJob | None:
+        pilot.require_unrestricted(settings)
         from app.knowledge.storage import build_object_storage
 
         backend = storage if storage is not None else build_object_storage(settings)

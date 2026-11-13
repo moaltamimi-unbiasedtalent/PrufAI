@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useAuth, styles } from "../lib/auth";
-import { canViewRoute, workspaceLinks } from "../lib/access";
+import { canViewRoute, pilotActive, workspaceLinks } from "../lib/access";
 
 export default function Home() {
   const { user, membership, demoMode } = useAuth();
@@ -43,7 +43,13 @@ export default function Home() {
           .filter(
             ([, href]) =>
               href !== "/" &&
-              canViewRoute(href, membership, [], user?.scoped_source_review),
+              canViewRoute(
+                href,
+                membership,
+                [],
+                user?.scoped_source_review,
+                pilotActive(user),
+              ),
           )
           .map(([title, href]) => (
             <article key={href} style={styles.card}>

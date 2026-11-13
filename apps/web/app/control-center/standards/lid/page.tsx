@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { pilotActive } from "../../../../lib/access";
 import { useAuth } from "../../../../lib/auth";
 import css from "../../control-center.module.css";
 import lidStyles from "./lid.module.css";
@@ -25,20 +26,25 @@ const blueprintList = `${lidPath}/blueprints`;
 
 export default function LidStandardsPage() {
   const { user } = useAuth();
+  const restricted = pilotActive(user);
   const permissions = user?.platform_permissions ?? [];
   const canRead = [
     "standard_pack.read",
     "standards.source.read",
     "standards.document.read",
   ].every((permission) => permissions.includes(permission));
-  const canRegister = [
-    "standards.authority.manage",
-    "standards.source.manage",
-    "standards.document.manage",
-  ].every((permission) => permissions.includes(permission));
-  const canManage = ["standard_pack.manage", "rules.manage"].every(
-    (permission) => permissions.includes(permission),
-  );
+  const canRegister =
+    !restricted &&
+    [
+      "standards.authority.manage",
+      "standards.source.manage",
+      "standards.document.manage",
+    ].every((permission) => permissions.includes(permission));
+  const canManage =
+    !restricted &&
+    ["standard_pack.manage", "rules.manage"].every((permission) =>
+      permissions.includes(permission),
+    );
   const [sources, setSources] = useState<LidSource[]>([]);
   const [versions, setVersions] = useState<LidBlueprintSummary[] | null>(null);
   const [sourceKey, setSourceKey] = useState("");
@@ -112,13 +118,15 @@ export default function LidStandardsPage() {
 
   return (
     <div className={lidStyles.page}>
-      <p>
-        <Link href="/control-center/standards">
-          Back to Standards &amp; packs
-        </Link>
-      </p>
+      {!restricted && (
+        <p>
+          <Link href="/control-center/standards">
+            Back to Standards &amp; packs
+          </Link>
+        </p>
+      )}
       <h1>Leben in Deutschland blueprint</h1>
-      {canRead && (
+      {canRead && !restricted && (
         <p>
           <Link href="/control-center/standards/lid/editorial">
             Original Berlin LiD editorial set
@@ -229,7 +237,7 @@ export default function LidStandardsPage() {
                     Register LiD source metadata
                   </button>
                 )}
-                {source.registered && (
+                {source.registered && !restricted && (
                   <button
                     type="button"
                     className={css.secondary}
@@ -361,8 +369,10 @@ export default function LidStandardsPage() {
             <LidBlueprintDetail
               key={draft.id}
               draft={draft}
-              canPreview={permissions.includes("rules.evaluate")}
-              canPublish={permissions.includes("standard_pack.publish")}
+              canPreview={!restricted && permissions.includes("rules.evaluate")}
+              canPublish={
+                !restricted && permissions.includes("standard_pack.publish")
+              }
             />
           )}
         </>

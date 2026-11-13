@@ -18,6 +18,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.ai_orchestration.service import AIOrchestrationService
 from app.audit import AuditService
 from app.authorization import AuthorizationError, TenantContext, build_tenant_context
@@ -416,6 +417,7 @@ class WritingExecutionService:
         operation_id: uuid.UUID,
         settings: Settings,
     ) -> WritingExecutionJob:
+        pilot.require_unrestricted(settings)
         from app.writing_execution.registry import (
             approved_profile_record,
             snapshot_execution_profile,
@@ -594,6 +596,8 @@ class WritingExecutionService:
         lease_seconds: int = 90,
         now: datetime | None = None,
     ) -> WritingExecutionJob | None:
+        if pilot.active():
+            return None
         timestamp = now or globals()["now"]()
         if not worker_id or len(worker_id) > 120 or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid Writing worker configuration")
@@ -973,6 +977,7 @@ class WritingExecutionService:
         settings: Settings,
         provider_factory: ProviderFactory | None = None,
     ) -> WritingExecutionJob | None:
+        pilot.require_unrestricted(settings)
         with session_factory() as session:
             job = session.get(WritingExecutionJob, job_id)
             if job is None or job.lease_expires_at is None:

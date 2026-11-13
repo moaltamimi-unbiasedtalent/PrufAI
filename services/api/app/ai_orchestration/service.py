@@ -9,6 +9,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import TenantContext
 from app.models import (
@@ -355,6 +356,7 @@ class AIOrchestrationService:
         initiated_by_user_id: Optional[uuid.UUID] = None,
         context: Optional[TenantContext] = None,
     ) -> AIRun:
+        pilot.require_unrestricted()
         if workflow.status not in {
             AIArtifactStatus.APPROVED,
             AIArtifactStatus.PUBLISHED,
@@ -529,6 +531,7 @@ class AIOrchestrationService:
         actor_id: uuid.UUID,
         context: Optional[TenantContext] = None,
     ) -> AIRun:
+        pilot.require_unrestricted()
         if review.status is not HumanReviewStatus.APPROVED:
             raise ValueError("only approved reviews can resume")
         if review.ai_run_id is None:

@@ -9,11 +9,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.auth.api import Principal, get_principal
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.db import get_db_session
 from app.lid_policy import is_lid_pack
 from app.models import (
+    AssessmentResult,
     CertificateRecord,
     ResultRelease,
     ResultVersion,
@@ -54,7 +56,7 @@ def _context(principal: Principal) -> TenantContext:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    if isinstance(exc, AuthorizationError):
+    if isinstance(exc, (AuthorizationError, pilot.PilotDenied)):
         return HTTPException(status_code=403, detail=str(exc))
     return HTTPException(status_code=409, detail=str(exc))
 
@@ -89,6 +91,15 @@ def _artifact(session: Session, release: ResultRelease, artifact: Any) -> dict[s
             }
         )
     return payload
+
+
+def _pilot_release_visible(session: Session, release: ResultRelease) -> bool:
+    if not pilot.active():
+        return True
+    result = session.get(AssessmentResult, release.assessment_result_id)
+    return result is not None and pilot.exam_allowed(
+        session, result.exam_version_id, release.organisation_id
+    )
 
 
 def _payload(session: Session, release: ResultRelease, *, detail: bool = False) -> dict[str, Any]:
@@ -159,6 +170,7 @@ def list_releases(
         return [
             _payload(session, release)
             for release in ResultReleaseService.organisation_releases(session, context)
+            if _pilot_release_visible(session, release)
         ]
     except AuthorizationError as exc:
         raise _handle(exc) from exc
@@ -176,11 +188,12 @@ def release_detail(
         raise HTTPException(status_code=403, detail="organisation scope mismatch")
     try:
         AuthorizationService.require_permission(context, "result.read", organisation_id)
+        pilot.require_institution(session, context, "result.read")
         release = ResultReleaseService._owned_release(session, context, release_id)
         return _payload(session, release, detail=True)
     except AuthorizationError as exc:
         raise _handle(exc) from exc
-    except ResultReleaseError as exc:
+    except (ResultReleaseError, pilot.PilotDenied) as exc:
         raise HTTPException(status_code=404, detail="release not found") from exc
 
 
@@ -320,6 +333,7 @@ def candidate_releases(
     return [
         _payload(session, release)
         for release in ResultReleaseService.candidate_releases(session, _context(principal))
+        if _pilot_release_visible(session, release)
     ]
 
 
@@ -333,9 +347,12 @@ def _candidate_release(
             ResultRelease.candidate_user_id == context.user_id,
         )
     )
-    if release is None:
+    if release is None or not _pilot_release_visible(session, release):
         raise HTTPException(status_code=404, detail="release not found")
-    return ResultReleaseService._owned_release(session, context, release.id)
+    try:
+        return ResultReleaseService._owned_release(session, context, release.id)
+    except (ResultReleaseError, pilot.PilotDenied) as exc:
+        raise HTTPException(status_code=404, detail="release not found") from exc
 
 
 def _candidate_outcome_visible(session: Session, release: ResultRelease) -> bool:

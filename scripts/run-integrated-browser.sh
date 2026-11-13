@@ -18,6 +18,7 @@ python3 -c 'import os; from app.evaluation.disposable import assert_disposable_d
 export NONPRODUCTION_PROMPT_VALIDATION_ENABLED=1
 export NONPRODUCTION_PROMPT_VALIDATION_DATABASE="${PRUFAI_DISPOSABLE_DATABASE:?Set the exact owned browser database}"
 export ENVIRONMENT=development PRUFAI_DEMO_ENABLED=1
+export V1_PILOT_PROFILE=DISABLED
 # Explicit synthetic technical execution only. Production refuses this adapter;
 # neither an external provider, authentic speech recognition, nor authentic
 # Writing or Speaking assessment quality is asserted.
@@ -126,7 +127,7 @@ trap 'exit 143' TERM
 # sessions. Give only this guarded development child a bounded test capacity;
 # product authentication defaults and security-test settings stay unchanged.
 start_api() {
-  AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 AUTH_ENROLLMENT_DELIVERY_MODE=TEST_ONLY python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >>"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
+  V1_PILOT_PROFILE="${1:-DISABLED}" AUTH_RATE_LIMIT_REFRESH_ATTEMPTS=120 AUTH_ENROLLMENT_DELIVERY_MODE=TEST_ONLY python3 scripts/browser_api.py --port "$INTEGRATED_API_PORT" >>"$PRUFAI_E2E_ARTIFACT_DIR/api.log" 2>&1 &
   INTEGRATED_API_PID=$!
 }
 start_api
@@ -182,7 +183,12 @@ while kill -0 "$INTEGRATED_BROWSER_PID" 2>/dev/null; do
       done
       rm -f -- "$PRUFAI_E2E_API_RESTART_DIR/"{hold,paused,resume}
     fi
-    start_api
+    pilot_profile=DISABLED
+    case "$(cat "$PRUFAI_E2E_API_RESTART_DIR/request")" in
+      BERLIN_LID_SYNTHETIC) pilot_profile=BERLIN_LID_SYNTHETIC ;;
+      BERLIN_LID_LOCKED) pilot_profile=BERLIN_LID_LOCKED ;;
+    esac
+    start_api "$pilot_profile"
     [[ "$INTEGRATED_API_PID" != "$old_api_pid" ]]
     wait_ready "$PRUFAI_API_BASE_URL/health" "$INTEGRATED_API_PID" "$PRUFAI_E2E_ARTIFACT_DIR/api.log"
     printf '%s %s\n' "$old_api_pid" "$INTEGRATED_API_PID" >"$PRUFAI_E2E_API_RESTART_DIR/complete.tmp"

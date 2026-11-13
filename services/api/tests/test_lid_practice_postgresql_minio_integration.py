@@ -745,3 +745,61 @@ def test_changed_pool_or_item_cannot_deliver_or_score(proof, practice):
             is None
         )
         session.rollback()
+
+
+def test_v1_pilot_denies_other_delivery_and_stale_pins(proof, practice, monkeypatch):
+    from app import pilot
+    from app.config import Settings, get_settings
+
+    assert Settings(_env_file=None).v1_pilot_profile == "DISABLED"
+    org, version = practice
+    assignment = _assignment(proof, practice)
+    ready = _prepare(proof, assignment)
+    root = f"/api/v1/organisations/{org}"
+    name = urlparse(proof.expert.database_url).path.removeprefix("/")
+    monkeypatch.setenv("PRUFAI_DISPOSABLE_DATABASE", name)
+    monkeypatch.setenv("DATABASE_URL", proof.expert.database_url)
+    monkeypatch.setenv("V1_PILOT_PROFILE", "BERLIN_LID_LOCKED")
+    get_settings.cache_clear()
+    try:
+        assert _candidate(proof, "POST", f"/exam-attempts/{ready['id']}/start", status=403) == {
+            "detail": pilot.MANIFEST_REQUIRED
+        }
+        assert proof.http(
+            "POST",
+            root + "/exam-assignments",
+            actor="revoked",
+            status=403,
+            json={
+                "candidate_user_id": str(proof.expert.actors["candidate"]),
+                "exam_version_id": version,
+            },
+        ) == {"detail": pilot.MANIFEST_REQUIRED}
+        monkeypatch.setenv("V1_PILOT_PROFILE", "BERLIN_LID_SYNTHETIC")
+        get_settings.cache_clear()
+        assert _candidate(
+            proof,
+            "POST",
+            f"/exam-assignments/{assignment}/attempts",
+            status=403,
+            json={"bundesland": "DE-BY"},
+        ) == {"detail": pilot.DENIED}
+        assert _candidate(proof, "GET", f"/exam-assignments/{assignment}")["lid_practice"][
+            "bundeslaender"
+        ] == [{"available": True, "code": "DE-BE", "label": "Berlin"}]
+        with proof.expert.factory() as session:
+            exam = session.get(ExamVersion, uuid.UUID(version))
+            form = session.get(LidPracticeForm, uuid.UUID(version))
+            assert exam is not None and form is not None
+            with session.no_autoflush:
+                form.checksum = "0" * 64
+                with pytest.raises(pilot.PilotDenied, match=pilot.MANIFEST_REQUIRED):
+                    pilot.require_exam(session, exam, uuid.UUID(org))
+            session.rollback()
+        assert (
+            _candidate(proof, "POST", f"/exam-attempts/{ready['id']}/start")["status"]
+            == "IN_PROGRESS"
+        )
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()

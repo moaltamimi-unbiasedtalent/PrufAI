@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { pilotActive } from "../../../../../lib/access";
+import { useCurrentResult } from "../../../use-current-result";
 import { useAuth } from "../../../../../lib/auth";
 import {
   AssessmentEvidence,
@@ -112,8 +114,18 @@ export default function CandidateReleasedResultPage({
     };
   }, [params, reload, context]);
   const effective = release?.effective_status ?? release?.status;
+  const restricted = pilotActive(user);
+  const showResult = useCurrentResult(
+    restricted,
+    loadedContext === context && effective === "RELEASED"
+      ? release?.attempt_id
+      : null,
+    release?.result_version_id,
+  );
   const score =
-    release && loadedContext === context ? exactReleasedScore(release) : null;
+    release && loadedContext === context && showResult
+      ? exactReleasedScore(release)
+      : null;
   return (
     <section style={{ overflowWrap: "anywhere" }}>
       <p>
@@ -155,6 +167,11 @@ export default function CandidateReleasedResultPage({
               <p>Outcome: {score.outcome ?? "Not determined"}</p>
             </section>
           )}
+          {restricted && !showResult && (
+            <p role="status">
+              Das Ergebnis wird nur bei bestätigter Freigabe angezeigt.
+            </p>
+          )}
           {!score && (
             <p>
               The score summary is unavailable for this exact release version.
@@ -176,7 +193,7 @@ export default function CandidateReleasedResultPage({
               Retry statement
             </button>
           )}
-          {statement && (
+          {statement && showResult && (
             <article>
               <p>Statement: {statement.id}</p>
               <p>Recorded status: {statement.status ?? "Recorded"}</p>
@@ -219,7 +236,7 @@ export default function CandidateReleasedResultPage({
               </dl>
             </article>
           )}
-          {effective === "RELEASED" && (
+          {!restricted && effective === "RELEASED" && (
             <p>
               <Link
                 href={`/candidate/results/appeal?resultVersionId=${encodeURIComponent(release.result_version_id)}`}
@@ -229,9 +246,11 @@ export default function CandidateReleasedResultPage({
             </p>
           )}
           <p>Your institution manages result release and statement issuance.</p>
-          <p>
-            <Link href="/candidate/results/appeals">My appeal history →</Link>
-          </p>
+          {!restricted && (
+            <p>
+              <Link href="/candidate/results/appeals">My appeal history →</Link>
+            </p>
+          )}
         </>
       )}
     </section>

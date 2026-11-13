@@ -17,6 +17,7 @@ import {
 import {
   canViewRoute,
   initialMembership,
+  pilotActive,
   workspaceLanding,
   type DemoUser,
   type Membership,
@@ -393,6 +394,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               membership,
               user.platform_permissions,
               user.scoped_source_review,
+              pilotActive(user),
             ),
           )
           .map(([label, href]) => (
@@ -405,7 +407,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
       </nav>
-      {demoMode && (
+      {pilotActive(user) && (
+        <div style={styles.banner}>
+          Berlin LiD practice · Not official · Not certified
+        </div>
+      )}
+      {demoMode && !pilotActive(user) && (
         <div style={styles.banner}>
           Synthetic practice data · no official provider material · local audio
           demonstration unavailable.
@@ -422,6 +429,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           membership,
           user.platform_permissions,
           user.scoped_source_review,
+          pilotActive(user),
         ) ? (
           children
         ) : (

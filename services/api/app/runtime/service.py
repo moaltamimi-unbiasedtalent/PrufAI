@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.exams.service import exam_checksum
@@ -92,6 +93,7 @@ class CandidateRuntimeService:
             raise AuthorizationError("organisation context required")
         for permission in ("exam_assignment.manage", "exam.read", "membership.read"):
             AuthorizationService.require_permission(context, permission, context.organisation_id)
+            pilot.require_institution(session, context, permission)
         candidates = session.scalars(
             select(User)
             .join(OrganisationMembership, OrganisationMembership.user_id == User.id)
@@ -126,8 +128,9 @@ class CandidateRuntimeService:
         eligible = []
         for version in versions:
             try:
+                pilot.require_exam(session, version, context.organisation_id)
                 plan = CandidateRuntimeService._safe_plan(session, version)
-            except ValueError:
+            except (ValueError, pilot.PilotDenied):
                 continue
             eligible.append(
                 {
@@ -212,6 +215,7 @@ class CandidateRuntimeService:
         if context.organisation_id != attempt.organisation_id:
             raise RuntimeError("organisation scope required")
         lid.require_attempt_environment(attempt)
+        pilot.require_attempt(session, attempt)
         return attempt
 
     @staticmethod
@@ -339,6 +343,7 @@ class CandidateRuntimeService:
         AuthorizationService.require_permission(
             context, "exam_assignment.manage", context.organisation_id
         )
+        pilot.require_institution(session, context, "exam_assignment.manage")
         if maximum_attempts < 1:
             raise ValueError("maximum_attempts must be positive")
         version = session.get(ExamVersion, exam_version_id)
@@ -351,6 +356,7 @@ class CandidateRuntimeService:
             or version.exam.scope_type not in {"PLATFORM_SHARED", "ORGANISATION_PRIVATE"}
         ):
             raise ValueError("ExamVersion is outside the organisation scope")
+        pilot.require_exam(session, version, context.organisation_id)
         CandidateRuntimeService._safe_plan(session, version)
         if version.status not in {ExamVersionStatus.PUBLISHED, ExamVersionStatus.ACTIVE}:
             raise ValueError("ExamVersion is not assignable")
@@ -412,6 +418,12 @@ class CandidateRuntimeService:
         )
         if context.organisation_id != assignment.organisation_id:
             raise RuntimeError("organisation scope required")
+        pilot.require_institution(session, context, "exam_assignment.manage")
+        pilot.require_exam(
+            session,
+            session.get(ExamVersion, assignment.exam_version_id),
+            assignment.organisation_id,
+        )
         if assignment.status is CandidateAssignmentStatus.COMPLETED:
             raise ValueError("completed assignment cannot be cancelled")
         assignment.status = CandidateAssignmentStatus.CANCELLED
@@ -477,10 +489,13 @@ class CandidateRuntimeService:
         version = session.get(ExamVersion, assignment.exam_version_id)
         if version is None:
             raise ValueError("pinned ExamVersion not found")
+        pilot.require_exam(session, version, assignment.organisation_id)
         attempt_id = uuid.uuid4()
         plan = CandidateRuntimeService._safe_plan(session, version, lid_attempt_id=attempt_id)
         practice = plan.get("lid_practice")
         if practice is not None:
+            if pilot.active() and bundesland is not None and bundesland != pilot.BERLIN:
+                raise pilot.PilotDenied(pilot.DENIED)
             if bundesland not in LID_STATES:
                 raise ValueError(
                     "LID_BUNDESLAND_REQUIRED" if bundesland is None else "LID_INVALID_BUNDESLAND"
@@ -682,6 +697,7 @@ class CandidateRuntimeService:
     ) -> CandidateResponse:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         lid.require_attempt_environment(attempt)
+        pilot.require_attempt(session, attempt)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         item, mode = CandidateRuntimeService._binding_payload(attempt, binding_id)
         CandidateRuntimeService._validate_payload(item, mode, payload)
@@ -856,6 +872,7 @@ class CandidateRuntimeService:
     ) -> CandidateExamAttempt:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         lid.require_attempt_environment(attempt)
+        pilot.require_attempt(session, attempt)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.SUBMITTED:
             return attempt

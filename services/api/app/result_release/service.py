@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.audit import AuditService
 from app.authorization import AuthorizationError, AuthorizationService, TenantContext
 from app.authorization.membership import require_active_tenant_permission
@@ -181,10 +182,12 @@ class ResultReleaseService:
         supersedes_release_id: uuid.UUID | None = None,
     ) -> ResultRelease:
         AuthorizationService.require_permission(context, "result.release", context.organisation_id)
+        pilot.require_institution(session, context, "result.release")
         _operation(operation_id)
         version, result, run, attempt, exam = ResultReleaseService._version(
             session, context, version_id
         )
+        pilot.require_attempt(session, attempt)
         ResultReleaseService._speaking_permission(session, context, run, "result.release")
         existing = session.scalar(
             select(ResultRelease).where(ResultRelease.result_version_id == version.id)
@@ -358,6 +361,7 @@ class ResultReleaseService:
         version, result, run, _, exam = ResultReleaseService._version(
             session, context, release.result_version_id
         )
+        pilot.require_exam(session, exam, release.organisation_id)
         session.refresh(release)
         ResultReleaseService._check_release(release, version, result, run, exam)
         return release
@@ -424,6 +428,7 @@ class ResultReleaseService:
         session: Session, context: TenantContext, release_id: uuid.UUID, *, operation_id: str
     ) -> StatementOfResults:
         AuthorizationService.require_permission(context, "result.release", context.organisation_id)
+        pilot.require_institution(session, context, "result.release")
         _operation(operation_id)
         release = ResultReleaseService._owned_release(session, context, release_id)
         ResultReleaseService._active(session, release)
@@ -509,7 +514,7 @@ class ResultReleaseService:
             raise AuthorizationError(
                 "explicit platform certification authority and organisation context required"
             )
-        if not get_settings().certification_issuance_enabled:
+        if pilot.active() or not get_settings().certification_issuance_enabled:
             raise ResultReleaseError("CERTIFICATION.NOT_AUTHORIZED")
         if assessment_scope == "OFFICIAL_CERTIFICATION":
             raise ResultReleaseError("CERTIFICATION.NOT_AUTHORIZED")
@@ -600,6 +605,8 @@ class ResultReleaseService:
         *,
         operation_id: str,
     ) -> CertificateRecord:
+        if pilot.active():
+            raise ResultReleaseError("CERTIFICATION.NOT_AUTHORIZED")
         AuthorizationService.require_permission(context, "result.manage", context.organisation_id)
         _operation(operation_id)
         release = ResultReleaseService._owned_release(session, context, release_id)
@@ -738,6 +745,7 @@ class ResultReleaseService:
         operation_id: str | None = None,
     ) -> ResultRelease:
         AuthorizationService.require_permission(context, "result.manage", context.organisation_id)
+        pilot.require_institution(session, context, "result.manage")
         release = ResultReleaseService._owned_release(session, context, release_id)
         run = session.get(ScoringRun, release.scoring_run_id)
         if run is None:

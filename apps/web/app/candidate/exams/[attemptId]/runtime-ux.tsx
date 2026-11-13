@@ -13,6 +13,12 @@ export function applySavedResponse(
     revision: saved.revision,
     payload: saved.payload,
   };
+  const latest = runtime.responses.find(
+    (item) => item.binding_id === bindingId,
+  );
+  // An idempotent replay can acknowledge an older operation after a second tab
+  // has saved a newer revision.
+  if (latest && latest.revision > saved.revision) return runtime;
   const exists = runtime.responses.some(
     (item) => item.binding_id === bindingId,
   );

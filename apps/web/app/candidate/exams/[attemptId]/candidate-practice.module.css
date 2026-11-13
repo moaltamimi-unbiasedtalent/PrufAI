@@ -1,0 +1,40 @@
+.practice {
+  box-sizing: border-box;
+  margin-inline: auto;
+  max-width: 60rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+}
+
+.practice fieldset {
+  min-inline-size: 0;
+}
+
+.practice :focus-visible {
+  outline: 3px solid #174ea6;
+  outline-offset: 3px;
+}
+
+.practice button {
+  margin: 0.2rem;
+  min-height: 2.75rem;
+  white-space: normal;
+}
+
+.answer {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  min-height: 2.75rem;
+  padding: 0.25rem;
+}
+
+.answer input {
+  flex-shrink: 0;
+}
+
+.skip:not(:focus) {
+  clip-path: inset(50%);
+  position: absolute;
+}

@@ -150,6 +150,7 @@ jobs:
           path: |
             ${{ runner.temp }}/prufai-browser-evidence
             !${{ runner.temp }}/prufai-browser-evidence/results/**/pilot-enrollment-*/**
+            !${{ runner.temp }}/prufai-browser-evidence/results/**/standards-technical-lid-pract*/**
           retention-days: 7
       - name: Stop browser MinIO
         if: always()

@@ -138,7 +138,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let code = `RUNTIME.HTTP_${response.status}`;
     try {
       const body = (await response.json()) as { detail?: string };
-      code = body.detail ?? code;
+      if (typeof body.detail === "string") code = body.detail;
     } catch {
       // Preserve a normalized status when the server response is not JSON.
     }
@@ -190,7 +190,7 @@ async function uploadAudio(
     let code = `RUNTIME.HTTP_${response.status}`;
     try {
       const body = (await response.json()) as { detail?: string };
-      code = body.detail ?? code;
+      if (typeof body.detail === "string") code = body.detail;
     } catch {
       // Preserve a normalized status when the response is not JSON.
     }
@@ -212,8 +212,10 @@ export const candidateApi = {
     request<LidPracticeResult>(
       `/exam-attempts/${attemptId}/lid-practice-result`,
     ),
-  runtime: (attemptId: string) =>
-    timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/runtime`),
+  runtime: (attemptId: string, signal?: AbortSignal) =>
+    timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/runtime`, {
+      signal,
+    }),
   start: (attemptId: string) =>
     timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
       method: "POST",
@@ -278,6 +280,7 @@ export const candidateApi = {
     payload: Record<string, unknown>,
     expectedRevision: number,
     operationId: string,
+    signal?: AbortSignal,
   ) =>
     request<{
       response_id: string;
@@ -285,6 +288,7 @@ export const candidateApi = {
       payload: Record<string, unknown>;
     }>(`/exam-attempts/${attemptId}/responses/${bindingId}`, {
       method: "PUT",
+      signal,
       body: JSON.stringify({
         payload,
         expected_revision: expectedRevision,
@@ -303,9 +307,10 @@ export const candidateApi = {
         method: "POST",
       },
     ),
-  submit: (attemptId: string) =>
+  submit: (attemptId: string, signal?: AbortSignal) =>
     request<CandidateAttempt>(`/exam-attempts/${attemptId}/submit`, {
       method: "POST",
+      signal,
     }),
   results: () => request<Array<Record<string, unknown>>>("/results"),
   releases: () => request<CandidateRelease[]>("/releases"),

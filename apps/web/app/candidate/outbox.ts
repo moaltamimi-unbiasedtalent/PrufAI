@@ -106,6 +106,7 @@ function transactionComplete(transaction: IDBTransaction): Promise<void> {
 export async function queueCandidateOperation(
   scope: CandidateAccountScope,
   operation: CandidateOutboxOperation,
+  { exactRevision = false }: { exactRevision?: boolean } = {},
 ): Promise<void> {
   const generation = accountGeneration;
   requireActiveAccount(scope, generation);
@@ -146,10 +147,12 @@ export async function queueCandidateOperation(
             item.attemptId === operation.attemptId &&
             item.bindingId === operation.bindingId,
         );
-        const expectedRevision = previous.reduce(
-          (next, item) => Math.max(next, item.expectedRevision + 1),
-          operation.expectedRevision,
-        );
+        const expectedRevision = exactRevision
+          ? operation.expectedRevision
+          : previous.reduce(
+              (next, item) => Math.max(next, item.expectedRevision + 1),
+              operation.expectedRevision,
+            );
         store.put({ ...operation, expectedRevision });
         resolve();
       };
@@ -174,6 +177,40 @@ async function removeCandidateOperation(
   await complete;
 }
 
+export async function discardCandidateOperations(
+  scope: CandidateAccountScope,
+  attemptId: string,
+  operationIds: ReadonlySet<string>,
+): Promise<void> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    const transaction = database.transaction(STORE, "readwrite");
+    const complete = transactionComplete(transaction);
+    const cursor = transaction.objectStore(STORE).openCursor();
+    cursor.onsuccess = () => {
+      try {
+        requireActiveAccount(scope, generation);
+      } catch {
+        transaction.abort();
+        return;
+      }
+      const row = cursor.result;
+      if (!row) return;
+      const operation = row.value as CandidateOutboxOperation;
+      if (
+        operation.attemptId === attemptId &&
+        operationIds.has(operation.operationId)
+      )
+        row.delete();
+      row.continue();
+    };
+    await complete;
+  } finally {
+    closeDatabase(database);
+  }
+}
+
 export async function clearAccountOutbox(
   userId: string,
   organisationId: string,
@@ -191,9 +228,9 @@ export async function syncCandidateOutbox(
   scope: CandidateAccountScope,
   send: (
     operation: CandidateOutboxOperation,
-  ) => Promise<"ack" | "conflict" | "expired">,
+  ) => Promise<"ack" | "conflict" | "expired" | "retry">,
   attemptId?: string,
-): Promise<{ acknowledged: number; conflicts: number }> {
+): Promise<{ acknowledged: number; conflicts: number; retryNeeded?: boolean }> {
   const generation = accountGeneration;
   requireActiveAccount(scope, generation);
   const database = await openCandidateOutbox(scope);
@@ -228,6 +265,8 @@ export async function syncCandidateOutbox(
       }
       const result = await send(operation);
       requireActiveAccount(scope, generation);
+      if (result === "retry")
+        return { acknowledged, conflicts, retryNeeded: true };
       if (result === "ack" || result === "expired") {
         await removeCandidateOperation(database, operation.operationId);
         acknowledged += 1;

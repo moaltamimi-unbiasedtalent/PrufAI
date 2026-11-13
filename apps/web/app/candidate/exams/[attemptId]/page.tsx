@@ -27,12 +27,16 @@ import {
   type RuntimeState,
 } from "./runtime-ux";
 import {
+  discardCandidateOperations,
   queueCandidateOperation,
   syncCandidateOutbox,
   type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "../../outbox";
 import type { AudioAttachmentAck } from "../../audio-contract";
+import styles from "./candidate-practice.module.css";
+
+const RECOVERY_TIMEOUT_MS = 8_000;
 
 type Screen = "loading" | "prestart" | "runtime" | "unavailable";
 type RuntimeItem =
@@ -63,7 +67,20 @@ function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
   );
 }
 
-function safeError(cause: unknown): string {
+function safeError(cause: unknown, german = false): string {
+  if (german) {
+    if (cause instanceof CandidateApiError) {
+      if (cause.status === 401)
+        return "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.";
+      if (cause.code === "CONTENT_UNAVAILABLE")
+        return "Für dieses Bundesland sind keine Übungsfragen verfügbar.";
+      if (cause.status === 403 || cause.status === 404)
+        return "Diese Übung ist für Ihr Konto nicht verfügbar. Wenden Sie sich bei Fragen an Ihre Institution.";
+      if (cause.status === 409)
+        return "Der Versuch hat sich geändert. Laden Sie die Seite neu und prüfen Sie den Status.";
+    }
+    return "Die Übung ist vorübergehend nicht erreichbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.";
+  }
   if (!(cause instanceof CandidateApiError))
     return "The runtime is temporarily unavailable.";
   if (cause.code === "CONTENT_UNAVAILABLE")
@@ -125,12 +142,19 @@ export default function CandidateExamRuntimePage() {
   const [status, setStatus] = useState<RuntimeState>("Saved");
   const [online, setOnline] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadRetry, setLoadRetry] = useState(0);
   const [response, setResponse] = useState<Record<string, unknown>>({});
   const [starting, setStarting] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
   const [audioPending, setAudioPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submissionUnconfirmed, setSubmissionUnconfirmed] = useState(false);
+  const [retryingSave, setRetryingSave] = useState(false);
+  const [retrySafety, setRetrySafety] = useState(false);
+  const submissionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusQuestion = useRef(false);
+  const focusSubmission = useRef(false);
   const submittingRef = useRef(false);
   const submitDialogRef = useRef<HTMLDialogElement>(null);
   const submitTriggerRef = useRef<HTMLButtonElement>(null);
@@ -151,6 +175,8 @@ export default function CandidateExamRuntimePage() {
   const runtimeRef = useRef<RuntimeDto | null>(null);
   const saveSequence = useRef<Promise<void>>(Promise.resolve());
   const saveBlocked = useRef(false);
+  const savingPracticeResponse = useRef(false);
+  const rejectedPracticeOperations = useRef(new Set<string>());
 
   const updateRuntime = useCallback(
     (update: (current: RuntimeDto | null) => RuntimeDto | null) => {
@@ -177,6 +203,9 @@ export default function CandidateExamRuntimePage() {
   const editable = runtime?.status === "IN_PROGRESS";
   const lidForm =
     runtimeContext === contextKey ? runtime?.runtime_plan.lid_practice : null;
+  const isLidPractice = Boolean(lidForm);
+  const runtimeReady =
+    runtimeContext === contextKey && screen === "runtime" && editable;
   const lidAssignment =
     lidAssignmentInfo?.context === contextKey
       ? lidAssignmentInfo?.assignment
@@ -207,7 +236,10 @@ export default function CandidateExamRuntimePage() {
   const loadRuntime = useCallback(
     async (id: string, nextScreen?: Screen) => {
       const expectedContext = currentContext.current;
-      const state = await candidateApi.runtime(id);
+      const state = await candidateApi.runtime(
+        id,
+        AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+      );
       if (!expectedContext || currentContext.current !== expectedContext)
         return;
       setRuntimeContext(expectedContext);
@@ -231,6 +263,7 @@ export default function CandidateExamRuntimePage() {
               ? "runtime"
               : "unavailable"),
       );
+      return state;
     },
     [updateRuntime],
   );
@@ -259,7 +292,7 @@ export default function CandidateExamRuntimePage() {
         })
         .catch((cause: unknown) => {
           if (active) {
-            setError(safeError(cause));
+            setError(safeError(cause, true));
             setScreen("unavailable");
           }
         });
@@ -274,7 +307,7 @@ export default function CandidateExamRuntimePage() {
     return () => {
       active = false;
     };
-  }, [assignmentId, routeId, accountScope, loadRuntime]);
+  }, [assignmentId, routeId, accountScope, loadRuntime, loadRetry]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -300,9 +333,12 @@ export default function CandidateExamRuntimePage() {
           return;
         if (state.status === "EXPIRED") {
           markExpired();
+          if (isLidPractice) void loadRuntime(attemptId).catch(() => undefined);
         } else {
           if (state.status === "SUBMITTED") {
             setStatus("Submitted");
+            setSubmissionUnconfirmed(false);
+            setError(null);
             submitDialogRef.current?.close();
           }
           updateRuntime(
@@ -317,7 +353,14 @@ export default function CandidateExamRuntimePage() {
         }
       })
       .catch(() => undefined);
-  }, [attemptId, editable, markExpired, updateRuntime]);
+  }, [
+    attemptId,
+    editable,
+    isLidPractice,
+    loadRuntime,
+    markExpired,
+    updateRuntime,
+  ]);
 
   useEffect(() => {
     if (!editable) return;
@@ -333,12 +376,167 @@ export default function CandidateExamRuntimePage() {
   }, [editable, refreshAttempt]);
 
   useEffect(() => {
-    if (!online || !attemptId || !accountScope) return;
+    if (focusQuestion.current && screen === "runtime" && editable) {
+      focusQuestion.current = false;
+      questionHeadingRef.current?.focus();
+    }
+  }, [editable, screen, currentBinding]);
+
+  useEffect(() => {
+    if (focusSubmission.current && runtime?.status === "SUBMITTED") {
+      focusSubmission.current = false;
+      submissionHeadingRef.current?.focus();
+    }
+  }, [runtime?.status]);
+
+  useEffect(() => {
+    rejectedPracticeOperations.current.clear();
+    savingPracticeResponse.current = false;
+    saveBlocked.current = false;
+    setRetrySafety(false);
+    setRetryingSave(false);
+    setSubmissionUnconfirmed(false);
+  }, [contextKey]);
+
+  const drainPractice = useCallback(
+    async (
+      scope: CandidateAccountScope,
+      id: string,
+      active: () => boolean,
+      reconcile: boolean,
+    ) => {
+      let expired = false;
+      const result = await syncCandidateOutbox(
+        scope,
+        async (operation) => {
+          if (!active()) throw new Error("candidate context changed");
+          try {
+            const saved = await candidateApi.save(
+              operation.attemptId,
+              operation.bindingId,
+              operation.payload,
+              operation.expectedRevision,
+              operation.operationId,
+              AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+            );
+            if (!active()) throw new Error("candidate context changed");
+            updateRuntime((current) =>
+              current?.attempt_id === id
+                ? applySavedResponse(current, operation.bindingId, saved)
+                : current,
+            );
+            rejectedPracticeOperations.current.delete(operation.operationId);
+            return "ack";
+          } catch (cause) {
+            if (!active()) throw cause;
+            if (isExpired(cause)) {
+              expired = true;
+              markExpired();
+              return "expired";
+            }
+            if (
+              cause instanceof CandidateApiError &&
+              cause.status === 409 &&
+              (cause.code === "stale response revision" ||
+                cause.code === "RUNTIME.IDEMPOTENCY_KEY_REUSED")
+            ) {
+              rejectedPracticeOperations.current.add(operation.operationId);
+              return "conflict";
+            }
+            return "retry";
+          }
+        },
+        id,
+      );
+      if (!active()) return;
+      if (expired) {
+        await loadRuntime(id).catch(() => undefined);
+        return;
+      }
+      saveBlocked.current = Boolean(result.retryNeeded || result.conflicts);
+      if (result.retryNeeded || result.conflicts) {
+        setRetrySafety(true);
+        setStatus(result.conflicts ? "Conflict" : "Save failed");
+        return;
+      }
+      if (reconcile) {
+        saveBlocked.current = true;
+        const state = await loadRuntime(id);
+        if (!active()) return;
+        if (state?.status !== "IN_PROGRESS") {
+          saveBlocked.current = false;
+          setRetrySafety(false);
+          return;
+        }
+      }
+      saveBlocked.current = false;
+      setRetrySafety(false);
+      setError(null);
+      setStatus("Saved");
+    },
+    [loadRuntime, markExpired, updateRuntime],
+  );
+
+  function retryPractice(discardConflict = false) {
+    if (
+      !online ||
+      !attemptId ||
+      !accountScope ||
+      pendingSave ||
+      retryingSave ||
+      !editable
+    )
+      return;
+    const active = () => currentContext.current === contextKey;
+    const id = attemptId;
+    setPendingSave(true);
+    setRetryingSave(true);
+    setStatus("Saving");
+    const task = saveSequence.current
+      .then(async () => {
+        if (!active()) return;
+        if (discardConflict) {
+          const rejected = new Set(rejectedPracticeOperations.current);
+          const state = await loadRuntime(id);
+          if (!active() || state?.status !== "IN_PROGRESS") return;
+          await discardCandidateOperations(accountScope, id, rejected);
+          if (!active()) return;
+          rejectedPracticeOperations.current.clear();
+        }
+        await drainPractice(accountScope, id, active, true);
+        if (active() && !saveBlocked.current)
+          questionHeadingRef.current?.focus();
+      })
+      .catch(() => {
+        if (!active()) return;
+        saveBlocked.current = true;
+        setRetrySafety(true);
+        setStatus(discardConflict ? "Conflict" : "Save failed");
+      })
+      .finally(() => {
+        if (active()) {
+          setPendingSave(false);
+          setRetryingSave(false);
+        }
+      });
+    saveSequence.current = task;
+  }
+
+  useEffect(() => {
+    if (!attemptId || !accountScope || !runtimeReady) return;
+    if (!online) {
+      if (!savingPracticeResponse.current) setPendingSave(false);
+      return;
+    }
     let active = true;
     let expired = false;
     setPendingSave(true);
     const task = saveSequence.current.then(async () => {
       if (!active) return;
+      if (isLidPractice) {
+        await drainPractice(accountScope, attemptId, () => active, true);
+        return;
+      }
       return syncCandidateOutbox(
         accountScope,
         async (operation: CandidateOutboxOperation) => {
@@ -393,9 +591,14 @@ export default function CandidateExamRuntimePage() {
       .catch(() => {
         if (active) {
           saveBlocked.current = true;
-          setError(
-            "Queued responses could not be synchronized. They remain saved for this account.",
-          );
+          if (isLidPractice) {
+            setRetrySafety(true);
+            setStatus("Save failed");
+          } else {
+            setError(
+              "Queued responses could not be synchronized. They remain saved for this account.",
+            );
+          }
         }
       })
       .finally(() => {
@@ -405,7 +608,17 @@ export default function CandidateExamRuntimePage() {
     return () => {
       active = false;
     };
-  }, [online, attemptId, accountScope, markExpired, updateRuntime]);
+  }, [
+    online,
+    attemptId,
+    accountScope,
+    isLidPractice,
+    runtimeReady,
+    contextKey,
+    drainPractice,
+    markExpired,
+    updateRuntime,
+  ]);
 
   async function prepareAttempt() {
     if (!assignmentId || (lidAssignment && !selectedPracticeState)) return;
@@ -419,7 +632,7 @@ export default function CandidateExamRuntimePage() {
       await loadRuntime(attempt.id, "prestart");
       router.replace(`/candidate/exams/${attempt.id}`);
     } catch (cause) {
-      setError(safeError(cause));
+      setError(safeError(cause, Boolean(lidAssignment || lidForm)));
       setScreen("prestart");
     } finally {
       setStarting(false);
@@ -432,10 +645,11 @@ export default function CandidateExamRuntimePage() {
     setError(null);
     try {
       const started = await candidateApi.start(attemptId);
+      focusQuestion.current = Boolean(lidForm);
       updateRuntime(() => started);
       setScreen("runtime");
     } catch (cause) {
-      setError(safeError(cause));
+      setError(safeError(cause, Boolean(lidForm)));
     } finally {
       setStarting(false);
     }
@@ -458,6 +672,15 @@ export default function CandidateExamRuntimePage() {
         );
       return;
     }
+    if (
+      lidForm &&
+      (saveBlocked.current ||
+        savingPracticeResponse.current ||
+        submittingRef.current ||
+        submissionUnconfirmed)
+    )
+      return;
+    if (lidForm) savingPracticeResponse.current = true;
     const expectedContext = contextKey;
     const bindingId = currentItem.binding_id;
     const operationId = audioOperationId ?? crypto.randomUUID();
@@ -480,6 +703,27 @@ export default function CandidateExamRuntimePage() {
           payload,
           queuedAt: new Date().toISOString(),
         };
+        if (lidForm && !audioOperationId) {
+          // Persist the operation before contacting the server so a reload can
+          // replay the same ID and expected revision if acknowledgement is lost.
+          await queueCandidateOperation(accountScope, operation, {
+            exactRevision: true,
+          });
+          if (currentContext.current !== expectedContext) return;
+          saveBlocked.current = true;
+          setRetrySafety(true);
+          if (!online) {
+            setStatus("Offline — queued");
+            return;
+          }
+          await drainPractice(
+            accountScope,
+            attemptId,
+            () => currentContext.current === expectedContext,
+            false,
+          );
+          return;
+        }
         if (!online) {
           await queueCandidateOperation(accountScope, operation);
           saveBlocked.current = true;
@@ -540,12 +784,18 @@ export default function CandidateExamRuntimePage() {
         if (currentContext.current !== expectedContext) return;
         saveBlocked.current = true;
         setStatus("Save failed");
+        if (lidForm) setRetrySafety(true);
         setError(
-          "Your response could not be saved locally. Keep this page open and reconnect before submitting.",
+          lidForm
+            ? "Die Antwort konnte auf diesem Gerät nicht gesichert werden. Laden Sie die bestätigte Antwort vom Server und wählen Sie erneut."
+            : "Your response could not be saved locally. Keep this page open and reconnect before submitting.",
         );
       })
       .finally(() => {
-        if (currentContext.current === expectedContext) setPendingSave(false);
+        if (currentContext.current === expectedContext) {
+          savingPracticeResponse.current = false;
+          setPendingSave(false);
+        }
       });
     saveSequence.current = task;
     await task;
@@ -562,6 +812,7 @@ export default function CandidateExamRuntimePage() {
     if (
       !attemptId ||
       !editable ||
+      (lidForm && (submissionUnconfirmed || submittingRef.current)) ||
       audioPendingRef.current ||
       navigatingRef.current
     )
@@ -573,13 +824,13 @@ export default function CandidateExamRuntimePage() {
       await saveSequence.current;
       if (saveBlocked.current) throw new Error("response is not synchronized");
       await candidateApi.navigate(attemptId, bindingId);
+      focusQuestion.current = true;
       await loadRuntime(attemptId, "runtime");
       setError(null);
-      questionHeadingRef.current?.focus();
     } catch (cause) {
       if (currentContext.current === expectedContext) {
         if (isExpired(cause)) markExpired();
-        else setError(safeError(cause));
+        else setError(safeError(cause, Boolean(lidForm)));
       }
     } finally {
       if (currentContext.current === expectedContext) {
@@ -611,20 +862,51 @@ export default function CandidateExamRuntimePage() {
         return;
       if (!online || saveBlocked.current) {
         setError(
-          "Synchronize all responses before submitting. Reload to resolve a conflict.",
+          lidForm
+            ? "Synchronisieren Sie Ihre Antworten vor der Abgabe."
+            : "Synchronize all responses before submitting. Reload to resolve a conflict.",
         );
+        submitTriggerRef.current?.focus();
         return;
       }
-      const submitted = await candidateApi.submit(attemptId);
+      if (lidForm) setSubmissionUnconfirmed(true);
+      const submitted = await candidateApi.submit(
+        attemptId,
+        lidForm ? AbortSignal.timeout(RECOVERY_TIMEOUT_MS) : undefined,
+      );
       if (currentContext.current !== expectedContext) return;
       updateRuntime((current) =>
         current ? { ...current, status: submitted.status } : current,
       );
+      setSubmissionUnconfirmed(false);
+      focusSubmission.current = Boolean(lidForm);
+      setError(null);
       setStatus("Submitted");
     } catch (cause) {
       if (currentContext.current === expectedContext) {
-        if (isExpired(cause)) markExpired();
-        else setError(safeError(cause));
+        if (isExpired(cause)) {
+          markExpired();
+          setSubmissionUnconfirmed(false);
+        } else if (lidForm) {
+          try {
+            focusSubmission.current = true;
+            const state = await loadRuntime(attemptId);
+            if (currentContext.current !== expectedContext) return;
+            if (state?.status === "SUBMITTED" || state?.status === "EXPIRED") {
+              setSubmissionUnconfirmed(false);
+              setError(null);
+              return;
+            }
+          } catch {
+            // The outcome stays unknown; repeating this submission is safe.
+          }
+          if (currentContext.current === expectedContext) {
+            setError(
+              "Die Abgabe ist noch nicht bestätigt. Prüfen Sie die Verbindung und versuchen Sie die Abgabe erneut.",
+            );
+            requestAnimationFrame(() => submitTriggerRef.current?.focus());
+          }
+        } else setError(safeError(cause));
       }
     } finally {
       submittingRef.current = false;
@@ -645,14 +927,34 @@ export default function CandidateExamRuntimePage() {
     return (
       <main>
         <h1>Exam unavailable</h1>
-        <p role="alert">{error ?? "This exam is unavailable."}</p>
+        <p role="alert" lang="de">
+          {error ?? "Diese Übung ist zurzeit nicht verfügbar."}
+        </p>
+        <button
+          type="button"
+          lang="de"
+          onClick={() => {
+            setError(null);
+            setScreen("loading");
+            setLoadRetry((value) => value + 1);
+          }}
+        >
+          Erneut versuchen
+        </button>{" "}
         <Link href="/candidate">Back to my exams</Link>
       </main>
     );
   if (screen === "prestart") {
     const duration = runtime?.runtime_plan.duration_seconds;
     return (
-      <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
+      <main
+        className={lidForm || lidAssignment ? styles.practice : undefined}
+        style={
+          lidForm || lidAssignment
+            ? undefined
+            : { maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }
+        }
+      >
         <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
           Candidate exam
         </p>
@@ -745,10 +1047,39 @@ export default function CandidateExamRuntimePage() {
   const textValue = (response.text as string | undefined) ?? "";
   const mediaAssetId = response.media_asset_id as string | undefined;
   const expired = runtime?.status === "EXPIRED";
-  const message = expired ? null : runtimeStateMessage(status);
+  const message = expired || lidForm ? null : runtimeStateMessage(status);
+  const practiceStatus: Record<RuntimeState, string> = {
+    Saved: "Alle Änderungen sind vom Server bestätigt.",
+    Saving: "Antwort wird gespeichert.",
+    "Save failed":
+      "Speicherung nicht bestätigt. Stellen Sie die Verbindung wieder her und versuchen Sie es erneut.",
+    "Offline — queued":
+      "Offline. Diese Antwort wartet auf diesem Gerät auf die Bestätigung durch den Server.",
+    Conflict:
+      "Eine neuere Antwort liegt auf dem Server. Laden Sie diese Antwort, um Ihre abgelehnte Änderung zu verwerfen.",
+    Expired: "Die Bearbeitungszeit ist abgelaufen.",
+    Submitted: "Der Server hat die Abgabe bestätigt.",
+  };
+  const practiceControlsBlocked = Boolean(
+    lidForm && (pendingSave || retrySafety),
+  );
+  const practiceAnswersBlocked =
+    practiceControlsBlocked || submitting || submissionUnconfirmed;
   const unanswered = items.length - (runtime?.responses.length ?? 0);
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }}>
+    <main
+      className={lidForm ? styles.practice : undefined}
+      style={
+        lidForm
+          ? undefined
+          : { maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }
+      }
+    >
+      {lidForm && (
+        <a className={styles.skip} href="#question-heading">
+          Zur aktuellen Frage
+        </a>
+      )}
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
         Candidate exam
       </p>
@@ -779,7 +1110,9 @@ export default function CandidateExamRuntimePage() {
           </p>
         </section>
       ) : lidForm && runtime?.status === "SUBMITTED" ? (
-        <p>Submission state: Submitted</p>
+        <h2 ref={submissionHeadingRef} tabIndex={-1}>
+          Submission state: Submitted
+        </h2>
       ) : (
         <RuntimeTimer
           key={attemptId}
@@ -797,14 +1130,52 @@ export default function CandidateExamRuntimePage() {
       <p>
         Module and task position: {currentIndex + 1} of {items.length}
       </p>
-      <p>Connection: {online ? "Online" : "Offline — changes are queued"}</p>
-      <p>Saved response revision: {savedRevision}</p>
       <p
-        role={status === "Saved" || status === "Saving" ? "status" : "alert"}
-        aria-live={status === "Saved" || status === "Saving" ? "off" : "polite"}
+        role={lidForm ? "status" : undefined}
+        lang={lidForm ? "de" : undefined}
       >
-        Autosave: {expired ? "Expired" : status}
+        {lidForm
+          ? online
+            ? "Verbindung verfügbar"
+            : "Verbindung unterbrochen"
+          : `Connection: ${online ? "Online" : "Offline — changes are queued"}`}
       </p>
+      <p>Saved response revision: {savedRevision}</p>
+      {lidForm ? (
+        <>
+          <p aria-hidden="true">Autosave: {expired ? "Expired" : status}</p>
+          <p role="status" aria-atomic="true" lang="de" id={errorId}>
+            {
+              practiceStatus[
+                expired ? "Expired" : pendingSave ? "Saving" : status
+              ]
+            }
+          </p>
+          {editable && retrySafety && (
+            <button
+              type="button"
+              aria-disabled={!online || pendingSave || retryingSave}
+              lang="de"
+              onClick={() =>
+                retryPractice(rejectedPracticeOperations.current.size > 0)
+              }
+            >
+              {rejectedPracticeOperations.current.size > 0
+                ? "Bestätigte Antwort laden"
+                : "Speicherung erneut versuchen"}
+            </button>
+          )}
+        </>
+      ) : (
+        <p
+          role={status === "Saved" || status === "Saving" ? "status" : "alert"}
+          aria-live={
+            status === "Saved" || status === "Saving" ? "off" : "polite"
+          }
+        >
+          Autosave: {expired ? "Expired" : status}
+        </p>
+      )}
       {message && (
         <p id={errorId} role="alert">
           {message}
@@ -813,19 +1184,27 @@ export default function CandidateExamRuntimePage() {
       {error && <p role="alert">{error}</p>}
       <section aria-labelledby="question-heading">
         <h2 id="question-heading" ref={questionHeadingRef} tabIndex={-1}>
-          Question
+          {lidForm
+            ? `Question ${currentIndex + 1} of ${items.length}`
+            : "Question"}
         </h2>
         <p id={promptId}>{content.prompt ?? "Question content"}</p>
         <p id={responseHelpId}>Response mode: {modeLabels[mode] ?? mode}</p>
         {(mode === "SELECT_ONE" || mode === "SELECT_MULTIPLE") && (
-          <fieldset aria-describedby={`${promptId} ${responseHelpId}`}>
+          <fieldset
+            aria-describedby={`${promptId} ${responseHelpId}${lidForm ? " " + errorId : ""}`}
+          >
             <legend>
               {mode === "SELECT_ONE"
                 ? "Select one answer"
                 : "Select all answers that apply"}
             </legend>
             {(content.options ?? []).map((option) => (
-              <label key={option.option_id} style={{ display: "block" }}>
+              <label
+                key={option.option_id}
+                className={lidForm ? styles.answer : undefined}
+                style={lidForm ? undefined : { display: "block" }}
+              >
                 <input
                   type={mode === "SELECT_ONE" ? "radio" : "checkbox"}
                   name="candidate-response"
@@ -834,6 +1213,13 @@ export default function CandidateExamRuntimePage() {
                       ? response.option_id === option.option_id
                       : selected.includes(option.option_id)
                   }
+                  onClick={(event) => {
+                    if (
+                      lidForm &&
+                      (practiceAnswersBlocked || savingPracticeResponse.current)
+                    )
+                      event.preventDefault();
+                  }}
                   onChange={() =>
                     void persist(
                       mode === "SELECT_ONE"
@@ -845,9 +1231,14 @@ export default function CandidateExamRuntimePage() {
                           },
                     )
                   }
-                  disabled={!editable || pendingSave}
+                  aria-disabled={
+                    lidForm && editable && practiceAnswersBlocked
+                      ? true
+                      : undefined
+                  }
+                  disabled={!editable || (!lidForm && pendingSave)}
                 />{" "}
-                {option.display_text ?? option.option_id}
+                <span>{option.display_text ?? option.option_id}</span>
               </label>
             ))}
           </fieldset>
@@ -927,7 +1318,12 @@ export default function CandidateExamRuntimePage() {
             void navigateTo(items[currentIndex - 1].binding_id)
           }
           disabled={
-            !editable || audioPending || navigating || currentIndex <= 0
+            !editable ||
+            practiceControlsBlocked ||
+            submissionUnconfirmed ||
+            audioPending ||
+            navigating ||
+            currentIndex <= 0
           }
         >
           Previous question
@@ -941,6 +1337,8 @@ export default function CandidateExamRuntimePage() {
           }
           disabled={
             !editable ||
+            practiceControlsBlocked ||
+            submissionUnconfirmed ||
             audioPending ||
             navigating ||
             currentIndex < 0 ||
@@ -963,11 +1361,23 @@ export default function CandidateExamRuntimePage() {
           }
         }}
         disabled={
-          !editable || pendingSave || audioPending || navigating || submitting
+          !editable ||
+          practiceControlsBlocked ||
+          pendingSave ||
+          audioPending ||
+          navigating ||
+          submitting
         }
       >
-        Submit attempt
+        {lidForm && submissionUnconfirmed
+          ? "Abgabe erneut versuchen"
+          : "Submit attempt"}
       </button>
+      {lidForm && !expired && (
+        <p lang="de">
+          <Link href="/candidate">Zurück zu meinen Prüfungen</Link>
+        </p>
+      )}
       {lidForm && (
         <dialog
           ref={submitDialogRef}
@@ -991,6 +1401,11 @@ export default function CandidateExamRuntimePage() {
             <p>
               {unanswered} of {items.length} questions unanswered.
             </p>
+            {unanswered > 0 && !submissionUnconfirmed && (
+              <p lang="de">
+                Sie können zur ersten unbeantworteten Frage springen.
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -1002,6 +1417,26 @@ export default function CandidateExamRuntimePage() {
           <button type="button" onClick={() => void submit()}>
             Submit final answers
           </button>
+          {unanswered > 0 && !submissionUnconfirmed && (
+            <button
+              type="button"
+              lang="de"
+              onClick={() => {
+                const next = items.find(
+                  (item) =>
+                    !runtime?.responses.some(
+                      (answer) => answer.binding_id === item.binding_id,
+                    ),
+                );
+                if (next) {
+                  submitDialogRef.current?.close();
+                  void navigateTo(next.binding_id);
+                }
+              }}
+            >
+              Erste unbeantwortete Frage
+            </button>
+          )}
         </dialog>
       )}
       {audioPending && (

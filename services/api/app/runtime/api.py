@@ -9,6 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -29,6 +30,7 @@ from app.models import (
     LidPracticeForm,
     User,
 )
+from app.operations.readiness import is_database_unavailable
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
 from app.scoring.service import ScoringService
 from app.speaking_audio.api import (
@@ -136,6 +138,10 @@ def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
 
 
 def _runtime_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, DBAPIError) and is_database_unavailable(exc):
+        return HTTPException(status_code=503, detail="RUNTIME.TEMPORARILY_UNAVAILABLE")
+    if isinstance(exc, SQLAlchemyError):
+        return HTTPException(status_code=500, detail="RUNTIME.INTERNAL_ERROR")
     if isinstance(exc, (AudioValidationError, StorageError)):
         return audio_error(exc)
     if isinstance(exc, RuntimeConflict):

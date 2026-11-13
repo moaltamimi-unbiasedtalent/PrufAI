@@ -37,6 +37,8 @@ const messages: Record<string, string> = {
     "Dieser Wiederherstellungscode ist abgelaufen. Fordern Sie einen neuen Code an.",
   RESET_USED: "Dieser Wiederherstellungscode wurde bereits verwendet.",
   TRY_LATER: "Zu viele Versuche. Bitte versuchen Sie es später erneut.",
+  AUTH_UNAVAILABLE:
+    "Die Kontohilfe ist vorübergehend nicht verfügbar. Warten Sie kurz und versuchen Sie es erneut.",
   DELIVERY_DISABLED:
     "Einladungen und Kontowiederherstellung sind derzeit nicht verfügbar.",
 };

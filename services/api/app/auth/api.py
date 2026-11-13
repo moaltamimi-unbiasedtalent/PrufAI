@@ -187,6 +187,11 @@ def get_principal(
             except AuthorizationError:
                 context = None
         return Principal(user=user, session=auth_session, tenant_context=context)
+    except DBAPIError as exc:
+        if not is_database_unavailable(exc):
+            raise
+        record(Signal.AUTHENTICATION, Failure.UNAVAILABLE)
+        raise HTTPException(status_code=503, detail={"code": "AUTH_DATABASE_UNAVAILABLE"}) from exc
     except (jwt.InvalidTokenError, AuthenticationError, ValueError, PermissionError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid authentication"

@@ -7,8 +7,9 @@ const {
   login,
   logout,
   restartOwnedApi,
-  screenshot,
 } = require("./support.cjs");
+
+test.use({ trace: "off", screenshot: "off", video: "off" });
 
 const standards = "/api/v1/platform/standards";
 const lid = `${standards}/lid`;
@@ -38,6 +39,28 @@ async function openLid(page, email) {
   const response = await sources;
   expect(response.status()).toBe(200);
   return { identity, sources: await response.json() };
+}
+
+async function privateRequest(page, method, path, options) {
+  try {
+    return await page.request.fetch(path, {
+      ...options,
+      method,
+      failOnStatusCode: false,
+      timeout: 10000,
+    });
+  } catch {
+    throw new Error("The LiD API probe did not return an HTTP status.");
+  }
+}
+
+async function callUpstream(route) {
+  try {
+    return await route.fetch({ timeout: 6000 });
+  } catch {
+    await route.abort("failed");
+    throw new Error("The intercepted LiD write did not reach the test server.");
+  }
 }
 
 function scoped(identity, orgId) {
@@ -127,7 +150,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       selected.registered = created.registered;
     }
     for (const source of sources.filter((row) => !row.registered)) {
-      const response = await page.request.post(
+      const response = await privateRequest(
+        page,
+        "POST",
         `${lid}/sources/${source.key}/register`,
         {
           headers: headers(author),
@@ -141,7 +166,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     const reviewer = await login(page, actor("reviewer"));
     expect(reviewer.profile.id).not.toBe(author.profile.id);
     for (const source of sources.filter((row) => !row.registered.reviewed)) {
-      const response = await page.request.post(
+      const response = await privateRequest(
+        page,
+        "POST",
         `${standards}/versions/${source.registered.id}/rights-review`,
         {
           headers: headers(reviewer),
@@ -278,7 +305,6 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await expect(
       page.getByRole("region", { name: "LiD publication blockers" }),
     ).toContainText("LID_EXPERT_VALIDATION_REQUIRED");
-    await screenshot(page, "s3-lid-draft-rules-and-publication-denial.png");
     const history = await clickResponse(
       page,
       `Inspect LiD version ${draft.version_label}`,
@@ -407,7 +433,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await expect(
       page.getByRole("button", { name: "Prepare exam", exact: true }),
     ).toBeDisabled();
-    const unavailable = await page.request.post(
+    const unavailable = await privateRequest(
+      page,
+      "POST",
       `${candidate}/exam-assignments/${assignmentId}/attempts`,
       {
         headers: scoped(owner, orgId),
@@ -458,7 +486,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     expect(
       Date.parse(started.deadline_at) - Date.parse(started.started_at),
     ).toBe(3_600_000);
-    const changeState = await page.request.post(
+    const changeState = await privateRequest(
+      page,
+      "POST",
       `${candidate}/exam-assignments/${assignmentId}/attempts`,
       { headers: scoped(owner, orgId), data: { bundesland: "DE-BY" } },
     );
@@ -610,9 +640,14 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       ),
     ).toBeVisible();
     await expect(page.getByRole("radio").first()).toBeDisabled();
-    const unreleased = await page.request.get(`${candidate}/releases`, {
-      headers: scoped(owner, orgId),
-    });
+    const unreleased = await privateRequest(
+      page,
+      "GET",
+      `${candidate}/releases`,
+      {
+        headers: scoped(owner, orgId),
+      },
+    );
     expect(unreleased.status()).toBe(200);
     expect(
       (await unreleased.json()).some(
@@ -648,7 +683,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       .click();
     await expect(page).toHaveURL(/\/institution\/results\/[^/]+$/);
     const resultId = new URL(page.url()).pathname.split("/").at(-1);
-    const versions = await page.request.get(
+    const versions = await privateRequest(
+      page,
+      "GET",
       `/api/v1/organisations/${orgId}/results/${resultId}/versions`,
       {
         headers: scoped(admin, orgId),
@@ -712,7 +749,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     releaseId = released.release_id;
     expect(releaseId).toBeTruthy();
     const releaseRoute = `/api/v1/organisations/${orgId}/releases/${releaseId}`;
-    const denied = await page.request.post(
+    const denied = await privateRequest(
+      page,
+      "POST",
       `${releaseRoute}/certificate?authorization_id=${randomUUID()}`,
       {
         headers: scoped(admin, orgId),
@@ -723,7 +762,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     expect(await denied.json()).toMatchObject({
       detail: "CERTIFICATION.NOT_AUTHORIZED",
     });
-    const release = await page.request.get(releaseRoute, {
+    const release = await privateRequest(page, "GET", releaseRoute, {
       headers: scoped(admin, orgId),
     });
     expect(release.status()).toBe(200);
@@ -736,7 +775,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await logout(page);
 
     const operator = await login(page, platformEmail);
-    const prohibited = await page.request.post(
+    const prohibited = await privateRequest(
+      page,
+      "POST",
       `/api/v1/organisations/${orgId}/certification-authorizations`,
       {
         headers: scoped(operator, orgId),
@@ -759,7 +800,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
 
   await test.step("candidate sees exact 15/33 practice evidence without an official outcome or credential", async () => {
     const owner = await login(page, candidateEmail);
-    const released = await page.request.get(
+    const released = await privateRequest(
+      page,
+      "GET",
       `${candidate}/releases/${releaseId}`,
       {
         headers: scoped(owner, orgId),
@@ -805,14 +848,15 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await expect(section).toContainText("15/33 · Numerical threshold met");
     await expect(section).toContainText("17/33 · Below numerical threshold");
     await expect(section).toContainText("NOT OFFICIAL · NOT CERTIFIED");
-    await screenshot(page, "s3-lid-candidate-practice-result.png");
   });
 
   await test.step("revocation removes the candidate score and a separate expired attempt remains read-only", async () => {
     await logout(page);
     const admin = await login(page, adminEmail);
     const adminRoot = `/api/v1/organisations/${orgId}`;
-    const revoke = await page.request.post(
+    const revoke = await privateRequest(
+      page,
+      "POST",
       `${adminRoot}/releases/${releaseId}/revoke`,
       {
         headers: scoped(admin, orgId),
@@ -823,7 +867,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       },
     );
     expect(revoke.status()).toBe(200);
-    const ownerProfile = await page.request.get(
+    const ownerProfile = await privateRequest(
+      page,
+      "GET",
       `${adminRoot}/exam-assignments`,
       {
         headers: scoped(admin, orgId),
@@ -833,13 +879,18 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     const ownerId = (await ownerProfile.json()).find(
       (row) => row.id === assignmentId,
     ).candidate_user_id;
-    const added = await page.request.post(`${adminRoot}/exam-assignments`, {
-      headers: scoped(admin, orgId),
-      data: {
-        candidate_user_id: ownerId,
-        exam_version_id: fixture.exam_version_id,
+    const added = await privateRequest(
+      page,
+      "POST",
+      `${adminRoot}/exam-assignments`,
+      {
+        headers: scoped(admin, orgId),
+        data: {
+          candidate_user_id: ownerId,
+          exam_version_id: fixture.exam_version_id,
+        },
       },
-    });
+    );
     expect(added.status()).toBe(201);
     const expiryAssignment = (await added.json()).id;
     await logout(page);
@@ -849,7 +900,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       page.getByRole("status").filter({ hasText: /reviews and releases/ }),
     ).toBeVisible();
     await expect(page.getByText("15 of 33 answers correct")).toHaveCount(0);
-    const withheld = await page.request.get(
+    const withheld = await privateRequest(
+      page,
+      "GET",
       `${candidate}/releases/${releaseId}`,
       {
         headers: scoped(owner, orgId),
@@ -905,4 +958,470 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       ).toBeDisabled();
     }
   });
+});
+
+async function createPracticeAssignment(page) {
+  const operator = await login(page, adminEmail);
+  const org = demoOrganisation(operator);
+  const collection = `/api/v1/organisations/${org}/exam-assignments`;
+  const listed = await privateRequest(page, "GET", collection, {
+    headers: scoped(operator, org),
+  });
+  expect(listed.status()).toBe(200);
+  const rows = await listed.json();
+  const existing = rows.find(
+    (row) =>
+      row.exam_name === title &&
+      row.exam_version_label === "original-synthetic-v1" &&
+      row.candidate_name === "Demo Candidate",
+  );
+  let candidateId = existing?.candidate_user_id;
+  let versionId = existing?.exam_version_id;
+  if (!versionId) {
+    const output = execFileSync(
+      "python3",
+      ["-m", "app.scripts.seed_lid_practice", "--prepare-demo"],
+      {
+        env: {
+          ...process.env,
+          PRUFAI_DEMO_PASSWORD:
+            process.env.PRUFAI_DEMO_PASSWORD || "Demo-PrufAI-2026!",
+        },
+        timeout: 30_000,
+      },
+    )
+      .toString()
+      .trim()
+      .split("\n")
+      .at(-1);
+    const fixture = JSON.parse(output);
+    versionId = fixture.exam_version_id;
+    const created = await privateRequest(page, "GET", collection, {
+      headers: scoped(operator, org),
+    });
+    expect(created.status()).toBe(200);
+    candidateId = (await created.json()).find(
+      (row) => row.id === fixture.candidate_assignment_id,
+    )?.candidate_user_id;
+  }
+  expect(Boolean(candidateId && versionId)).toBe(true);
+  const assigned = await privateRequest(page, "POST", collection, {
+    headers: scoped(operator, org),
+    data: { candidate_user_id: candidateId, exam_version_id: versionId },
+  });
+  expect(assigned.status()).toBe(201);
+  const { id } = await assigned.json();
+  await logout(page);
+  return { org, id };
+}
+
+async function tabTo(page, target, max = 32) {
+  const focused = () =>
+    target.evaluate((element) => document.activeElement === element);
+  for (let step = 0; step < max && !(await focused()); step += 1)
+    await page.keyboard.press("Tab");
+  await expect(target).toBeFocused();
+}
+
+async function keyboardCandidateLogin(page) {
+  await page.goto("/anmelden");
+  const email = page.getByLabel("E-Mail-Adresse", { exact: true });
+  const password = page.getByLabel("Passwort", { exact: true });
+  await expect(email).toBeEnabled();
+  await tabTo(page, email);
+  await page.keyboard.insertText(candidateEmail);
+  await page.keyboard.press("Tab");
+  await expect(password).toBeFocused();
+  // The field is filled through the keyboard. The private project keeps form
+  // snapshots out of uploads, and insertText errors must never print the value.
+  try {
+    await page.keyboard.insertText(
+      process.env.PRUFAI_DEMO_PASSWORD || "Demo-PrufAI-2026!",
+    );
+  } catch {
+    throw new Error("The private sign-in field could not be filled.");
+  }
+  const response = apiResponse(page, "/api/v1/auth/login", "POST");
+  await page.keyboard.press("Enter");
+  const reply = await response;
+  expect(reply.status()).toBe(200);
+  const { readSignInToken } = require("./enrollment-probes.cjs");
+  const token = await readSignInToken(reply);
+  await expect(page).toHaveURL(/\/candidate$/);
+  return { token };
+}
+
+async function startFromKeyboard(page, id, nearDeadline) {
+  await page.goto(`/candidate/exams/assignment-${id}`);
+  const state = page.getByRole("combobox", { name: "Practice Bundesland" });
+  await tabTo(page, state);
+  await page.keyboard.press("b");
+  await expect(state).toHaveValue("DE-BE");
+  await tabTo(page, page.getByRole("button", { name: "Prepare exam" }));
+  const created = apiResponse(page, `/exam-assignments/${id}/attempts`, "POST");
+  await page.keyboard.press("Enter");
+  const prepared = await created;
+  expect(prepared.status()).toBe(201);
+  const {
+    id: attempt,
+    started_at: startedAt,
+    deadline_at: deadlineAt,
+  } = await prepared.json();
+  expect(startedAt).toBeNull();
+  expect(deadlineAt).toBeNull();
+  await expect(page.locator("time")).toHaveCount(0);
+  await expect(page.getByRole("radio")).toHaveCount(0);
+  if (nearDeadline) {
+    execFileSync(
+      "python3",
+      ["tests/browser/expire-lid-attempt.py", attempt, String(nearDeadline)],
+      { timeout: 30_000 },
+    );
+    await page.reload();
+    return { attempt_id: attempt };
+  }
+  await tabTo(page, page.getByRole("button", { name: "Start exam" }));
+  const started = apiResponse(page, `/exam-attempts/${attempt}/start`, "POST");
+  await page.keyboard.press("Enter");
+  const reply = await started;
+  expect(reply.status()).toBe(200);
+  const runtime = await reply.json();
+  expect(Date.parse(runtime.deadline_at) - Date.parse(runtime.started_at)).toBe(
+    3600000,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Question 1 of 33" }),
+  ).toBeFocused();
+  return runtime;
+}
+
+test("narrow keyboard Berlin practice recovers lost acknowledgements and resolves a stale revision safely", async ({
+  page,
+  context,
+}) => {
+  const { id, org } = await createPracticeAssignment(page);
+  await page.setViewportSize({ width: 320, height: 830 });
+  await expect(page.locator("body")).toBeVisible();
+  const owner = await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const attempt = runtime.attempt_id;
+  const root = `${candidate}/exam-attempts/${attempt}`;
+  const [first, second] =
+    runtime.runtime_plan.modules[0].sections[0].tasks[0].items;
+  const mobileWidth = () =>
+    page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  expect(await mobileWidth()).toBe(true);
+  const answers = page.getByRole("radio");
+  const retry = page.getByRole("button", {
+    name: "Speicherung erneut versuchen",
+  });
+  const revision = (value) =>
+    page.getByText(`Saved response revision: ${value}`, { exact: true });
+  const saved = () =>
+    expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+  await saved();
+  const path = `**/responses/${first.binding_id}`;
+  let sentId;
+  let retryId;
+  let held;
+  const committed = new Promise((resolve) => {
+    held = resolve;
+  });
+  await page.route(path, async (route) => {
+    const operation = route.request().postDataJSON().client_operation_id;
+    if (sentId) {
+      retryId = operation;
+      await route.continue();
+      return;
+    }
+    sentId = operation;
+    const response = await callUpstream(route);
+    await route.abort("connectionfailed");
+    held(response.status());
+  });
+  await tabTo(page, answers.first());
+  await page.keyboard.press("Space");
+  expect(await committed).toBe(200);
+  await expect(retry).toBeEnabled();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Speicherung nicht bestätigt" }),
+  ).toBeVisible();
+  await expect(revision(0)).toBeVisible();
+  await page.reload();
+  await expect(page).toHaveURL(new RegExp(attempt + "$"));
+  await saved();
+  expect(Boolean(retryId && retryId === sentId)).toBe(true);
+  await expect(revision(1)).toBeVisible();
+  await expect(answers.first()).toBeChecked();
+  await page.unroute(path);
+
+  // Drop before commit while navigator still reports online. An explicit retry
+  // must send the same ID with the same revision and then update the UI.
+  let droppedId;
+  let sentAgain;
+  await page.route(path, async (route) => {
+    const operation = route.request().postDataJSON().client_operation_id;
+    if (!droppedId) {
+      droppedId = operation;
+      await route.abort("connectionfailed");
+    } else {
+      sentAgain = operation;
+      await route.continue();
+    }
+  });
+  await answers.first().focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(retry).toBeEnabled();
+  await tabTo(page, retry);
+  await page.keyboard.press("Enter");
+  await saved();
+  expect(Boolean(sentAgain && sentAgain === droppedId)).toBe(true);
+  await expect(revision(2)).toBeVisible();
+  await expect(answers.nth(1)).toBeChecked();
+  await page.unroute(path);
+
+  // Two tabs hold revision 2. Only the first writer may create revision 3.
+  const secondTab = await context.newPage();
+  await secondTab.goto(`/candidate/exams/${attempt}`);
+  const tabAnswers = secondTab.getByRole("radio");
+  await expect(tabAnswers.nth(1)).toBeChecked();
+  await expect(secondTab.getByText("Saved response revision: 2")).toBeVisible();
+  await page.bringToFront();
+  await answers.nth(1).focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(revision(3)).toBeVisible();
+  await tabAnswers.nth(1).focus();
+  await secondTab.keyboard.press("ArrowUp");
+  const serverAnswer = secondTab.getByRole("button", {
+    name: "Bestätigte Antwort laden",
+  });
+  await expect(serverAnswer).toBeEnabled();
+  await expect(
+    secondTab
+      .getByRole("status")
+      .filter({ hasText: "Eine neuere Antwort liegt auf dem Server" }),
+  ).toBeVisible();
+  await tabTo(secondTab, serverAnswer);
+  await secondTab.keyboard.press("Enter");
+  await expect(tabAnswers.nth(2)).toBeChecked();
+  await expect(secondTab.getByText("Saved response revision: 3")).toBeVisible();
+  await secondTab.close();
+  await page.bringToFront();
+
+  const trigger = page.getByRole("button", { name: "Submit attempt" });
+  await expect(trigger).toBeEnabled();
+  await tabTo(page, trigger);
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", {
+    name: "Submit this practice exam?",
+  });
+  await expect(
+    dialog.getByRole("button", { name: "Keep working" }),
+  ).toBeFocused();
+  expect(await mobileWidth()).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Enter");
+  await tabTo(
+    page,
+    dialog.getByRole("button", { name: "Erste unbeantwortete Frage" }),
+  );
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Question 2 of 33" }),
+  ).toBeFocused();
+
+  // Queue a response while genuinely offline. No successful API response is mocked.
+  await saved();
+  await context.setOffline(true);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Verbindung unterbrochen" }),
+  ).toBeVisible();
+  await tabTo(page, answers.first());
+  await page.keyboard.press("Space");
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Offline. Diese Antwort wartet" }),
+  ).toBeVisible();
+  await expect(trigger).toBeDisabled();
+  await context.setOffline(false);
+  await expect(revision(1)).toBeVisible();
+  await saved();
+  await expect(page.getByRole("radio").first()).toBeChecked();
+  await restartOwnedApi();
+  await page.close();
+  page = await context.newPage();
+  await page.setViewportSize({ width: 320, height: 830 });
+  await page.goto(`/candidate/exams/${attempt}`);
+  await expect(
+    page.getByRole("heading", { name: "Question 2 of 33" }),
+  ).toBeVisible();
+  await expect(page.getByRole("radio").first()).toBeChecked();
+
+  // Withhold the acknowledgement after the real API commits, until the
+  // candidate's bounded request times out. The subsequent GET must recover it.
+  let releaseRoute;
+  const waiting = new Promise((resolve) => {
+    releaseRoute = resolve;
+  });
+  let posted;
+  const submission = new Promise((resolve) => {
+    posted = resolve;
+  });
+  await page.route("**/submit", async (route) => {
+    const response = await callUpstream(route);
+    posted(response.status());
+    await waiting;
+    await route.abort("timedout").catch(() => undefined);
+  });
+  try {
+    await tabTo(page, page.getByRole("button", { name: "Submit attempt" }));
+    await page.keyboard.press("Enter");
+    await tabTo(
+      page,
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Submit final answers" }),
+    );
+    await page.keyboard.press("Enter");
+    expect(await submission).toBe(200);
+    const confirmation = page.getByRole("heading", {
+      name: "Submission state: Submitted",
+    });
+    await expect(confirmation).toBeFocused({ timeout: 15_000 });
+  } finally {
+    releaseRoute();
+    await page.unroute("**/submit");
+  }
+  const headers = scoped(owner, org);
+  const repeated = await privateRequest(page, "POST", root + "/submit", {
+    headers,
+  });
+  expect(repeated.status()).toBe(200);
+  const submitted = await repeated.json();
+  expect(submitted.status === "SUBMITTED" && submitted.id === attempt).toBe(
+    true,
+  );
+  const ending = await privateRequest(page, "GET", root + "/runtime", {
+    headers,
+  });
+  expect(ending.status()).toBe(200);
+  const responses = (await ending.json()).responses;
+  expect(responses.length).toBe(2);
+  expect(
+    responses.find((answer) => answer.binding_id === second.binding_id)
+      ?.revision,
+  ).toBe(1);
+  const result = await privateRequest(
+    page,
+    "GET",
+    root + "/lid-practice-result",
+    { headers },
+  );
+  expect(result.status()).toBe(404);
+  await expect(
+    page.getByRole("status").filter({ hasText: "reviews and releases" }),
+  ).toBeVisible();
+  await tabTo(
+    page,
+    page.getByRole("link", { name: "Zurück zu meinen Prüfungen" }),
+  );
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/candidate$/);
+  const signOut = page.getByRole("button", { name: /Abmelden|Sign out/ });
+  await tabTo(page, signOut);
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/(anmelden|login)$/);
+});
+
+test("server deadline rejects a queued Berlin answer reconnected after time expires", async ({
+  page,
+  context,
+}) => {
+  const { id, org } = await createPracticeAssignment(page);
+  const owner = await keyboardCandidateLogin(page);
+  const { attempt_id: attempt } = await startFromKeyboard(page, id, 20);
+  const clock = page.locator("time[datetime]");
+  await expect(clock).toHaveAttribute("datetime", /^PT(?:[1-9]|1\d|20)S$/);
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+  const root = `${candidate}/exam-attempts/${attempt}`;
+  const current = await privateRequest(page, "GET", root + "/runtime", {
+    headers: scoped(owner, org),
+  });
+  expect(current.status()).toBe(200);
+  const runtime = await current.json();
+  const first = runtime.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+  await context.setOffline(true);
+  await tabTo(page, page.getByRole("radio").first());
+  await page.keyboard.press("Space");
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Offline. Diese Antwort wartet" }),
+  ).toBeVisible();
+  // Let the actual persisted deadline pass while the browser is offline.
+  // The offline timer must never turn an unconfirmed answer into a saved one.
+  await expect(clock).toHaveAttribute("datetime", "PT0S", { timeout: 25_000 });
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Offline. Diese Antwort wartet" }),
+  ).toBeVisible();
+  const rejected = apiResponse(page, `/responses/${first.binding_id}`, "PUT");
+  await context.setOffline(false);
+  expect((await rejected).status()).toBe(409);
+  await expect(
+    page.getByRole("region", { name: "Prüfungszeit abgelaufen" }),
+  ).toBeVisible();
+  await expect(page.getByRole("radio").first()).not.toBeChecked();
+  await expect(page.getByRole("radio").first()).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Submit attempt" }),
+  ).toBeDisabled();
+  const state = await privateRequest(page, "GET", root + "/runtime", {
+    headers: scoped(owner, org),
+  });
+  expect(state.status()).toBe(200);
+  const final = await state.json();
+  expect(final.status).toBe("EXPIRED");
+  expect(final.responses.length).toBe(0);
+
+  // Prepare another attempt in the same private Berlin fixture and submit
+  // before its actual deadline. The server records the final timestamp.
+  await page.getByRole("link", { name: "Zurück zu meinen Prüfungen" }).click();
+  await expect(page).toHaveURL(/\/candidate$/);
+  const logoutResponse = apiResponse(page, "/api/v1/auth/logout", "POST");
+  await page.getByRole("button", { name: /Abmelden|Sign out/ }).click();
+  expect((await logoutResponse).status()).toBe(204);
+  const next = await createPracticeAssignment(page);
+  await keyboardCandidateLogin(page);
+  const started = await startFromKeyboard(page, next.id, 20);
+  await expect(clock).toHaveAttribute("datetime", /^PT(?:[1-9]|1\d|20)S$/);
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+  const submit = apiResponse(
+    page,
+    `/exam-attempts/${started.attempt_id}/submit`,
+    "POST",
+  );
+  await page.getByRole("button", { name: "Submit attempt" }).click();
+  await page.getByRole("button", { name: "Submit final answers" }).click();
+  const reply = await submit;
+  expect(reply.status()).toBe(200);
+  const confirmed = await reply.json();
+  const timeLeft =
+    Date.parse(confirmed.deadline_at) - Date.parse(confirmed.submitted_at);
+  expect(timeLeft > 0 && timeLeft <= 20_000).toBe(true);
 });

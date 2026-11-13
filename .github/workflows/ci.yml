@@ -121,6 +121,10 @@ jobs:
           }
           recordBinaries().catch(error => { console.error(error); process.exitCode = 1; });
           JS
+      - name: Verify public browser failure logs exclude credentials
+        env:
+          NODE_PATH: ${{ runner.temp }}/prufai-browser-tool/node_modules
+        run: node tests/browser/check-failure-logs.cjs "$NODE_PATH/@playwright/test/cli.js"
       - name: Real three-application browser acceptance
         env:
           DATABASE_URL: postgresql+psycopg://prufai:prufai_ci@localhost:5432/prufai_browser

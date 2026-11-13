@@ -1,13 +1,14 @@
 const { expect } = require("@playwright/test");
 const { existsSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
+const { fillSecret, readSignInToken } = require("./enrollment-probes.cjs");
 const password = process.env.PRUFAI_DEMO_PASSWORD || "Demo-PrufAI-2026!";
 
 async function login(page, email) {
   await page.goto("/login");
   await expect(page.getByLabel("Email", { exact: true })).toBeEnabled();
   await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Password", { exact: true }).fill(password);
+  await fillSecret(page.getByLabel("Password", { exact: true }), password);
   const response = page.waitForResponse(
     (item) =>
       item.url().endsWith("/api/v1/auth/login") &&
@@ -20,7 +21,7 @@ async function login(page, email) {
     .getByRole("button", { name: "Sign in to workspace", exact: true })
     .click();
   expect((await response).status()).toBe(200);
-  const token = (await (await response).json()).access_token;
+  const token = await readSignInToken(await response);
   const profile = await (await identity).json();
   await expect(page).not.toHaveURL(/\/login$/);
   return { token, profile };

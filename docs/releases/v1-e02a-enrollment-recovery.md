@@ -80,3 +80,27 @@ The pilot assessment exposure remains tracked under E04.
 - [V1 readiness register](v1-readiness-register.md) and
   [U01/U02/U13](v1-uat-and-release-tests.md) retain the target evidence and
   human decision requirements. There is no new migration.
+
+## PR #59 review exception and credential log correction
+
+[PR #59](https://github.com/moaltamimi-unbiasedtalent/PrufAI/pull/59) merged
+as `4549fe4f3779af261e054b0234be6c6600498475` without a submitted independent
+pre-merge review. A subsequent read-only review requested changes for the
+[P2 session diagnostics finding](https://github.com/moaltamimi-unbiasedtalent/PrufAI/blob/827eef1e7e692056c73c6c4fbf29f5f6a1512c27/tests/browser/pilot-enrollment.spec.cjs#L106-L134).
+The corrective branch `security/browser-credential-log-safety` requires
+independent security acceptance. The historical review exception remains
+open pending an authorized disposition.
+
+The original public browser failure archive (13976130713) contained
+synthetic invitation and password fields and was removed. The workflow
+run and logs remain. A separate local reproduction showed that a dropped
+Playwright API request could put bearer and refresh credentials in the
+reporter exception. The targeted scan of the accessible hosted Browser and
+Python logs for the original PR and its merge found no such credential
+values. The known archive used disposable synthetic credentials. This
+does not establish whether cached copies exist.
+
+The corrective browser check exercises six intentional failures with random
+synthetic values and privately runs the original unsafe call as a negative
+control. It inspects reporter stdout, stderr and the upload directory and
+checks that Playwright's form snapshot lives only in the private directory.

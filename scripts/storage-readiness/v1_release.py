@@ -617,7 +617,6 @@ def assess(client, fixture, actors, org):
         "scoring_run": scoring_run,
         "publish": version + "/release",
         "release_operation": release_operation,
-        "release_id": released["release_id"],
     }
 
 
@@ -796,11 +795,11 @@ def stop_and_restore(
             client,
             "POST",
             paths["publish"],
+            409,
             headers=staff,
             json=paths["release_operation"],
         ).json()
-        assert replayed["release_id"] == paths["release_id"]
-        assert replayed["effective_status"] == "REVOKED"
+        assert replayed["detail"] == "release is not active or is stale"
         assert (
             snapshot(
                 target_db,

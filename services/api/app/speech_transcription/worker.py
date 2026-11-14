@@ -9,9 +9,11 @@ import sys
 import threading
 import uuid
 
+from app import pilot
 from app.config import get_settings
 from app.db import create_session_factory
 from app.knowledge.storage import build_object_storage
+from app.operations.telemetry import Failure, Signal, record
 from app.speech_transcription.execution import TranscriptionExecutionService
 
 
@@ -25,6 +27,9 @@ def main() -> None:
     if not 0.1 <= args.poll_interval <= 60:
         parser.error("poll interval must be between 0.1 and 60 seconds")
     settings = get_settings()
+    if pilot.active(settings):
+        record(Signal.WORKER_ACTIVATION, Failure.POLICY_DENIED)
+        return
     if settings.object_storage_backend != "s3":
         parser.error("transcription worker requires private S3-compatible object storage")
     factory = create_session_factory(settings)

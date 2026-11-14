@@ -58,13 +58,13 @@ def end(process):
             process.wait(timeout=5)
 
 
-def child(rig, *argv, env):
+def child(rig, *argv, env, log=None):
     process = subprocess.Popen(
         (sys.executable, *argv),
         env=env,
         cwd=ROOT,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=log if log is not None else subprocess.DEVNULL,
     )
     rig.stack.callback(end, process)
     return process
@@ -76,7 +76,7 @@ def port():
         return listener.getsockname()[1]
 
 
-def launch_api(rig, env, *, app_dir="api", listener=None, source=ROOT):
+def launch_api(rig, env, *, app_dir="api", listener=None, source=ROOT, log=None):
     listener = listener or port()
     process = child(
         rig,
@@ -91,6 +91,7 @@ def launch_api(rig, env, *, app_dir="api", listener=None, source=ROOT):
         str(listener),
         "--no-access-log",
         env=env,
+        log=log,
     )
     url = f"http://127.0.0.1:{listener}"
     expected_service = "prufai-o2a-api" if app_dir == "api" else "prufai-ai"

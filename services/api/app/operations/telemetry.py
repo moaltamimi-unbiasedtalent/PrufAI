@@ -14,6 +14,10 @@ class Signal(str, Enum):
     POSTGRESQL = "postgresql.readiness"
     REDIS = "redis.readiness"
     STORAGE = "storage.capability"
+    STORAGE_GUARD = "storage.guard"
+    STORAGE_PRIVATE = "storage.private_operation"
+    WORKER_ACTIVATION = "worker.activation"
+    PROVIDER_EXECUTION = "provider.execution"
     AUTHENTICATION = "authentication.dependency"
     WORKER_RETRY = "worker.retry_exhausted"
     WORKER_LEASE = "worker.stale_lease"
@@ -30,6 +34,7 @@ class Failure(str, Enum):
     RETRY_EXHAUSTED = "RETRY_EXHAUSTED"
     STALE_LEASE = "STALE_LEASE"
     OPERATION_FAILED = "OPERATION_FAILED"
+    POLICY_DENIED = "POLICY_DENIED"
 
 
 _counts: Counter[tuple[Signal, Failure]] = Counter()

@@ -284,6 +284,7 @@ def recover(
     extra_tables=(),
     allow_empty=(),
     shared_disposable_server=False,
+    alerts=None,
 ):
     assert source_db.name != target_db.name
     if shared_disposable_server:
@@ -304,6 +305,7 @@ def recover(
     )
     source_objects = objects(source_db, source_storage, audio_count=audio_count)
     dump = source_db.dump()
+    backup_alerts = []
     key = AESGCM.generate_key(bit_length=256)
     with tempfile.TemporaryDirectory(prefix="prufai-o2a-archive-") as folder:
         path = Path(folder)
@@ -346,11 +348,18 @@ def recover(
                 verify(candidate, candidate_key, expected_head)
             except BackupRejected as error:
                 assert str(error).endswith(reason), case
+                if alerts is not None:
+                    backup_alerts.append(
+                        alerts.raise_alert("backup.integrity", "INTEGRITY_MISMATCH")
+                    )
                 continue
             raise AssertionError(f"Rejected backup case was accepted: {case}")
         restored = verify(envelope, key, head)
 
         assert inventory(target_storage) == set()
+        assert (
+            target_db.sql("select to_regclass('public.alembic_version')").strip() == b""
+        )
         target_db.restore(restored.dump)
         client = target_storage.operator()
         for object_key, (payload, mime, metadata) in restored.objects.items():
@@ -369,7 +378,34 @@ def recover(
         snapshot(target_db, extra_tables=extra_tables, allow_empty=allow_empty)
         == db_snapshot
     )
+    if alerts is not None:
+        # Deliberately add a private, unreferenced fixture to the fresh restored bucket.
+        # The real reconciliation check must observe the drift before emitting a signal.
+        restore_client = target_storage.operator()
+        drift_key = "_operations/synthetic-reconciliation-fault"
+        drift_version = restore_client.put_object(
+            Bucket=target_storage.bucket, Key=drift_key, Body=b"disposable fault"
+        )["VersionId"]
+        try:
+            try:
+                objects(target_db, target_storage, audio_count=audio_count)
+            except AssertionError as error:
+                assert error.args == ({"missing": 0, "orphaned": 1},)
+                reconciliation_alert = alerts.raise_alert(
+                    "restore.reconciliation", "INTEGRITY_MISMATCH"
+                )
+            else:
+                raise AssertionError(
+                    "restore reconciliation accepted an orphaned object"
+                )
+        finally:
+            restore_client.delete_object(
+                Bucket=target_storage.bucket, Key=drift_key, VersionId=drift_version
+            )
     assert objects(target_db, target_storage, audio_count=audio_count) == source_objects
+    if alerts is not None:
+        for alert in (*backup_alerts, reconciliation_alert):
+            alerts.resolve(alert)
     for key in source_objects:
         assert (
             request(target_storage.port(), "GET", f"/{target_storage.bucket}/{key}")[0]

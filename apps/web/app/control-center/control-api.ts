@@ -32,10 +32,13 @@ export type PlatformSystem = {
   readiness?: { status: string; measured_at: string };
   workers?: {
     process_health: string;
+    execution_scope?: Record<string, string>;
     queues: Record<string, Record<string, number>> | null;
   };
   operational_failures?: Record<string, Record<string, number>>;
   alert_delivery?: string;
+  synthetic_alert_delivery?: string;
+  operator_ownership?: string;
   ai_executor: { status: string; description: string };
   writing_proposal_executor?: {
     status: "CONFIGURED" | "UNCONFIGURED" | "TEST_ONLY";

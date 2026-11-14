@@ -47,6 +47,8 @@ from ops_recovery import (
     verify_restored_standards,
 )
 from recovery import assert_private, seed
+from synthetic_alerts import receiver, security_checks
+from v1_incidents import exercise_incidents
 
 PREVIOUS = "00e29905d60c0f0bae3173992c71428fc8b89303"
 ACTIVE = "BERLIN_LID_SYNTHETIC"
@@ -142,6 +144,8 @@ def package_files(rig, decoder, scratch, web_env):
         "services/api/pyproject.toml",
         "services/ai/pyproject.toml",
         "scripts/storage-readiness/v1_release.py",
+        "scripts/storage-readiness/v1_incidents.py",
+        "scripts/storage-readiness/synthetic_alerts.py",
     )
     checksums = {path: sha((ROOT / path).read_bytes()) for path in paths}
     clean_source = scratch / "package-source"
@@ -658,6 +662,7 @@ def stop_and_restore(
     creator,
     scratch,
     remove_canary,
+    alerts,
 ):
     candidate, staff, outsider = actors
     revocation = {
@@ -767,6 +772,7 @@ def stop_and_restore(
         extra_tables=TABLES + JOBS,
         allow_empty=JOBS[1:],
         shared_disposable_server=True,
+        alerts=alerts,
     )
     verify_restored_standards(target_db, target_storage, sources, creator)
     prior = scratch / "previous"
@@ -888,7 +894,7 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
     assert database.migrate() == head
     storage = Storage(rig, "release-source", published_port=port())
     provenance(rig, storage, out, local)
-    _, redis_url, redis_ready = launch_redis(rig)
+    redis, redis_url, redis_ready = launch_redis(rig)
     assert redis_ready()
     password = "E06a!Synthetic-" + secrets.token_hex(15)
     secret = secrets.token_hex(32)
@@ -937,7 +943,11 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
         source=runtime,
     )
     env["PYTHONPATH"] = str(runtime / "services/api")
-    api, api_url = launch_api(rig, env, listener=api_port, source=runtime)
+    private_log = stack.enter_context(tempfile.TemporaryFile())  # noqa: SIM115 - owned by ExitStack
+    api, api_url = launch_api(
+        rig, env, listener=api_port, source=runtime, log=private_log
+    )
+    alerts = stack.enter_context(receiver(source["commit"]))
     web, web_url = start_web(stack, web_env, web_port)
     probes = preflight(
         env,
@@ -972,23 +982,23 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
             "E06A synthetic Berlin scoring, explicit release and tenant denial passed",
             flush=True,
         )
-        # Induce a bounded failure on the owned source database and verify recovery.
-        rig.owned("container", database.container)
-        rig.docker("stop", "--time", "3", database.container)
-        try:
-            with httpx.Client(base_url=api_url, timeout=5, trust_env=False) as direct:
-                call(direct, "GET", "/health")
-                call(direct, "GET", "/ready", 503)
-            call(client, "GET", paths["private"], 503, headers=actors[0])
-        finally:
-            rig.docker("start", database.container)
-            eventually(
-                lambda: (
-                    httpx.get(
-                        api_url + "/ready", timeout=5, trust_env=False
-                    ).status_code
-                    == 200
-                )
+        with httpx.Client(base_url=api_url, timeout=5, trust_env=False) as direct:
+            incident_proof = exercise_incidents(
+                rig,
+                database,
+                storage,
+                redis,
+                redis_ready,
+                env,
+                direct,
+                client,
+                actors,
+                paths,
+                alerts,
+                password=password,
+                org=org,
+                assets=assets,
+                job_tables=JOBS,
             )
         # Close the active service before switching profiles and acquiring the coordinated archive.
         # Revocation is recorded first through the governed active API.
@@ -1014,11 +1024,30 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
             creator,
             scratch,
             remove_canary,
+            alerts,
         )
+    sentinels = incident_proof.pop("synthetic_sentinels")
+    security = security_checks(
+        source["commit"], (secrets.token_hex(24), secrets.token_hex(24))
+    )
+    private_log.seek(0)
+    observed = private_log.read(1024 * 1024 + 1)
+    assert len(observed) <= 1024 * 1024
+    assert all(s.encode() not in observed for s in sentinels)
+    assert b'"operation":"postgresql.readiness"' in observed
+    assert b'"operation":"provider.execution"' in observed
+    assert all(s not in json.dumps(alerts.evidence) for s in sentinels)
+    incident_proof.update(
+        events=alerts.evidence,
+        security_checks=security,
+        sensitive_payload_exclusion="PASS",
+        production_alert_delivery="NOT_CONFIGURED",
+        operator_ownership="NOT_APPROVED",
+    )
     end(web)
     end(ai)
     assert web.returncode in (0, -15) and ai.returncode in (0, -15)
-    return build, probes, recovery, head
+    return build, probes, recovery, head, incident_proof
 
 
 def extract_tree(source, revision, target, *paths):
@@ -1139,7 +1168,7 @@ def main():
             stack, json.loads(run("docker", "image", "inspect", storage_image))[0]["Id"]
         )
         decoder = rig.inspect("image", decoder_image)["Id"]
-        build, probes, recovery, head = exercise(
+        build, probes, recovery, head, incidents = exercise(
             stack, rig, decoder, scratch, out, local, source
         )
     build["checkout_clean_at_start"] = clean
@@ -1158,6 +1187,7 @@ def main():
         "assessment_replay_no_duplicates": "PASS",
         "guarded_storage_provenance": rig.evidence["provenance"],
         "reconciliation": recovery,
+        "operational_incidents": incidents,
     }
     record = manifest(source, build, head, proof)
     packed = canonical(record)

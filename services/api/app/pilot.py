@@ -16,6 +16,7 @@ from app.config import Settings, get_settings
 from app.evaluation.disposable import assert_disposable_database
 from app.models import CandidateExamAttempt, ExamVersion, LidPracticeForm, StandardPackVersion
 from app.models.enums import AssessmentClassification
+from app.operations.telemetry import Failure, Signal, record
 
 PilotProfile = Literal["DISABLED", "BERLIN_LID_LOCKED", "BERLIN_LID_SYNTHETIC"]
 DENIED = "PILOT_SCOPE_DENIED"
@@ -206,8 +207,22 @@ _ALLOWED = {
 }
 
 
+_EXECUTION_ROUTES = {
+    _ORGANISATION + "/candidate-media/{asset_id}/transcriptions",
+    _ORGANISATION + "/writing-executions",
+    # FastAPI also exposes the inner template for the nested Speaking router.
+    _ORGANISATION + "/speaking-executions",
+    "/{organisation_id}/speaking-executions",
+}
+_PROVIDER_RUN = "/api/v1/platform/ai/workflow-versions/{version_id}/run"
+
+
 async def enforce_route(request: Request) -> None:
-    if active() and getattr(request.scope.get("route"), "path", None) not in _ALLOWED.get(
-        request.method, ()
-    ):
+    route = getattr(request.scope.get("route"), "path", None)
+    if active() and route not in _ALLOWED.get(request.method, ()):
+        if request.method == "POST":
+            if route in _EXECUTION_ROUTES:
+                record(Signal.WORKER_ACTIVATION, Failure.POLICY_DENIED)
+            elif route == _PROVIDER_RUN:
+                record(Signal.PROVIDER_EXECUTION, Failure.POLICY_DENIED)
         raise HTTPException(status_code=403, detail=DENIED, headers={"Cache-Control": "no-store"})

@@ -251,5 +251,10 @@ def measure_storage(settings: Settings) -> StorageCapability:
         StorageCapability("UNAVAILABLE", "NOT_VERIFIED", "NOT_VERIFIED", Failure.TIMEOUT),
     )
     if result.failure_category is not None:
-        record(Signal.STORAGE, result.failure_category)
+        signal = Signal.STORAGE
+        if result.failure_category is Failure.INTEGRITY_MISMATCH:
+            signal = Signal.STORAGE_INTEGRITY
+        elif result.failure_category is Failure.UNAVAILABLE:
+            signal = Signal.STORAGE_PRIVATE if result.guard == "REACHABLE" else Signal.STORAGE_GUARD
+        record(signal, result.failure_category)
     return result

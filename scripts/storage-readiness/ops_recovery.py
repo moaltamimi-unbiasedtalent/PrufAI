@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +31,8 @@ from app.runtime.service import CandidateRuntimeService
 from app.scoring.service import ScoringService
 from app.scripts.seed_demo import GOLDEN_CANDIDATE_EMAIL, reconcile_demo
 from app.services.knowledge import KnowledgeRegistryService
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from encrypted_backup import BackupRejected, seal, verify
 from network import request
 from psycopg import sql
 from recovery import PERMISSIONS, assert_private, engine_for, inventory, sha
@@ -301,46 +303,63 @@ def recover(
         source_db, extra_tables=extra_tables, allow_empty=allow_empty
     )
     source_objects = objects(source_db, source_storage, audio_count=audio_count)
+    dump = source_db.dump()
+    key = AESGCM.generate_key(bit_length=256)
     with tempfile.TemporaryDirectory(prefix="prufai-o2a-archive-") as folder:
         path = Path(folder)
-        dump = source_db.dump()
-        assert dump.startswith(b"PGDMP")
-        (path / "database.dump").write_bytes(dump)
-        manifest = {}
-        for index, (key, (data, mime, metadata)) in enumerate(
-            sorted(source_objects.items())
-        ):
-            name = f"object-{index}"
-            (path / name).write_bytes(data)
-            manifest[key] = {
-                "name": name,
-                "sha256": sha(data),
-                "bytes": len(data),
-                "type": mime,
-                "metadata": metadata,
-            }
-        archive_manifest = json.dumps(
-            {"database_sha256": sha(dump), "objects": manifest}, sort_keys=True
-        ).encode()
-        (path / "manifest.json").write_bytes(archive_manifest)
+        archive = path / "backup.enc"
+        with os.fdopen(
+            os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
+        ) as file:
+            file.write(seal(dump, source_objects, head, key))
         assert path.stat().st_mode & 0o777 == 0o700
-        assert all(file.stat().st_mode & 0o777 == 0o600 for file in path.iterdir())
-        read_manifest = (path / "manifest.json").read_bytes()
-        assert sha(read_manifest) == sha(archive_manifest)
-        indexed = json.loads(read_manifest)
-        database_dump = (path / "database.dump").read_bytes()
-        assert sha(database_dump) == indexed["database_sha256"]
+        assert archive.stat().st_mode & 0o777 == 0o600
+        envelope = archive.read_bytes()
+        negative_cases = {
+            "wrong_key": (
+                envelope,
+                AESGCM.generate_key(bit_length=256),
+                head,
+                "authentication failed",
+            ),
+            "tampered_ciphertext": (
+                envelope[:-1] + bytes([envelope[-1] ^ 1]),
+                key,
+                head,
+                "authentication failed",
+            ),
+            "truncated_archive": (envelope[:-16], key, head, "authentication failed"),
+            "wrong_migration_head": (
+                envelope,
+                key,
+                "different-synthetic-revision",
+                "head mismatch",
+            ),
+        }
+        for case, (
+            candidate,
+            candidate_key,
+            expected_head,
+            reason,
+        ) in negative_cases.items():
+            try:
+                verify(candidate, candidate_key, expected_head)
+            except BackupRejected as error:
+                assert str(error).endswith(reason), case
+                continue
+            raise AssertionError(f"Rejected backup case was accepted: {case}")
+        restored = verify(envelope, key, head)
+
         assert inventory(target_storage) == set()
-        target_db.restore(database_dump)
-        for key, row in indexed["objects"].items():
-            payload = (path / row["name"]).read_bytes()
-            assert len(payload) == row["bytes"] and sha(payload) == row["sha256"]
-            target_storage.operator().put_object(
+        target_db.restore(restored.dump)
+        client = target_storage.operator()
+        for object_key, (payload, mime, metadata) in restored.objects.items():
+            client.put_object(
                 Bucket=target_storage.bucket,
-                Key=key,
+                Key=object_key,
                 Body=payload,
-                ContentType=row["type"],
-                Metadata=row["metadata"],
+                ContentType=mime,
+                Metadata=metadata,
             )
     assert (
         target_db.sql("select version_num from alembic_version").decode().strip()
@@ -378,7 +397,12 @@ def recover(
     )
     return {
         "database_archive_sha256": sha(dump),
-        "manifest_sha256": sha(archive_manifest),
+        "manifest_sha256": restored.manifest_sha256,
+        "encrypted_archive_sha256": sha(envelope),
+        "backup_encryption": "AES-256-GCM",
+        "backup_pre_restore_checks": {
+            case: "REJECTED_BEFORE_RESTORE" for case in negative_cases
+        },
         "tables": db_snapshot,
         "objects": len(source_objects),
         "privacy_immutability_and_release_lineage": "PASS",
@@ -389,7 +413,7 @@ def recover(
         "orphaned_objects": 0,
         "checksum_mismatches": 0,
         "metadata_mismatches": 0,
-        "backup_scope": "plaintext synthetic archive; private temporary files removed after restore",
+        "backup_scope": "disposable AES-256-GCM archive; ephemeral key; no plaintext archive written",
     }
 
 

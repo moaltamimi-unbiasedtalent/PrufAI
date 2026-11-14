@@ -16,7 +16,7 @@ from app.authorization import AuthorizationError, TenantContext
 from app.authorization.membership import require_active_tenant_permission
 from app.config import get_settings
 from app.db import get_db_session
-from app.knowledge.storage import StorageError, build_object_storage
+from app.knowledge.storage import StorageError, StorageIntegrityError, build_object_storage
 from app.models import (
     CandidateAudioRecordingSession,
     CandidateExamAttempt,
@@ -26,6 +26,7 @@ from app.models import (
     CandidateResponseRevision,
 )
 from app.models.enums import CandidateAttemptStatus, CandidateMediaStatus
+from app.operations.telemetry import Failure, Signal, record
 from app.speaking_audio.service import AudioConflict, SpeakingAudioService
 
 candidate_audio_router = APIRouter()
@@ -45,6 +46,10 @@ def audio_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, AudioConflict):
         return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, StorageIntegrityError):
+        record(Signal.STORAGE_INTEGRITY, Failure.INTEGRITY_MISMATCH)
+    elif isinstance(exc, StorageError):
+        record(Signal.STORAGE_PRIVATE, Failure.UNAVAILABLE)
     if isinstance(exc, (StorageError, SQLAlchemyError)):
         return HTTPException(
             status_code=503, detail="private audio storage or upload recovery is unavailable"

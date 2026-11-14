@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import pilot
 from app.authorization import AuthorizationError, TenantContext
 from app.config import Settings, get_settings
 from app.control_center.repository import OVERVIEW_MODELS, ControlCenterRepository
@@ -791,9 +792,18 @@ class ControlCenterService:
                 "status": "HEALTHY" if readiness.ready else "UNAVAILABLE",
                 "measured_at": readiness.measured_at,
             },
-            "workers": {"process_health": "NOT_VERIFIED", "queues": queues},
+            "workers": {
+                "process_health": "NOT_VERIFIED",
+                "queues": queues,
+                "execution_scope": {
+                    key: "EXCLUDED" if pilot.active(settings) else "NOT_RESTRICTED_BY_V1"
+                    for key in ("transcription", "writing", "speaking", "external_providers")
+                },
+            },
             "operational_failures": counters(),
             "alert_delivery": "NOT_CONFIGURED",
+            "synthetic_alert_delivery": "NOT_MEASURED_IN_THIS_PROCESS",
+            "operator_ownership": "NOT_APPROVED",
             "ai_executor": {
                 "status": "UNCONFIGURED",
                 "description": "Workflow records and checkpoints are implemented. No live executor "

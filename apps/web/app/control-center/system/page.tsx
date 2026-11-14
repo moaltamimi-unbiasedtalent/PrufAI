@@ -110,6 +110,15 @@ export default function SystemPage() {
               </dd>
               <dt>Alert delivery</dt>
               <dd>{system.alert_delivery ?? "NOT_VERIFIED"}</dd>
+              <dt>Synthetic alert delivery</dt>
+              <dd>
+                {system.synthetic_alert_delivery ===
+                "NOT_MEASURED_IN_THIS_PROCESS"
+                  ? "See the isolated rehearsal report for test-only delivery and acknowledgement"
+                  : "NOT_VERIFIED"}
+              </dd>
+              <dt>On-call ownership</dt>
+              <dd>{system.operator_ownership ?? "NOT_VERIFIED"}</dd>
               <dt>AI executor</dt>
               <dd>
                 {system.ai_executor.status} — {system.ai_executor.description}
@@ -148,6 +157,13 @@ export default function SystemPage() {
               Worker process health:{" "}
               {system.workers?.process_health ?? "NOT_VERIFIED"}
             </p>
+            {Object.entries(system.workers?.execution_scope ?? {}).map(
+              ([name, scope]) => (
+                <p key={name}>
+                  {name}: {scope}
+                </p>
+              ),
+            )}
             {system.workers?.queues ? (
               Object.entries(system.workers.queues).map(([name, counts]) => (
                 <section key={name}>

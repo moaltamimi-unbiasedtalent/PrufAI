@@ -113,3 +113,5 @@ profile and verifies unchanged persisted jobs.
 
 [O2A recovery commands](../../operations/deployment-reliability-o2a.md) ·
 [O2B.1 readiness and signals](../../operations/dependency-readiness-o2b1.md)
+
+[V1 incident rehearsal and test-only alerts](../../operations/v1-incident-rehearsal.md)

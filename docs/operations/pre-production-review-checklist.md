@@ -4,12 +4,15 @@ Development and synthetic acceptance can continue while these reviews are open.
 An item closes when its authorized decision or environment-specific evidence is
 recorded. Keep the evidence link, exact revision or environment, accountable
 reviewer, actual decision date, findings and any corrective action on the item.
-This register records deferral of the PR #56 review to pre-production. The
-historical GitHub review record stays intact.
+Preserve the historical GitHub review records. PR #60 has an earlier
+checkpoint: E03A stays blocked until its independent review and formal P2
+closure are recorded, even if the other launch reviews are still open.
 
 | Item | Current evidence | What closes it |
 | --- | --- | --- |
 | PR #56 merge-control exception | Open. Independent pre-merge review was not verified. The technical baseline on `cdde88020aef060362c3300b057d3dcd9b0967f0` passed. [PR #56](https://github.com/moaltamimi-unbiasedtalent/PrufAI/pull/56) | A named authorized reviewer independent of the change and merge reviews the exact diff at `3c103890568f19c5d51f2611925b2fefc9363002` and records their actual date, findings, disposition and required actions. Retain the appointment and decision references. |
+| PR #60 independent security review | **OPEN.** The credential-log remediation has technical evidence. Its independent disposition is missing. [Pinned reviewer handoff](../security/pr60-p2-review-handoff.md) | A qualified reviewer independent of the PR's authorship, implementation and merge records an authenticated decision on head `a038a8ba060156daa3ff15c57167b345ed34f21a`, with authority, actual review date, evidence, findings, residual risks and any corrective actions. |
+| PR #60 formal P2 closure | **OPEN.** E03A is blocked. PR #59's historical review exception has its own disposition. [Exception ledger](../security/review-exception-ledger.md) | After independent **ACCEPTED** disposition, the authorized security owner records formal P2 closure and links the decision and evidence. If changes are required or the remediation is rejected, retain the open finding and track corrective work. |
 | S5B-RO.2 and Berlin editorial governance | Open. Synthetic LiD evidence does not authorize editorial onboarding or publication. [LiD practice foundation](../lid-practice-foundation.md) | Designate independent recovery authority, complete the authorized trust-root rehearsal and separately obtain source metadata, rights and expert review evidence before governed editorial use. |
 | Berlin LiD internal human UAT and accessibility | Independent sessions and manual accessibility acceptance remain open. [O2A open gates](deployment-reliability-o2a.md#open-deployment-and-pilot-gates) | Record actual internal candidate, institution and Control Centre sessions, keyboard testing and any actual assistive technology results. Review and resolve genuine blockers before production readiness. |
 | Privacy/controller authority and operational retention | Privacy authority, real request handling and production retention/deletion remain open. [Governed privacy cases](../security/data-lifecycle/governed-privacy-cases.md) · [Retention readiness](../security/data-lifecycle/retention-readiness.md) | Assign qualified controller/privacy review, approve a real request channel, and record retention, processor, deletion, hold and recovery decisions with operational evidence. |

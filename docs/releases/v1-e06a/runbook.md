@@ -70,7 +70,9 @@ profile and verifies unchanged persisted jobs.
    snapshots. Leave the database and storage available to the isolated operator.
 3. Stop the owned API before copying authoritative state. Use O2A's
    coordinated `pg_dump -Fc --no-owner --no-privileges` and object manifest.
-   Validate archive and object hashes before
+   The rehearsal encrypts the database dump, object index and current object
+   bytes with AES-256-GCM. It authenticates the complete archive and checks
+   the migration head and the database and object hashes before
    `pg_restore --exit-on-error --no-owner --no-privileges` to an empty,
    distinct database and distinct private MinIO volume. The rehearsal uses
    separate database names on the same disposable PostgreSQL server.
@@ -89,10 +91,12 @@ profile and verifies unchanged persisted jobs.
 5. If reconciliation differs, maintain the lock and preserve the original
    snapshot, manifests and sanitized logs. Refer to the organization's
    authorized platform, security, privacy and assessment owners when
-   appointed. The synthetic archives use owner-only temporary plaintext.
-   Retain only the public counts and checksums. Historical object versions,
-   independent server loss, encryption, a live cutover, and recovery time or
-   point objectives need separate verification.
+   appointed. The disposable encrypted archive is owner-only. A fresh key
+   stays in process memory and the archive is removed at the end. The
+   rehearsal limits the archive to 64 MiB and 64 current objects. Retain
+   only the public counts, rejection statuses and checksums. Durable key
+   recovery, historical object versions, independent server loss, a live
+   cutover, and recovery time or point objectives need separate verification.
 
 ## Candidate release operator checklist
 

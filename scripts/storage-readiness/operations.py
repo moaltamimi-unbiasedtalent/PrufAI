@@ -76,7 +76,7 @@ def port():
         return listener.getsockname()[1]
 
 
-def launch_api(rig, env, *, app_dir="api", listener=None):
+def launch_api(rig, env, *, app_dir="api", listener=None, source=ROOT):
     listener = listener or port()
     process = child(
         rig,
@@ -84,7 +84,7 @@ def launch_api(rig, env, *, app_dir="api", listener=None):
         "uvicorn",
         "app.main:app",
         "--app-dir",
-        str(ROOT / "services" / app_dir),
+        str(source / "services" / app_dir),
         "--host",
         "127.0.0.1",
         "--port",

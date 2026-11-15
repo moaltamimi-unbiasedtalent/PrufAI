@@ -1117,72 +1117,186 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   });
   const revision = (value) =>
     page.getByText(`Saved response revision: ${value}`, { exact: true });
-  const saved = () =>
-    expect(
-      page
-        .getByRole("status")
-        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
-    ).toBeVisible();
+  const saveMessage = (text) =>
+    page.getByRole("status").filter({ hasText: text });
+  const confirmed = "Alle Änderungen sind vom Server bestätigt.";
+  const saving = "Antwort wird gespeichert.";
+  const saved = () => expect(saveMessage(confirmed)).toBeVisible();
+  const wait = { timeout: 10_000 };
   await saved();
-  const path = `**/responses/${first.binding_id}`;
-  let sentId;
-  let retryId;
-  let held;
-  const committed = new Promise((resolve) => {
-    held = resolve;
-  });
+
+  const responsePath = `${root}/responses/${first.binding_id}`;
+  const path = `**${responsePath}`;
+  const answerWrite = (request) =>
+    request.method() === "PUT" &&
+    new URL(request.url()).pathname === responsePath;
+  const matchesOperation = (operation) => (request) =>
+    answerWrite(request) &&
+    request.postDataJSON().client_operation_id ===
+      operation.client_operation_id;
+  const observeWriteResult = (operation) =>
+    page.waitForResponse(
+      (response) => matchesOperation(operation)(response.request()),
+      wait,
+    );
+  const observeWriteFailure = (operation) =>
+    page.waitForEvent("requestfailed", {
+      predicate: matchesOperation(operation),
+      ...wait,
+    });
+
+  let original;
+  let committed;
+  let commitStatus;
   await page.route(path, async (route) => {
-    const operation = route.request().postDataJSON().client_operation_id;
-    if (sentId) {
-      retryId = operation;
-      await route.continue();
-      return;
-    }
-    sentId = operation;
+    original = route.request().postDataJSON();
     const response = await callUpstream(route);
+    committed = await response.json();
+    commitStatus = response.status();
     await route.abort("connectionfailed");
-    held(response.status());
   });
   await tabTo(page, answers.first());
   await page.keyboard.press("Space");
-  expect(await committed).toBe(200);
+  await expect.poll(() => commitStatus, wait).toBe(200);
+  expect(original.expected_revision).toBe(0);
+  expect(committed.revision).toBe(1);
   await expect(retry).toBeEnabled();
-  await expect(
-    page.getByRole("status").filter({ hasText: "Speicherung nicht bestätigt" }),
-  ).toBeVisible();
+  await expect(saveMessage("Speicherung nicht bestätigt")).toBeVisible();
   await expect(revision(0)).toBeVisible();
-  await page.reload();
-  await expect(page).toHaveURL(new RegExp(attempt + "$"));
-  await saved();
-  expect(Boolean(retryId && retryId === sentId)).toBe(true);
-  await expect(revision(1)).toBeVisible();
-  await expect(answers.first()).toBeChecked();
   await page.unroute(path);
 
-  // Drop before commit while navigator still reports online. An explicit retry
-  // must send the same ID with the same revision and then update the UI.
-  let droppedId;
-  let sentAgain;
+  // Observe the first status at reload, even before Playwright can query the page.
+  await page.addInitScript(
+    ({ confirmed, saving }) => {
+      const observer = new MutationObserver(() => {
+        for (const status of document.querySelectorAll('[role="status"]')) {
+          const label = status.textContent.trim();
+          if (label === confirmed || label === saving) {
+            window.firstPracticeSaveStatus = label;
+            observer.disconnect();
+            return;
+          }
+        }
+      });
+      observer.observe(document, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    },
+    { confirmed, saving },
+  );
+
+  let releaseReplay;
+  const replayHeld = new Promise((resolve) => {
+    releaseReplay = resolve;
+  });
   await page.route(path, async (route) => {
-    const operation = route.request().postDataJSON().client_operation_id;
-    if (!droppedId) {
-      droppedId = operation;
+    await replayHeld;
+    await route.continue();
+  });
+  try {
+    // Register both witnesses before reload. Hold the actual PUT until the UI
+    // has shown that outbox recovery is still pending.
+    const replayRequest = page.waitForRequest(matchesOperation(original), wait);
+    const replayResponse = observeWriteResult(original);
+    const pendingProbe = Promise.all([replayRequest, page.reload()]).then(
+      async () => {
+        await expect(saveMessage(saving)).toBeVisible();
+        await expect(saveMessage(confirmed)).toHaveCount(0);
+        await expect(
+          page.getByRole("button", { name: "Submit attempt" }),
+        ).toBeDisabled();
+        expect(await page.evaluate(() => window.firstPracticeSaveStatus)).toBe(
+          saving,
+        );
+        releaseReplay();
+      },
+    );
+    const [request, response] = await Promise.all([
+      replayRequest,
+      replayResponse,
+      pendingProbe,
+    ]);
+    expect(request.postDataJSON()).toEqual(original);
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toEqual(committed);
+  } finally {
+    releaseReplay();
+    await page.unroute(path);
+  }
+  await expect(page).toHaveURL(new RegExp(attempt + "$"));
+  await saved();
+  await expect(revision(1)).toBeVisible();
+  await expect(answers.first()).toBeChecked();
+
+  // The acknowledged operation is removed from the outbox. After the next
+  // reload and completed reconciliation, the answer remains at revision one.
+  let cleanReloadWrites = 0;
+  const recordWrite = (request) => {
+    if (answerWrite(request)) cleanReloadWrites += 1;
+  };
+  page.on("request", recordWrite);
+  try {
+    await page.reload();
+    await saved();
+    expect(await page.evaluate(() => window.firstPracticeSaveStatus)).toBe(
+      saving,
+    );
+    expect(cleanReloadWrites).toBe(0);
+  } finally {
+    page.off("request", recordWrite);
+  }
+  const persisted = await privateRequest(page, "GET", root + "/runtime", {
+    headers: scoped(owner, org),
+  });
+  expect(persisted.status()).toBe(200);
+  expect((await persisted.json()).responses).toEqual([
+    { binding_id: first.binding_id, revision: 1, payload: committed.payload },
+  ]);
+  await expect(revision(1)).toBeVisible();
+  await expect(answers.first()).toBeChecked();
+
+  // Drop the next write and its automatic replay before they reach the server.
+  // A keyboard retry must still send the original operation and revision.
+  let dropped;
+  let forward = false;
+  await page.route(path, async (route) => {
+    if (!forward) {
+      dropped ??= route.request().postDataJSON();
       await route.abort("connectionfailed");
     } else {
-      sentAgain = operation;
       await route.continue();
     }
   });
-  await answers.first().focus();
-  await page.keyboard.press("ArrowDown");
-  await expect(retry).toBeEnabled();
-  await tabTo(page, retry);
-  await page.keyboard.press("Enter");
-  await saved();
-  expect(Boolean(sentAgain && sentAgain === droppedId)).toBe(true);
-  await expect(revision(2)).toBeVisible();
-  await expect(answers.nth(1)).toBeChecked();
-  await page.unroute(path);
+  try {
+    await answers.first().focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(retry).toBeEnabled();
+    expect(dropped.expected_revision).toBe(1);
+    const [failedReplay] = await Promise.all([
+      observeWriteFailure(dropped),
+      page.reload(),
+    ]);
+    expect(failedReplay.postDataJSON()).toEqual(dropped);
+    await expect(saveMessage("Speicherung nicht bestätigt")).toBeVisible();
+    await expect(saveMessage(confirmed)).toHaveCount(0);
+    await expect(revision(1)).toBeVisible();
+    await tabTo(page, retry);
+    forward = true;
+    const [manualResponse] = await Promise.all([
+      observeWriteResult(dropped),
+      page.keyboard.press("Enter"),
+    ]);
+    expect(manualResponse.request().postDataJSON()).toEqual(dropped);
+    expect(manualResponse.status()).toBe(200);
+    expect((await manualResponse.json()).revision).toBe(2);
+    await saved();
+    await expect(revision(2)).toBeVisible();
+    await expect(answers.nth(1)).toBeChecked();
+  } finally {
+    await page.unroute(path);
+  }
 
   // Two tabs hold revision 2. Only the first writer may create revision 3.
   const secondTab = await context.newPage();
@@ -1190,6 +1304,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   const tabAnswers = secondTab.getByRole("radio");
   await expect(tabAnswers.nth(1)).toBeChecked();
   await expect(secondTab.getByText("Saved response revision: 2")).toBeVisible();
+  await expect(tabAnswers.nth(1)).toBeEnabled();
   await page.bringToFront();
   await answers.nth(1).focus();
   await page.keyboard.press("ArrowDown");
@@ -1262,6 +1377,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     page.getByRole("heading", { name: "Question 2 of 33" }),
   ).toBeVisible();
   await expect(page.getByRole("radio").first()).toBeChecked();
+  await saved();
 
   // Withhold the acknowledgement after the real API commits, until the
   // candidate's bounded request times out. The subsequent GET must recover it.

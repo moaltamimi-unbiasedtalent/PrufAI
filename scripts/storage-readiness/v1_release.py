@@ -1189,7 +1189,7 @@ def main():
         "v1-e06a-release-manifest.sha256",
     ):
         (out / filename).unlink(missing_ok=True)
-    with preserve_alert_failure(out), ExitStack() as stack:
+    with ExitStack() as stack, preserve_alert_failure(out):
         scratch = Path(
             stack.enter_context(tempfile.TemporaryDirectory(prefix="prufai-v1-e06a-"))
         )

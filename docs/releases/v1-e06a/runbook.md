@@ -86,8 +86,10 @@ profile and verifies unchanged persisted jobs.
    scoring and revocation through the API to verify the same operation and
    rows. The Web build remains in place during this API rollback. This is an
    application/config rollback with tested restore, with no schema downgrade.
-   New migration compatibility or a full Web binary rollback requires its own
-   rehearsal.
+   The additive V1 worker-exclusion table and its policy row are preserved
+   when the pinned earlier API is exercised. Keep earlier worker binaries
+   stopped and isolated from the restored database. Other schema changes or
+   a full Web binary rollback require their own rehearsal.
 5. If reconciliation differs, maintain the lock and preserve the original
    snapshot, manifests and sanitized logs. Refer to the organization's
    authorized platform, security, privacy and assessment owners when

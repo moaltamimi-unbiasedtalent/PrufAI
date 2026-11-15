@@ -6,10 +6,12 @@ import hmac
 import json
 import re
 import secrets
+import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Lock, Thread
 from uuid import UUID, uuid4
 
@@ -86,6 +88,37 @@ class Alert:
             raise ValueError("timestamp must be UTC")
 
 
+class AlertDeliveryError(RuntimeError):
+    def __init__(self, incident, stage):
+        super().__init__(f"TEST_ONLY alert {stage} failed")
+        self.incident = incident
+        self.stage = stage
+
+
+FAILURE_REPORT = "v1-o04a-alert-failure.json"
+
+
+@contextmanager
+def preserve_alert_failure(out):
+    """Publish the sanitized failed incident even though the rehearsal exits."""
+    try:
+        yield
+    except AlertDeliveryError as failure:
+        report = {
+            "status": "FAIL",
+            "environment": "TEST_ONLY",
+            "stage": failure.stage,
+            "incident": failure.incident,
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=out, delete=False
+        ) as output:
+            json.dump(report, output, sort_keys=True)
+            output.write("\n")
+        Path(output.name).replace(out / FAILURE_REPORT)
+        raise
+
+
 class SyntheticAlerts:
     def __init__(self, revision, server, token, events, lock):
         self.revision = revision
@@ -114,23 +147,14 @@ class SyntheticAlerts:
             try:
                 # Bound the response before parsing it. A 2xx alone is not proof of receipt.
                 with self.client.stream("POST", "/events", json=payload) as response:
-                    body = b""
-                    for segment in response.iter_bytes(chunk_size=MAX_BODY + 1):
-                        body += segment
-                        if len(body) > MAX_BODY:
-                            break
-                    if (
-                        response.status_code == 200
-                        and len(body) <= MAX_BODY
-                        and json.loads(body) == receipt(event, "ALERT_DELIVERED")
-                    ):
+                    if matching_receipt(response, event, "ALERT_DELIVERED"):
                         status, failure = "ALERT_DELIVERED", None
                         break
             except httpx.TimeoutException:
                 failure = "TIMEOUT"
             except httpx.TransportError:
                 failure = "TRANSPORT_UNAVAILABLE"
-            except (ValueError, UnicodeError):
+            except httpx.DecodingError:
                 failure = "INVALID_RECEIPT"
         return {
             "status": status,
@@ -142,30 +166,56 @@ class SyntheticAlerts:
 
     def raise_alert(self, code, category):
         event = Alert.create(code, category, self.revision)
-        delivery = self.send(event)
-        assert delivery["status"] == "ALERT_DELIVERED", delivery
-        response = self.client.post(f"/events/{event.correlation}/ack")
-        assert response.status_code == 200
-        assert response.json() == receipt(event, "ALERT_ACKNOWLEDGED")
-        row = {
-            "status": "ALERT_CREATED",
-            "event": asdict(event),
-            "delivery": delivery,
-            "acknowledgement": {
-                "status": "ALERT_ACKNOWLEDGED",
-                "scope": "TEST_ONLY",
-                "observed_at": now(),
-            },
-        }
+        row = {"status": "ALERT_CREATED", "event": asdict(event)}
         self.evidence.append(row)
+        delivery = self.send(event)
+        row["delivery"] = delivery
+        if delivery["status"] != "ALERT_DELIVERED":
+            raise AlertDeliveryError(row, "delivery")
+        try:
+            with self.client.stream(
+                "POST", f"/events/{event.correlation}/ack"
+            ) as response:
+                verified = matching_receipt(response, event, "ALERT_ACKNOWLEDGED")
+        except httpx.TimeoutException:
+            category = "TIMEOUT"
+        except httpx.TransportError:
+            category = "TRANSPORT_UNAVAILABLE"
+        except httpx.DecodingError:
+            category = "INVALID_RECEIPT"
+        else:
+            category = None if verified else "INVALID_RECEIPT"
+        row["acknowledgement"] = {
+            "status": "ALERT_ACKNOWLEDGED" if category is None else "FAILED",
+            "failure_category": category,
+            "scope": "TEST_ONLY",
+            "observed_at": now(),
+        }
+        if category is not None:
+            raise AlertDeliveryError(row, "acknowledgement")
         return event, row
 
     def resolve(self, active):
         event, row = active
         resolution = replace(event, observed_at=now(), recovery_status="RESOLVED")
         delivery = self.send(resolution)
-        assert delivery["status"] == "ALERT_DELIVERED", delivery
         row["recovery"] = {"event": asdict(resolution), "delivery": delivery}
+        if delivery["status"] != "ALERT_DELIVERED":
+            raise AlertDeliveryError(row, "recovery")
+
+
+def matching_receipt(response, event, status):
+    if response.status_code != 200:
+        return False
+    body = bytearray()
+    for segment in response.iter_bytes(chunk_size=MAX_BODY + 1):
+        body.extend(segment)
+        if len(body) > MAX_BODY:
+            return False
+    try:
+        return json.loads(body) == receipt(event, status)
+    except (ValueError, RecursionError):
+        return False
 
 
 def receipt(event, status):
@@ -266,7 +316,7 @@ def receiver(revision):
             thread.join(timeout=2)
 
 
-def security_checks(revision, sentinels):
+def security_checks(revision, sentinels, scratch):
     import socket
     import time
 
@@ -376,12 +426,38 @@ def security_checks(revision, sentinels):
             pass
         else:
             raise AssertionError("synthetic receiver remained available after cleanup")
+    # Take down the receiver on the normal incident path and read what the
+    # failed-run artifact uploader would retain. Never send an ACK on failure.
+    with receiver(revision) as disabled:
+        disabled.server.shutdown()
+        try:
+            with preserve_alert_failure(scratch):
+                disabled.raise_alert("postgresql.readiness", "UNAVAILABLE")
+        except AlertDeliveryError:
+            saved = (scratch / FAILURE_REPORT).read_text()
+            proof = json.loads(saved)
+            assert proof["status"] == "FAIL" and proof["environment"] == "TEST_ONLY"
+            assert (
+                proof["stage"] == "delivery"
+                and proof["incident"] == disabled.evidence[0]
+            )
+            assert proof["incident"]["event"]["revision"] == revision
+            attempts = proof["incident"]["delivery"]
+            assert attempts["status"] == "FAILED" and attempts["attempts"] == ATTEMPTS
+            assert len(attempts["attempt_log"]) == ATTEMPTS
+            assert "acknowledgement" not in proof["incident"]
+            assert all(value not in saved for value in (*sentinels, disabled.token))
+        else:
+            raise AssertionError(
+                "calling the rehearsal incorrectly accepted failed delivery"
+            )
     return {
         "duplicated_receipt_idempotent": True,
         "unauthorized_delivery_and_ack": "DENIED",
         "invalid_payload_and_malformed_correlation": "DENIED",
         "stale_delivery": "DENIED",
         "receiver_cleanup": "PASS",
+        "failed_incident_artifact": "PASS",
         "transport_failures": {
             key: row[key] for key in ("timeout", "invalid", "connection")
         },

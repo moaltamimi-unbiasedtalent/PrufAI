@@ -85,7 +85,7 @@ export default function SystemPage() {
               </dd>
               <dt>Object storage backend</dt>
               <dd>{system.object_storage.backend}</dd>
-              <dt>Object storage health</dt>
+              <dt>Private object storage capability</dt>
               <dd>
                 {[
                   system.object_storage.health,
@@ -94,8 +94,14 @@ export default function SystemPage() {
                   .filter(Boolean)
                   .join(" — ")}
               </dd>
-              <dt>Storage guard</dt>
-              <dd>{system.object_storage.guard ?? "NOT_VERIFIED"}</dd>
+              <dt>Storage endpoint reachability</dt>
+              <dd>{system.object_storage.endpoint ?? "NOT_VERIFIED"}</dd>
+              <dt>Storage guard challenge</dt>
+              <dd>
+                {system.object_storage.guard === "VERIFIED"
+                  ? "VERIFIED"
+                  : "NOT_VERIFIED"}
+              </dd>
               <dt>Private synthetic object</dt>
               <dd>{system.object_storage.canary ?? "NOT_VERIFIED"}</dd>
               <dt>Storage provider approval</dt>

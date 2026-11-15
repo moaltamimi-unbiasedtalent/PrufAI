@@ -69,6 +69,7 @@ def exercise_incidents(
         ("transcription", "writing", "speaking", "external_providers"), "EXCLUDED"
     )
     assert state["object_storage"]["canary"] == "VERIFIED"
+    assert state["object_storage"]["guard"] == "VERIFIED"
 
     # Reuse the same bounded dependency probes without relying on a failed DB for authentication.
     probes = Settings(
@@ -109,13 +110,15 @@ def exercise_incidents(
     try:
         call(direct, "GET", "/ready")
         guard = ensure()["object_storage"]
-        assert guard["guard"] == "UNAVAILABLE" and guard["health"] == "UNAVAILABLE"
+        assert guard["guard"] == "NOT_VERIFIED"
+        assert guard["endpoint"] == "UNAVAILABLE" and guard["health"] == "UNAVAILABLE"
         guard_event = alerts.raise_alert("storage.guard", guard["failure_category"])
     finally:
         rig.docker("start", storage.container)
         storage.wait()
     assert_guarded(rig, storage)
-    assert ensure()["object_storage"]["canary"] == "VERIFIED"
+    recovered = ensure()["object_storage"]
+    assert recovered["canary"] == recovered["guard"] == "VERIFIED"
     alerts.resolve(guard_event)
 
     s3 = storage.operator()
@@ -141,7 +144,9 @@ def exercise_incidents(
         version = inject()["VersionId"]
         try:
             observed = ensure()["object_storage"]
-            assert observed["guard"] == "REACHABLE"
+            assert (
+                observed["guard"] == "VERIFIED" and observed["endpoint"] == "REACHABLE"
+            )
             assert observed["failure_category"] == expected, observed
             incident = alerts.raise_alert(code, observed["failure_category"])
         finally:

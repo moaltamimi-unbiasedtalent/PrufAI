@@ -1247,3 +1247,15 @@ def test_invalid_or_missing_exact_profile_approval_records_never_authorize_a_new
     with execution.factory() as session:
         assert session.scalar(select(func.count()).select_from(SpeechTranscriptionJob)) == 0
     assert execution.versions() == []
+
+
+def test_pilot_database_fences_mismatched_worker(execution):
+    from tests.integration_support.worker_exclusion import assert_pilot_database_excludes_worker
+
+    p = execution
+    assert_pilot_database_excludes_worker(
+        p,
+        "speech_transcription",
+        p.job(p.request(p.submitted())),
+        expire=lambda job: p.due(job, expired_lease=True),
+    )

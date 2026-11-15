@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
+from alembic.script import ScriptDirectory
 from app.config import Settings
 from app.models import CandidateExamAssignment
 from app.operations.readiness import (
@@ -47,7 +48,12 @@ from ops_recovery import (
     verify_restored_standards,
 )
 from recovery import assert_private, seed
-from synthetic_alerts import receiver, security_checks
+from synthetic_alerts import (
+    FAILURE_REPORT,
+    preserve_alert_failure,
+    receiver,
+    security_checks,
+)
 from v1_incidents import exercise_incidents
 
 PREVIOUS = "00e29905d60c0f0bae3173992c71428fc8b89303"
@@ -58,7 +64,12 @@ PROFILES = ("SYNTHETIC_TEST", "STAGING_PROPOSED", "REAL_PILOT")
 CANDIDATE = "/api/v1/candidate"
 CANDIDATE_EMAIL = "candidate@demo.prufai.local"
 ADMIN = "admin@demo.prufai.local"
-TABLES = ("candidate_exam_assignments", "lid_practice_forms", "statements_of_results")
+TABLES = (
+    "candidate_exam_assignments",
+    "lid_practice_forms",
+    "statements_of_results",
+    "v1_worker_policy",
+)
 JOBS = (
     "speech_transcription_jobs",
     "writing_execution_jobs",
@@ -308,7 +319,8 @@ def preflight(
         "redis": status(readiness.redis.status == "HEALTHY"),
         "migration": status(revisions == [expected_head]),
         "storage": status(
-            capability.health == "HEALTHY" and capability.canary == "VERIFIED"
+            capability.health == "HEALTHY"
+            and capability.canary == capability.guard == "VERIFIED"
         ),
         "private_storage": "PASS",
         "worker_configuration": status(
@@ -777,7 +789,7 @@ def stop_and_restore(
     verify_restored_standards(target_db, target_storage, sources, creator)
     prior = scratch / "previous"
     extract_tree(ROOT, PREVIOUS, prior, "services/api")
-    assert migration_head(prior) == head
+    assert_rollback_schema(head, migration_head(prior))
     restored_env = {
         **runtime_env(target_db, target_storage, redis_url, decoder, secret),
         "PYTHONPATH": str(prior / "services/api"),
@@ -862,6 +874,18 @@ def migration_head(source):
     return revision
 
 
+def assert_rollback_schema(head, previous_head):
+    # The pinned earlier API can run on this additive schema. Worker rollback
+    # is outside this exercise, and the migrated database is never downgraded.
+    if head == previous_head:
+        return
+    scripts = ScriptDirectory(str(ROOT / "services/api/alembic"))
+    revision = scripts.get_revision(head)
+    assert (
+        head == "0044_v1_worker_exclusion" and revision.down_revision == previous_head
+    )
+
+
 def runtime_env(database, storage, redis_url, decoder, secret):
     # The disposable database guard requires both Actions markers in its
     # Linux branch. Pass those markers through the restricted child env.
@@ -882,9 +906,7 @@ def runtime_env(database, storage, redis_url, decoder, secret):
 
 def exercise(stack, rig, decoder, scratch, out, local, source):
     head = migration_head(ROOT)
-    assert head == migration_head_for_revision(PREVIOUS), (
-        "prior Alembic history is incompatible"
-    )
+    assert_rollback_schema(head, migration_head_for_revision(PREVIOUS))
     database = Database(
         rig,
         "release-source",
@@ -1028,7 +1050,7 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
         )
     sentinels = incident_proof.pop("synthetic_sentinels")
     security = security_checks(
-        source["commit"], (secrets.token_hex(24), secrets.token_hex(24))
+        source["commit"], (secrets.token_hex(24), secrets.token_hex(24)), scratch
     )
     private_log.seek(0)
     observed = private_log.read(1024 * 1024 + 1)
@@ -1160,7 +1182,14 @@ def main():
         or json.loads((out / "decoder.identity.json").read_text())["image_id"]
     )
     source = source_identity()
-    with ExitStack() as stack:
+    for filename in (
+        FAILURE_REPORT,
+        "v1-e06a-rehearsal.json",
+        "v1-e06a-release-manifest.json",
+        "v1-e06a-release-manifest.sha256",
+    ):
+        (out / filename).unlink(missing_ok=True)
+    with preserve_alert_failure(out), ExitStack() as stack:
         scratch = Path(
             stack.enter_context(tempfile.TemporaryDirectory(prefix="prufai-v1-e06a-"))
         )

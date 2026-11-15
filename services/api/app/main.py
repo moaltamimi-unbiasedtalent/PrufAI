@@ -1,4 +1,5 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +8,7 @@ from fastapi.responses import JSONResponse, Response
 from app.ai_orchestration.api import router as ai_orchestration_router
 from app.auth.api import org_router
 from app.auth.api import router as auth_router
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.control_center.api import router as control_center_router
 from app.dependencies import settings_dependency
 from app.evaluation.api import router as evaluation_router
@@ -31,7 +32,7 @@ from app.lid_editorial.review_api import router as lid_editorial_review_router
 from app.memory.api import router as memory_router
 from app.operations.readiness import measure_readiness
 from app.operations.telemetry import API_VERSION
-from app.pilot import enforce_route
+from app.pilot import enforce_route, initialize_worker_exclusion
 from app.privacy.api import router as privacy_router
 from app.question_bank.api import router as question_bank_router
 from app.result_governance.api import candidate_router as candidate_appeal_router
@@ -52,7 +53,19 @@ from app.standard_packs.lid_api import router as lid_standards_router
 from app.writing_assessment.api import writing_router
 from app.writing_execution.api import router as writing_execution_router
 
-app = FastAPI(title="PrüfAI API", version=API_VERSION, dependencies=[Depends(enforce_route)])
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    initialize_worker_exclusion(get_settings())
+    yield
+
+
+app = FastAPI(
+    title="PrüfAI API",
+    version=API_VERSION,
+    dependencies=[Depends(enforce_route)],
+    lifespan=lifespan,
+)
 
 
 @app.middleware("http")

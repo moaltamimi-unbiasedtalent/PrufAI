@@ -23,6 +23,7 @@ export type PlatformSystem = {
   object_storage: {
     backend: string;
     health: string;
+    endpoint?: string;
     guard?: string;
     canary?: string;
     provider_approval?: string;

@@ -15,22 +15,30 @@ The output `v1-e06a-rehearsal.json` records the source revision, timestamps and
 correlations in `operational_incidents`. Match the creation, delivery
 attempts, receiver confirmation, explicit `TEST_ONLY` acknowledgement and
 recovery for each correlation. If delivery, acknowledgement or resolution
-fails, the rehearsal fails and retains the sanitized incident in
-`v1-o04a-alert-failure.json`. The receiver and its credential are
+fails, the rehearsal fails and retains the bounded sanitized history and the
+failing incident in `v1-o04a-alert-failure.json`. The receiver and its credential are
 discarded at the end of the run.
 
 Run the commands below only with the isolated API URL and Docker context the
 runner supplies. Where a command names a container, use the runner-owned
 container and confirm its rehearsal label using `docker inspect` first.
 A failed readiness dependency can prevent authentication to Control Centre.
-System shows endpoint reachability, the guard's read-only challenge and private
-canary results separately. A healthy canary alone leaves the guard unverified.
+System shows endpoint reachability, the read-only health-route challenge, and
+private canary integrity separately. Runtime leaves object-write containment
+unverified. The disposable rehearsal checks the actual bucket write route and
+direct IPv4 and IPv6 backend denial before accepting containment.
 
 Running the API with a Berlin LiD V1 profile reserves its PostgreSQL database
 for the pilot and persists the worker exclusion before serving requests.
 A restart with a different process profile preserves the exclusion. Restore
-the policy with the database. Keep earlier worker binaries away from this
-database because they predate the persisted policy.
+the policy with the database. The rollback exercise removes PostgreSQL's
+PUBLIC CONNECT grant before opening the restored database to connections.
+It retains a separate owner/API credential and proves that the pinned
+legacy workers cannot connect with their ordinary worker credential. The
+transcription positive control uses that same worker credential to claim a
+synthetic job on the stopped source and rolls back before provider work.
+Keep database-owner and superuser credentials out of retired worker
+configuration. Target role grants require their own authorized review.
 
 | Signal | Severity and immediate response | Isolated diagnostic and recovery |
 | --- | --- | --- |

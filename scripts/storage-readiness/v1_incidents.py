@@ -69,7 +69,8 @@ def exercise_incidents(
         ("transcription", "writing", "speaking", "external_providers"), "EXCLUDED"
     )
     assert state["object_storage"]["canary"] == "VERIFIED"
-    assert state["object_storage"]["guard"] == "VERIFIED"
+    assert state["object_storage"]["guard_health_challenge"] == "PASSED"
+    assert state["object_storage"]["object_write_containment"] == "NOT_VERIFIED"
 
     # Reuse the same bounded dependency probes without relying on a failed DB for authentication.
     probes = Settings(
@@ -110,7 +111,7 @@ def exercise_incidents(
     try:
         call(direct, "GET", "/ready")
         guard = ensure()["object_storage"]
-        assert guard["guard"] == "NOT_VERIFIED"
+        assert guard["guard_health_challenge"] == "NOT_VERIFIED"
         assert guard["endpoint"] == "UNAVAILABLE" and guard["health"] == "UNAVAILABLE"
         guard_event = alerts.raise_alert("storage.guard", guard["failure_category"])
     finally:
@@ -118,7 +119,8 @@ def exercise_incidents(
         storage.wait()
     assert_guarded(rig, storage)
     recovered = ensure()["object_storage"]
-    assert recovered["canary"] == recovered["guard"] == "VERIFIED"
+    assert recovered["canary"] == "VERIFIED"
+    assert recovered["guard_health_challenge"] == "PASSED"
     alerts.resolve(guard_event)
 
     s3 = storage.operator()
@@ -145,7 +147,8 @@ def exercise_incidents(
         try:
             observed = ensure()["object_storage"]
             assert (
-                observed["guard"] == "VERIFIED" and observed["endpoint"] == "REACHABLE"
+                observed["guard_health_challenge"] == "PASSED"
+                and observed["endpoint"] == "REACHABLE"
             )
             assert observed["failure_category"] == expected, observed
             incident = alerts.raise_alert(code, observed["failure_category"])
@@ -300,7 +303,7 @@ def assert_guarded(rig, storage):
         request(
             storage.port(),
             "PUT",
-            "/synthetic/unauthorized-write",
+            f"/{storage.bucket}/_operations/unauthorized-write",
             raw_headers=(("x-amz-content-sha256", UNSAFE),),
         )
         == GUARD_DENIAL

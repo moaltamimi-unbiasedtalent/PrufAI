@@ -24,7 +24,8 @@ export type PlatformSystem = {
     backend: string;
     health: string;
     endpoint?: string;
-    guard?: string;
+    guard_health_challenge?: string;
+    object_write_containment?: string;
     canary?: string;
     provider_approval?: string;
     failure_category?: string | null;

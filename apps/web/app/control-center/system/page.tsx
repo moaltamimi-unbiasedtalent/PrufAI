@@ -96,11 +96,14 @@ export default function SystemPage() {
               </dd>
               <dt>Storage endpoint reachability</dt>
               <dd>{system.object_storage.endpoint ?? "NOT_VERIFIED"}</dd>
-              <dt>Storage guard challenge</dt>
+              <dt>Storage guard health-route challenge</dt>
               <dd>
-                {system.object_storage.guard === "VERIFIED"
-                  ? "VERIFIED"
-                  : "NOT_VERIFIED"}
+                {system.object_storage.guard_health_challenge ?? "NOT_VERIFIED"}
+              </dd>
+              <dt>Object write containment</dt>
+              <dd>
+                {system.object_storage.object_write_containment ??
+                  "NOT_VERIFIED"}
               </dd>
               <dt>Private synthetic object</dt>
               <dd>{system.object_storage.canary ?? "NOT_VERIFIED"}</dd>

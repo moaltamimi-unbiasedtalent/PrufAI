@@ -1283,3 +1283,15 @@ def test_generic_ai_run_mutators_cannot_bypass_domain_execution_receipt(writing_
     assert response.status_code == 409
     assert p.job(job.id).status == "RUNNING"
     p.assert_no_handoff(job)
+
+
+def test_pilot_database_fences_mismatched_worker(writing_execution):
+    from tests.integration_support.worker_exclusion import assert_pilot_database_excludes_worker
+
+    p = writing_execution
+    assert_pilot_database_excludes_worker(
+        p,
+        "writing_execution",
+        p.job(p.queue(p.submit())),
+        expire=lambda job: p.due(job, expired=True),
+    )

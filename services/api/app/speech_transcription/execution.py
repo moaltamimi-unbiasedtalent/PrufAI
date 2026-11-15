@@ -271,6 +271,8 @@ class TranscriptionExecutionService:
         audio_sha256: str | None = None,
     ) -> SpeechTranscriptionJob:
         pilot.require_unrestricted(settings)
+        if pilot.worker_excluded(session):
+            raise pilot.PilotDenied(pilot.DENIED)
         from app.speech_transcription.profiles import approved_profile_record
         from app.speech_transcription.runtime import validate_profile_configuration
 
@@ -390,7 +392,7 @@ class TranscriptionExecutionService:
         lease_seconds: int = 90,
         now: datetime | None = None,
     ) -> SpeechTranscriptionJob | None:
-        if pilot.active():
+        if pilot.active() or pilot.worker_excluded(session):
             return None
         timestamp = now or _now()
         if not worker_id or len(worker_id) > 120 or not 1 <= lease_seconds <= 3600:
@@ -767,49 +769,51 @@ class TranscriptionExecutionService:
         settings: Settings,
         provider_factory: ProviderFactory | None = None,
     ) -> SpeechTranscriptionJob | None:
-        pilot.require_unrestricted(settings)
         """Renew a claimed lease independently while private I/O is in flight."""
+        pilot.require_unrestricted(settings)
         with session_factory() as session:
+            if pilot.worker_excluded(session):
+                return None
             job = session.get(SpeechTranscriptionJob, job_id)
             if job is None or job.lease_expires_at is None:
                 return None
             lease_seconds = min(
                 3600, max(1, math.ceil((_utc(job.lease_expires_at) - _now()).total_seconds()))
             )
-        stop = threading.Event()
+            stop = threading.Event()
 
-        def renew() -> None:
-            while not stop.wait(max(0.2, lease_seconds / 3)):
-                try:
-                    with session_factory() as session:
-                        renewed = cls.heartbeat(
-                            session,
-                            job_id=job_id,
-                            claim_token=claim_token,
-                            lease_seconds=lease_seconds,
-                        )
-                        session.commit()
-                    if not renewed:
-                        return
-                except Exception:  # noqa: BLE001
-                    # An outage never extends ownership implicitly. Completion
-                    # still needs the live fencing token and unexpired lease.
-                    continue
+            def renew() -> None:
+                while not stop.wait(max(0.2, lease_seconds / 3)):
+                    try:
+                        with session_factory() as session:
+                            renewed = cls.heartbeat(
+                                session,
+                                job_id=job_id,
+                                claim_token=claim_token,
+                                lease_seconds=lease_seconds,
+                            )
+                            session.commit()
+                        if not renewed:
+                            return
+                    except Exception:  # noqa: BLE001
+                        # An outage never extends ownership implicitly. Completion
+                        # still needs the live fencing token and unexpired lease.
+                        continue
 
-        heartbeat = threading.Thread(target=renew, daemon=True, name="transcription-lease")
-        heartbeat.start()
-        try:
-            return cls._execute_claim(
-                session_factory,
-                job_id=job_id,
-                claim_token=claim_token,
-                storage=storage,
-                settings=settings,
-                provider_factory=provider_factory,
-            )
-        finally:
-            stop.set()
-            heartbeat.join(timeout=1)
+            heartbeat = threading.Thread(target=renew, daemon=True, name="transcription-lease")
+            heartbeat.start()
+            try:
+                return cls._execute_claim(
+                    session_factory,
+                    job_id=job_id,
+                    claim_token=claim_token,
+                    storage=storage,
+                    settings=settings,
+                    provider_factory=provider_factory,
+                )
+            finally:
+                stop.set()
+                heartbeat.join(timeout=1)
 
     @classmethod
     def retry(

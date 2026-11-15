@@ -468,6 +468,8 @@ class SpeakingExecutionService:
         settings: Settings,
     ) -> SpeakingExecutionJob:
         pilot.require_unrestricted(settings)
+        if pilot.worker_excluded(session):
+            raise pilot.PilotDenied(pilot.DENIED)
         from app.speaking_execution.registry import (
             approved_profile_record,
             snapshot_execution_profile,
@@ -675,7 +677,7 @@ class SpeakingExecutionService:
         lease_seconds: int = 90,
         now: datetime | None = None,
     ) -> SpeakingExecutionJob | None:
-        if pilot.active():
+        if pilot.active() or pilot.worker_excluded(session):
             return None
         timestamp = now or globals()["now"]()
         if not worker_id or len(worker_id) > 120 or not 1 <= lease_seconds <= 3600:
@@ -1204,43 +1206,48 @@ class SpeakingExecutionService:
         pilot.require_unrestricted(settings)
         from app.knowledge.storage import build_object_storage
 
-        backend = storage if storage is not None else build_object_storage(settings)
         with session_factory() as session:
+            if pilot.worker_excluded(session):
+                return None
             job = session.get(SpeakingExecutionJob, job_id)
             if job is None or job.lease_expires_at is None:
                 return None
             seconds = max(
                 1, min(3600, math.ceil((utc(job.lease_expires_at) - now()).total_seconds()))
             )
-        stop = threading.Event()
+            backend = storage if storage is not None else build_object_storage(settings)
+            stop = threading.Event()
 
-        def renew() -> None:
-            while not stop.wait(max(0.2, seconds / 3)):
-                try:
-                    with session_factory() as session:
-                        valid = cls.heartbeat(
-                            session, job_id=job_id, claim_token=claim_token, lease_seconds=seconds
-                        )
-                        session.commit()
-                    if not valid:
-                        return
-                except Exception:
-                    pass  # noqa: BLE001
+            def renew() -> None:
+                while not stop.wait(max(0.2, seconds / 3)):
+                    try:
+                        with session_factory() as session:
+                            valid = cls.heartbeat(
+                                session,
+                                job_id=job_id,
+                                claim_token=claim_token,
+                                lease_seconds=seconds,
+                            )
+                            session.commit()
+                        if not valid:
+                            return
+                    except Exception:
+                        pass  # noqa: BLE001
 
-        thread = threading.Thread(target=renew, daemon=True, name="speaking-lease")
-        thread.start()
-        try:
-            return cls._execute_claim(
-                session_factory,
-                job_id=job_id,
-                claim_token=claim_token,
-                settings=settings,
-                provider_factory=provider_factory,
-                storage=backend,
-            )
-        finally:
-            stop.set()
-            thread.join(timeout=1)
+            thread = threading.Thread(target=renew, daemon=True, name="speaking-lease")
+            thread.start()
+            try:
+                return cls._execute_claim(
+                    session_factory,
+                    job_id=job_id,
+                    claim_token=claim_token,
+                    settings=settings,
+                    provider_factory=provider_factory,
+                    storage=backend,
+                )
+            finally:
+                stop.set()
+                thread.join(timeout=1)
 
     @staticmethod
     def can_retry(job: SpeakingExecutionJob) -> bool:

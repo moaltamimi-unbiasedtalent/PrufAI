@@ -1460,3 +1460,15 @@ def test_completed_execution_run_steps_and_ai_criterion_history_cannot_be_rewrit
         session.rollback()
     assert p.job(job.id).status == "COMPLETED"
     assert len(p.outcomes(job)[0]) == len(p.outcomes(job)[1]) == 1
+
+
+def test_pilot_database_fences_mismatched_worker(speaking_execution):
+    from tests.integration_support.worker_exclusion import assert_pilot_database_excludes_worker
+
+    p = speaking_execution
+    assert_pilot_database_excludes_worker(
+        p,
+        "speaking_execution",
+        p.job(p.queue(p.submitted())),
+        expire=lambda job: p.due(job, expired=True),
+    )

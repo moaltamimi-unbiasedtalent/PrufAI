@@ -86,6 +86,7 @@ class Readiness:
 @dataclass(frozen=True)
 class StorageCapability:
     health: str
+    endpoint: str
     guard: str
     canary: str
     failure_category: Failure | None = None
@@ -94,6 +95,7 @@ class StorageCapability:
         return {
             "backend": settings.object_storage_backend,
             "health": self.health,
+            "endpoint": self.endpoint,
             "guard": self.guard,
             "canary": self.canary,
             "provider_approval": "NOT_VERIFIED",
@@ -194,28 +196,47 @@ def _guarded_storage(settings: Settings) -> StorageCapability:
     url = urlsplit(endpoint)
     if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password:
         return StorageCapability(
-            "UNAVAILABLE", "NOT_VERIFIED", "NOT_VERIFIED", Failure.MISCONFIGURED
+            "UNAVAILABLE", "NOT_VERIFIED", "NOT_VERIFIED", "NOT_VERIFIED", Failure.MISCONFIGURED
         )
-    pool = urllib3.PoolManager(timeout=urllib3.Timeout(total=1.5), retries=False)
+    pool = urllib3.PoolManager(timeout=urllib3.Timeout(total=0.75), retries=False)
+    health_url = f"{endpoint.rstrip('/')}/minio/health/ready"
+    guard = "NOT_VERIFIED"
     try:
-        response = pool.request(
-            "HEAD", f"{endpoint.rstrip('/')}/minio/health/ready", redirect=False
-        )
+        response = pool.request("HEAD", health_url, redirect=False)
         if response.status != 200:
             return StorageCapability(
-                "UNAVAILABLE", "RESPONDED", "NOT_VERIFIED", Failure.UNAVAILABLE
+                "UNAVAILABLE", "RESPONDED", guard, "NOT_VERIFIED", Failure.UNAVAILABLE
             )
+        # HEAD cannot upload an object if the configured endpoint bypasses the ingress.
+        try:
+            challenge = pool.request(
+                "HEAD",
+                health_url,
+                headers={"X-Amz-Content-Sha256": "STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
+                redirect=False,
+            )
+            if (
+                challenge.status == 403
+                and challenge.headers.get("X-Prufai-Storage-Guard") == "unsigned-trailer-denied"
+            ):
+                guard = "VERIFIED"
+        except (urllib3.exceptions.HTTPError, OSError, URLError):
+            pass
     except (urllib3.exceptions.HTTPError, OSError, URLError):
-        return StorageCapability("UNAVAILABLE", "UNAVAILABLE", "NOT_VERIFIED", Failure.UNAVAILABLE)
+        return StorageCapability(
+            "UNAVAILABLE", "UNAVAILABLE", guard, "NOT_VERIFIED", Failure.UNAVAILABLE
+        )
     finally:
         pool.clear()
     if not settings.operations_storage_canary_enabled:
-        return StorageCapability("NOT_VERIFIED", "REACHABLE", "STORAGE_CANARY_NOT_CONFIGURED")
+        return StorageCapability(
+            "NOT_VERIFIED", "REACHABLE", guard, "STORAGE_CANARY_NOT_CONFIGURED"
+        )
     try:
         storage = build_object_storage(settings, metadata_probe=True)
         if not isinstance(storage, S3CompatibleObjectStorage):
             return StorageCapability(
-                "UNAVAILABLE", "REACHABLE", "NOT_VERIFIED", Failure.MISCONFIGURED
+                "UNAVAILABLE", "REACHABLE", guard, "NOT_VERIFIED", Failure.MISCONFIGURED
             )
         content = storage.get_bounded(
             CANARY_KEY, expected_size=len(CANARY_BYTES), max_bytes=len(CANARY_BYTES)
@@ -224,11 +245,13 @@ def _guarded_storage(settings: Settings) -> StorageCapability:
             raise StorageIntegrityError("synthetic canary digest mismatch")
     except StorageIntegrityError:
         return StorageCapability(
-            "DEGRADED", "REACHABLE", "INTEGRITY_MISMATCH", Failure.INTEGRITY_MISMATCH
+            "DEGRADED", "REACHABLE", guard, "INTEGRITY_MISMATCH", Failure.INTEGRITY_MISMATCH
         )
     except StorageError:
-        return StorageCapability("UNAVAILABLE", "REACHABLE", "UNAVAILABLE", Failure.UNAVAILABLE)
-    return StorageCapability("HEALTHY", "REACHABLE", "VERIFIED")
+        return StorageCapability(
+            "UNAVAILABLE", "REACHABLE", guard, "UNAVAILABLE", Failure.UNAVAILABLE
+        )
+    return StorageCapability("HEALTHY", "REACHABLE", guard, "VERIFIED")
 
 
 def measure_storage(settings: Settings) -> StorageCapability:
@@ -236,7 +259,9 @@ def measure_storage(settings: Settings) -> StorageCapability:
         settings.object_storage_backend != "s3"
         or not settings.operations_storage_guard_probe_enabled
     ):
-        return StorageCapability("NOT_CONFIGURED", "NOT_VERIFIED", "STORAGE_CANARY_NOT_CONFIGURED")
+        return StorageCapability(
+            "NOT_CONFIGURED", "NOT_VERIFIED", "NOT_VERIFIED", "STORAGE_CANARY_NOT_CONFIGURED"
+        )
     result = storage_probe.run(
         (
             settings.object_storage_endpoint,
@@ -248,13 +273,17 @@ def measure_storage(settings: Settings) -> StorageCapability:
             str(settings.operations_storage_canary_enabled),
         ),
         lambda: _guarded_storage(settings),
-        StorageCapability("UNAVAILABLE", "NOT_VERIFIED", "NOT_VERIFIED", Failure.TIMEOUT),
+        StorageCapability(
+            "UNAVAILABLE", "NOT_VERIFIED", "NOT_VERIFIED", "NOT_VERIFIED", Failure.TIMEOUT
+        ),
     )
     if result.failure_category is not None:
         signal = Signal.STORAGE
         if result.failure_category is Failure.INTEGRITY_MISMATCH:
             signal = Signal.STORAGE_INTEGRITY
         elif result.failure_category is Failure.UNAVAILABLE:
-            signal = Signal.STORAGE_PRIVATE if result.guard == "REACHABLE" else Signal.STORAGE_GUARD
+            signal = (
+                Signal.STORAGE_PRIVATE if result.endpoint == "REACHABLE" else Signal.STORAGE_GUARD
+            )
         record(signal, result.failure_category)
     return result

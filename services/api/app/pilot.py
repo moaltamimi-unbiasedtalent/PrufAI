@@ -7,7 +7,9 @@ import uuid
 from typing import Literal
 
 from fastapi import HTTPException, Request
+from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.authorization import TenantContext
@@ -35,6 +37,44 @@ def active(settings: Settings | None = None) -> bool:
 def require_unrestricted(settings: Settings | None = None) -> None:
     if active(settings):
         raise PilotDenied(DENIED)
+
+
+def initialize_worker_exclusion(settings: Settings) -> None:
+    """Latch the database before a pilot API accepts requests."""
+    if not active(settings):
+        return
+    from app.db import create_db_engine
+
+    engine = create_db_engine(settings)
+    try:
+        if engine.dialect.name != "postgresql":
+            raise RuntimeError("V1 worker exclusion requires PostgreSQL")
+        with engine.begin() as connection:
+            connection.execute(text("SET LOCAL statement_timeout = '3s'"))
+            excluded: bool = connection.execute(
+                text("SELECT excluded FROM public.v1_worker_policy WHERE id = 1")
+            ).scalar_one()
+            if not excluded:
+                # Wait for in-flight claims or executions to finish, or fail startup.
+                # A non-pilot restart does not change this database policy.
+                connection.execute(
+                    text("UPDATE public.v1_worker_policy SET excluded = true WHERE id = 1")
+                )
+    except SQLAlchemyError:
+        raise RuntimeError("V1 worker exclusion could not be established") from None
+    finally:
+        engine.dispose()
+
+
+def worker_excluded(session: Session) -> bool:
+    """Fence a claim or execution for the lifetime of its transaction."""
+    if session.get_bind().dialect.name != "postgresql":
+        return False
+    return bool(
+        session.execute(
+            text("SELECT excluded FROM public.v1_worker_policy WHERE id = 1 FOR SHARE")
+        ).scalar_one()
+    )
 
 
 def require_institution(session: Session, context: TenantContext, permission: str) -> None:

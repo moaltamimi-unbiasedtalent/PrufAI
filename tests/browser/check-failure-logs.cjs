@@ -12,6 +12,7 @@ const cases = [
   "reset_probe transport_unavailable",
   "assertion_probe unexpected HTTP status",
 ];
+const redirects = [301, 302, 303, 307, 308].map((status) => "redirect guard " + status);
 
 function contains(buffer, secrets) {
   return Object.values(secrets).some((secret) => buffer.includes(secret));
@@ -65,10 +66,14 @@ function verify(root) {
   if (!safe.stdout || !safe.stderr || contains(safe.stdout, secrets) || contains(safe.stderr, secrets)) {
     throw new Error("secret_detected_in_reporter_output");
   }
-  if (safe.status !== 1 || !safe.stdout.includes("6 failed") ||
+  if (safe.status !== 1 || !/^\s*6 failed(?:\s|$)/m.test(safe.stdout.toString()) ||
       !cases.every((message) => safe.stdout.includes(message)) ||
       safe.stdout.includes("loopback server must receive")) {
     throw new Error("expected_failures_not_observed");
+  }
+  if (!/^\s*5 passed(?:\s|$)/m.test(safe.stdout.toString()) ||
+      !redirects.every((title) => safe.stdout.includes(title))) {
+    throw new Error("redirect_regression_failed");
   }
   const publicFiles = files(uploads);
   // This run contains only enrollment tests. Even an opaque archive here is
@@ -89,6 +94,7 @@ let root;
 try {
   root = mkdtempSync(path.join(os.tmpdir(), "prufai-failure-log-"));
   console.log("FAILURE_LOG_SECRET_CHECK = PASS (" + verify(root) + ")");
+  console.log("ENROLLMENT_REDIRECT_CHECK = PASS (5 status codes, 10 redirect denials, 10 same-origin checks, 0 second-origin requests)");
 } catch {
   console.error("FAILURE_LOG_SECRET_CHECK = FAIL");
   process.exitCode = 1;

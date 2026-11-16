@@ -7,6 +7,18 @@ test.use({ trace: "off", screenshot: "off", video: "off" });
 
 const secrets = JSON.parse(process.env.PRUFAI_FAILURE_LOG_SENTINELS);
 
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+}
+
+function close(server) {
+  server.closeAllConnections();
+  return new Promise((resolve) => server.close(resolve));
+}
+
 async function withFault(request, kind, run) {
   let observed = false;
   const server = http.createServer((incoming, response) => {
@@ -22,10 +34,7 @@ async function withFault(request, kind, run) {
       response.end(secrets.response);
     });
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  await listen(server);
   try {
     const url = "http://127.0.0.1:" + server.address().port + "/api/v1/auth/password-reset/confirm";
     const options = {
@@ -45,8 +54,7 @@ async function withFault(request, kind, run) {
     }]);
     await run(request.request, url, options);
   } finally {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
+    await close(server);
     expect(Boolean(observed), "loopback server must receive the credential-bearing request").toBe(true);
   }
 }
@@ -86,3 +94,79 @@ test("assertion failure with populated credential fields", async ({ page }) => {
   await fillSecret(page.getByLabel("Private password"), secrets.form);
   expect(401, "assertion_probe unexpected HTTP status").toBe(200);
 });
+
+for (const status of [301, 302, 303, 307, 308]) {
+  test(`redirect guard ${status}`, async ({ context }) => {
+    const me = "/api/v1/auth/me";
+    const reset = "/api/v1/auth/password-reset/confirm";
+    const observed = [];
+    let redirectedRequests = 0;
+    let redirect = true;
+    const rejectionStatus = (path) => (path === me ? 401 : 400);
+    const destination = http.createServer((request, response) => {
+      redirectedRequests += 1;
+      request.resume();
+      response.writeHead(rejectionStatus(request.url)).end();
+    });
+    await listen(destination);
+    const source = http.createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const refresh = request.headers.cookie?.includes("prufai_refresh=" + secrets.refresh);
+        const expectedCredentials = request.url === me
+          ? request.method === "GET" && request.headers.authorization === "Bearer " + secrets.access
+          : request.url === reset && request.method === "POST" &&
+            body.includes(secrets.reset) && body.includes(secrets.password);
+        observed.push(Boolean(refresh && expectedCredentials));
+        if (redirect) {
+          response.writeHead(status, {
+            Location: "http://127.0.0.1:" + destination.address().port + request.url,
+          }).end();
+          return;
+        }
+        response.writeHead(rejectionStatus(request.url)).end();
+      });
+    });
+    try {
+      await listen(source);
+      const origin = "http://127.0.0.1:" + source.address().port;
+      await context.addCookies([{
+        name: "prufai_refresh", value: secrets.refresh, url: origin + "/api/v1/auth/",
+      }]);
+      const probes = [
+        ["session_redirect_probe", me, { headers: { Authorization: "Bearer " + secrets.access } }, 401],
+        ["reset_redirect_probe", reset, {
+          method: "POST", data: { token: secrets.reset, new_password: secrets.password },
+        }, 400],
+      ];
+      const run = ([label, path, options, expected]) => enrollmentStatus(
+        context.request, label, origin + path, { ...options, maxRedirects: 2, timeout: 1500 }, expected,
+      );
+      const failures = [];
+      for (const probe of probes) {
+        try {
+          await run(probe);
+          failures.push("unexpected_success");
+        } catch (error) {
+          const message = probe[0] + " unexpected_redirect (" + status + ")";
+          failures.push(
+            error.message === message && error.cause === undefined &&
+              !Object.values(secrets).some((secret) => error.stack?.includes(secret))
+              ? "safe_redirect_failure"
+              : "unexpected_failure",
+          );
+        }
+      }
+      expect(redirectedRequests, "second origin must receive no request").toBe(0);
+      expect(failures).toEqual(["safe_redirect_failure", "safe_redirect_failure"]);
+      redirect = false;
+      for (const probe of probes) await run(probe);
+      expect(observed, "intended origin must receive both credential-bearing probes in each mode")
+        .toEqual([true, true, true, true]);
+      expect(redirectedRequests).toBe(0);
+    } finally {
+      await Promise.all([close(source), close(destination)]);
+    }
+  });
+}

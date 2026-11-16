@@ -38,10 +38,13 @@ def test_database_outage_classification_excludes_schema_and_programming_errors()
         (200, None, "NOT_VERIFIED"),
         (200, "unsigned-trailer-denied", "NOT_VERIFIED"),
         (403, None, "NOT_VERIFIED"),
-        (403, "unsigned-trailer-denied", "VERIFIED"),
+        (403, "unsigned-trailer-denied", "PASSED"),
     ],
 )
-def test_private_canary_does_not_establish_storage_guard(challenge_status, marker, expected):
+def test_health_route_marker_and_canary_do_not_establish_write_containment(
+    challenge_status, marker, expected
+):
+    from http.client import HTTPConnection
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from threading import Thread
 
@@ -70,6 +73,12 @@ def test_private_canary_does_not_establish_storage_guard(challenge_status, marke
             self.end_headers()
             self.wfile.write(CANARY_BYTES)
 
+        def do_PUT(self):
+            assert self.path == "/synthetic/disposable-write-route"
+            # This endpoint mimics the health challenge but has no write guard.
+            self.send_response(204)
+            self.end_headers()
+
     with HTTPServer(("127.0.0.1", 0), Endpoint) as server:
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -88,7 +97,19 @@ def test_private_canary_does_not_establish_storage_guard(challenge_status, marke
             assert observed["endpoint"] == "REACHABLE"
             assert observed["health"] == "HEALTHY"
             assert observed["canary"] == "VERIFIED"
-            assert observed["guard"] == expected
+            assert observed["guard_health_challenge"] == expected
+            assert observed["object_write_containment"] == "NOT_VERIFIED"
+            if expected == "PASSED":
+                client = HTTPConnection("127.0.0.1", server.server_port, timeout=1)
+                try:
+                    client.request(
+                        "PUT",
+                        "/synthetic/disposable-write-route",
+                        headers={"X-Amz-Content-Sha256": "STREAMING-UNSIGNED-PAYLOAD-TRAILER"},
+                    )
+                    assert client.getresponse().status == 204
+                finally:
+                    client.close()
         finally:
             server.shutdown()
             thread.join()

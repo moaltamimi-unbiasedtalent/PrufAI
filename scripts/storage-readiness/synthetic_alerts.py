@@ -89,10 +89,11 @@ class Alert:
 
 
 class AlertDeliveryError(RuntimeError):
-    def __init__(self, incident, stage):
+    def __init__(self, incident, stage, history):
         super().__init__(f"TEST_ONLY alert {stage} failed")
         self.incident = incident
         self.stage = stage
+        self.history = tuple(history)
 
 
 FAILURE_REPORT = "v1-o04a-alert-failure.json"
@@ -109,6 +110,7 @@ def preserve_alert_failure(out):
             "environment": "TEST_ONLY",
             "stage": failure.stage,
             "incident": failure.incident,
+            "incidents": failure.history,
         }
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=out, delete=False
@@ -171,7 +173,7 @@ class SyntheticAlerts:
         delivery = self.send(event)
         row["delivery"] = delivery
         if delivery["status"] != "ALERT_DELIVERED":
-            raise AlertDeliveryError(row, "delivery")
+            raise AlertDeliveryError(row, "delivery", self.evidence)
         try:
             with self.client.stream(
                 "POST", f"/events/{event.correlation}/ack"
@@ -192,7 +194,7 @@ class SyntheticAlerts:
             "observed_at": now(),
         }
         if category is not None:
-            raise AlertDeliveryError(row, "acknowledgement")
+            raise AlertDeliveryError(row, "acknowledgement", self.evidence)
         return event, row
 
     def resolve(self, active):
@@ -201,7 +203,7 @@ class SyntheticAlerts:
         delivery = self.send(resolution)
         row["recovery"] = {"event": asdict(resolution), "delivery": delivery}
         if delivery["status"] != "ALERT_DELIVERED":
-            raise AlertDeliveryError(row, "recovery")
+            raise AlertDeliveryError(row, "recovery", self.evidence)
 
 
 def matching_receipt(response, event, status):
@@ -429,19 +431,29 @@ def security_checks(revision, sentinels, scratch):
     # Take down the receiver on the normal incident path and read what the
     # failed-run artifact uploader would retain. Never send an ACK on failure.
     with receiver(revision) as disabled:
+        prior = disabled.raise_alert("postgresql.readiness", "UNAVAILABLE")
+        disabled.resolve(prior)
         disabled.server.shutdown()
         try:
             with preserve_alert_failure(scratch):
-                disabled.raise_alert("postgresql.readiness", "UNAVAILABLE")
+                disabled.raise_alert("redis.readiness", "UNAVAILABLE")
         except AlertDeliveryError:
             saved = (scratch / FAILURE_REPORT).read_text()
             proof = json.loads(saved)
             assert proof["status"] == "FAIL" and proof["environment"] == "TEST_ONLY"
             assert (
                 proof["stage"] == "delivery"
-                and proof["incident"] == disabled.evidence[0]
+                and proof["incident"] == disabled.evidence[-1]
             )
-            assert proof["incident"]["event"]["revision"] == revision
+            assert proof["incidents"] == disabled.evidence
+            completed, interrupted = proof["incidents"]
+            assert (
+                completed["event"]["correlation"] != interrupted["event"]["correlation"]
+            )
+            assert completed["acknowledgement"]["status"] == "ALERT_ACKNOWLEDGED"
+            assert completed["recovery"]["delivery"]["status"] == "ALERT_DELIVERED"
+            assert interrupted["event"]["event_code"] == "redis.readiness"
+            assert interrupted["event"]["revision"] == revision
             attempts = proof["incident"]["delivery"]
             assert attempts["status"] == "FAILED" and attempts["attempts"] == ATTEMPTS
             assert len(attempts["attempt_log"]) == ATTEMPTS
@@ -458,6 +470,7 @@ def security_checks(revision, sentinels, scratch):
         "stale_delivery": "DENIED",
         "receiver_cleanup": "PASS",
         "failed_incident_artifact": "PASS",
+        "failed_run_retains_prior_incidents": "PASS",
         "transport_failures": {
             key: row[key] for key in ("timeout", "invalid", "connection")
         },

@@ -150,6 +150,9 @@ export default function CandidateExamRuntimePage() {
   const [response, setResponse] = useState<Record<string, unknown>>({});
   const [starting, setStarting] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
+  const [resolvedPracticeOutbox, setResolvedPracticeOutbox] = useState<
+    string | null
+  >(null);
   const [audioPending, setAudioPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -210,6 +213,9 @@ export default function CandidateExamRuntimePage() {
   const isLidPractice = Boolean(lidForm);
   const runtimeReady =
     runtimeContext === contextKey && screen === "runtime" && editable;
+  // Render the LiD attempt as pending before the effect can inspect IndexedDB.
+  const practiceReplayPending =
+    isLidPractice && runtimeReady && resolvedPracticeOutbox !== contextKey;
   const lidAssignment =
     lidAssignmentInfo?.context === contextKey
       ? lidAssignmentInfo?.assignment
@@ -395,6 +401,7 @@ export default function CandidateExamRuntimePage() {
 
   useEffect(() => {
     rejectedPracticeOperations.current.clear();
+    setResolvedPracticeOutbox(null);
     savingPracticeResponse.current = false;
     saveBlocked.current = false;
     setRetrySafety(false);
@@ -606,7 +613,9 @@ export default function CandidateExamRuntimePage() {
         }
       })
       .finally(() => {
-        if (active) setPendingSave(false);
+        if (!active) return;
+        if (isLidPractice) setResolvedPracticeOutbox(contextKey);
+        setPendingSave(false);
       });
     saveSequence.current = complete;
     return () => {
@@ -678,7 +687,8 @@ export default function CandidateExamRuntimePage() {
     }
     if (
       lidForm &&
-      (saveBlocked.current ||
+      (practiceReplayPending ||
+        saveBlocked.current ||
         savingPracticeResponse.current ||
         submittingRef.current ||
         submissionUnconfirmed)
@@ -1064,8 +1074,13 @@ export default function CandidateExamRuntimePage() {
     Expired: "Die Bearbeitungszeit ist abgelaufen.",
     Submitted: "Der Server hat die Abgabe bestätigt.",
   };
+  const practiceSaveStatus = expired
+    ? "Expired"
+    : pendingSave || practiceReplayPending
+      ? "Saving"
+      : status;
   const practiceControlsBlocked = Boolean(
-    lidForm && (pendingSave || retrySafety),
+    lidForm && (pendingSave || practiceReplayPending || retrySafety),
   );
   const practiceAnswersBlocked =
     practiceControlsBlocked || submitting || submissionUnconfirmed;
@@ -1147,13 +1162,11 @@ export default function CandidateExamRuntimePage() {
       <p>Saved response revision: {savedRevision}</p>
       {lidForm ? (
         <>
-          <p aria-hidden="true">Autosave: {expired ? "Expired" : status}</p>
+          <p aria-hidden="true">Autosave: {practiceSaveStatus}</p>
           <p role="status" aria-atomic="true" lang="de" id={errorId}>
-            {
-              practiceStatus[
-                expired ? "Expired" : pendingSave ? "Saving" : status
-              ]
-            }
+            {practiceReplayPending && !online
+              ? "Der Antwortstatus wird nach Wiederherstellung der Verbindung geprüft."
+              : practiceStatus[practiceSaveStatus]}
           </p>
           {editable && retrySafety && (
             <button

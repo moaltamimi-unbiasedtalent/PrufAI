@@ -54,7 +54,8 @@ from synthetic_alerts import (
     receiver,
     security_checks,
 )
-from v1_incidents import exercise_incidents
+from v1_incidents import assert_guarded, exercise_incidents
+from v1_worker_boundary import verify_legacy_worker_isolation
 
 PREVIOUS = "00e29905d60c0f0bae3173992c71428fc8b89303"
 ACTIVE = "BERLIN_LID_SYNTHETIC"
@@ -156,6 +157,7 @@ def package_files(rig, decoder, scratch, web_env):
         "services/ai/pyproject.toml",
         "scripts/storage-readiness/v1_release.py",
         "scripts/storage-readiness/v1_incidents.py",
+        "scripts/storage-readiness/v1_worker_boundary.py",
         "scripts/storage-readiness/synthetic_alerts.py",
     )
     checksums = {path: sha((ROOT / path).read_bytes()) for path in paths}
@@ -262,8 +264,20 @@ def configuration():
 
 
 def preflight(
-    env, database, storage, api_url, web_url, *, expected_head, expected_source, build
+    rig,
+    env,
+    database,
+    storage,
+    api_url,
+    web_url,
+    *,
+    expected_head,
+    expected_source,
+    build,
 ):
+    # Probe the actual object write route and network in the owned test topology.
+    # The runtime health-route challenge alone does not certify write containment.
+    assert_guarded(rig, storage)
     # Check only this rehearsal's scoped targets with bounded read-only queries.
     config = Settings(
         _env_file=None,
@@ -320,9 +334,11 @@ def preflight(
         "migration": status(revisions == [expected_head]),
         "storage": status(
             capability.health == "HEALTHY"
-            and capability.canary == capability.guard == "VERIFIED"
+            and capability.canary == "VERIFIED"
+            and capability.guard_health_challenge == "PASSED"
         ),
         "private_storage": "PASS",
+        "object_write_containment": "PASS",
         "worker_configuration": status(
             all(
                 not getattr(config, flag)
@@ -794,6 +810,15 @@ def stop_and_restore(
         **runtime_env(target_db, target_storage, redis_url, decoder, secret),
         "PYTHONPATH": str(prior / "services/api"),
     }
+    recovery["legacy_worker_database_isolation"] = verify_legacy_worker_isolation(
+        database, target_db, restored_env, prior / "services/api"
+    )
+    assert (
+        snapshot(
+            database, audit=False, extra_tables=TABLES + JOBS, allow_empty=JOBS[1:]
+        )
+        == before_stop
+    )
     remove_canary = canary(target_storage)
     restored, url = launch_api(rig, restored_env, listener=listener, source=prior)
     try:
@@ -972,6 +997,7 @@ def exercise(stack, rig, decoder, scratch, out, local, source):
     alerts = stack.enter_context(receiver(source["commit"]))
     web, web_url = start_web(stack, web_env, web_port)
     probes = preflight(
+        rig,
         env,
         database,
         storage,

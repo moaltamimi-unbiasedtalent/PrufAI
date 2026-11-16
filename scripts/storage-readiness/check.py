@@ -373,7 +373,14 @@ class Database:
         )
         assert_disposable_database(target.url, target.name, report=False)
         assert self.sql("select current_database()").decode().strip() == self.name
-        self.sql(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)).as_string())
+        identifier = sql.Identifier(name)
+        # Set the ACL while the new database cannot accept any connections.
+        for statement in (
+            sql.SQL("CREATE DATABASE {} ALLOW_CONNECTIONS false"),
+            sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC"),
+            sql.SQL("ALTER DATABASE {} ALLOW_CONNECTIONS true"),
+        ):
+            self.sql(statement.format(identifier).as_string())
         assert target.sql("select current_database()").decode().strip() == name
         return target
 

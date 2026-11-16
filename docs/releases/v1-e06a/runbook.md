@@ -87,8 +87,12 @@ profile and verifies unchanged persisted jobs.
    rows. The Web build remains in place during this API rollback. This is an
    application/config rollback with tested restore, with no schema downgrade.
    The additive V1 worker-exclusion table and its policy row are preserved
-   when the pinned earlier API is exercised. Keep earlier worker binaries
-   stopped and isolated from the restored database. Other schema changes or
+   when the pinned earlier API is exercised. Create the restored database
+   with connections disabled, revoke PUBLIC CONNECT, then allow the separate
+   rollback API/owner credential to connect. The rehearsal proves that the
+   pinned legacy worker role is denied by PostgreSQL on the restored target
+   and leaves the queued job unchanged. Never give legacy workers a
+   database-owner or superuser credential. Other schema changes or
    a full Web binary rollback require their own rehearsal.
 5. If reconciliation differs, maintain the lock and preserve the original
    snapshot, manifests and sanitized logs. Refer to the organization's

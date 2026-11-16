@@ -87,7 +87,7 @@ class Readiness:
 class StorageCapability:
     health: str
     endpoint: str
-    guard: str
+    guard_health_challenge: str
     canary: str
     failure_category: Failure | None = None
 
@@ -96,7 +96,9 @@ class StorageCapability:
             "backend": settings.object_storage_backend,
             "health": self.health,
             "endpoint": self.endpoint,
-            "guard": self.guard,
+            "guard_health_challenge": self.guard_health_challenge,
+            "object_write_containment": "NOT_VERIFIED",
+            "guard": "NOT_VERIFIED",
             "canary": self.canary,
             "provider_approval": "NOT_VERIFIED",
             "failure_category": self.failure_category,
@@ -200,12 +202,16 @@ def _guarded_storage(settings: Settings) -> StorageCapability:
         )
     pool = urllib3.PoolManager(timeout=urllib3.Timeout(total=0.75), retries=False)
     health_url = f"{endpoint.rstrip('/')}/minio/health/ready"
-    guard = "NOT_VERIFIED"
+    guard_health_challenge = "NOT_VERIFIED"
     try:
         response = pool.request("HEAD", health_url, redirect=False)
         if response.status != 200:
             return StorageCapability(
-                "UNAVAILABLE", "RESPONDED", guard, "NOT_VERIFIED", Failure.UNAVAILABLE
+                "UNAVAILABLE",
+                "RESPONDED",
+                guard_health_challenge,
+                "NOT_VERIFIED",
+                Failure.UNAVAILABLE,
             )
         # HEAD cannot upload an object if the configured endpoint bypasses the ingress.
         try:
@@ -219,24 +225,32 @@ def _guarded_storage(settings: Settings) -> StorageCapability:
                 challenge.status == 403
                 and challenge.headers.get("X-Prufai-Storage-Guard") == "unsigned-trailer-denied"
             ):
-                guard = "VERIFIED"
+                guard_health_challenge = "PASSED"
         except (urllib3.exceptions.HTTPError, OSError, URLError):
             pass
     except (urllib3.exceptions.HTTPError, OSError, URLError):
         return StorageCapability(
-            "UNAVAILABLE", "UNAVAILABLE", guard, "NOT_VERIFIED", Failure.UNAVAILABLE
+            "UNAVAILABLE",
+            "UNAVAILABLE",
+            guard_health_challenge,
+            "NOT_VERIFIED",
+            Failure.UNAVAILABLE,
         )
     finally:
         pool.clear()
     if not settings.operations_storage_canary_enabled:
         return StorageCapability(
-            "NOT_VERIFIED", "REACHABLE", guard, "STORAGE_CANARY_NOT_CONFIGURED"
+            "NOT_VERIFIED", "REACHABLE", guard_health_challenge, "STORAGE_CANARY_NOT_CONFIGURED"
         )
     try:
         storage = build_object_storage(settings, metadata_probe=True)
         if not isinstance(storage, S3CompatibleObjectStorage):
             return StorageCapability(
-                "UNAVAILABLE", "REACHABLE", guard, "NOT_VERIFIED", Failure.MISCONFIGURED
+                "UNAVAILABLE",
+                "REACHABLE",
+                guard_health_challenge,
+                "NOT_VERIFIED",
+                Failure.MISCONFIGURED,
             )
         content = storage.get_bounded(
             CANARY_KEY, expected_size=len(CANARY_BYTES), max_bytes=len(CANARY_BYTES)
@@ -245,13 +259,17 @@ def _guarded_storage(settings: Settings) -> StorageCapability:
             raise StorageIntegrityError("synthetic canary digest mismatch")
     except StorageIntegrityError:
         return StorageCapability(
-            "DEGRADED", "REACHABLE", guard, "INTEGRITY_MISMATCH", Failure.INTEGRITY_MISMATCH
+            "DEGRADED",
+            "REACHABLE",
+            guard_health_challenge,
+            "INTEGRITY_MISMATCH",
+            Failure.INTEGRITY_MISMATCH,
         )
     except StorageError:
         return StorageCapability(
-            "UNAVAILABLE", "REACHABLE", guard, "UNAVAILABLE", Failure.UNAVAILABLE
+            "UNAVAILABLE", "REACHABLE", guard_health_challenge, "UNAVAILABLE", Failure.UNAVAILABLE
         )
-    return StorageCapability("HEALTHY", "REACHABLE", guard, "VERIFIED")
+    return StorageCapability("HEALTHY", "REACHABLE", guard_health_challenge, "VERIFIED")
 
 
 def measure_storage(settings: Settings) -> StorageCapability:

@@ -10,6 +10,11 @@ The Berlin screen could lose the original save ID after a connection error, even
 
 Pending responses survive a same-account reload only when browser storage is available and the outbox write succeeded. Storage is bounded and shared-device sign-out clears it. A disconnected page cannot load an exam from scratch, and the server can reject a queued write after expiry. If the browser cannot save locally, the UI says so. The reconnect test uses an expiring synthetic attempt and the real server's rejection or acknowledgement.
 
+## Open E05 follow-ups
+
+- **Localization (U11, U13).** Localize the remaining English Berlin navigation and submit dialog labels, and mark German text with the correct language. Verify comprehension and pronunciation in an authorized human session.
+- **Keyboard traversal (U10).** Provide a keyboard-accessible path past the expanded question grid to avoid traversing every available question button to reach Submit. Verify focus order and return with real keyboard and assistive-technology sessions.
+
 ## Walkthroughs
 
 | Scenario | Task and role | Expected observation | Device and input to record |

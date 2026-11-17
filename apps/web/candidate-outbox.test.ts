@@ -5,6 +5,7 @@ import {
   lockActiveCandidateAccount,
   queueCandidateOperation,
   syncCandidateOutbox,
+  unresolvedCandidateBindings,
   type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "./app/candidate/outbox";
@@ -206,6 +207,31 @@ describe("account-bound candidate outbox", () => {
     const send = vi.fn(async () => "ack" as const);
     await syncCandidateOutbox(alice, send);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("reports distinct unresolved bindings scoped to the active account and attempt", async () => {
+    lockActiveCandidateAccount(alice);
+    const first = operation("one", "first");
+    await queueCandidateOperation(alice, first);
+    await queueCandidateOperation(alice, operation("two", "replacement"));
+    await queueCandidateOperation(alice, {
+      ...operation("three", "different attempt"),
+      attemptId: "other-attempt",
+      bindingId: "other-question",
+    });
+    expect(await unresolvedCandidateBindings(alice, first.attemptId)).toEqual(
+      new Set([first.bindingId]),
+    );
+    expect(await unresolvedCandidateBindings(alice, "other-attempt")).toEqual(
+      new Set(["other-question"]),
+    );
+    lockActiveCandidateAccount(bob);
+    await expect(
+      unresolvedCandidateBindings(alice, first.attemptId),
+    ).rejects.toThrow("candidate account changed");
+    expect(await unresolvedCandidateBindings(bob, first.attemptId)).toEqual(
+      new Set(),
+    );
   });
 
   it("refuses unauthenticated scope and expired operations", async () => {

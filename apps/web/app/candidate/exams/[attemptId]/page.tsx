@@ -30,6 +30,7 @@ import {
   discardCandidateOperations,
   queueCandidateOperation,
   syncCandidateOutbox,
+  unresolvedCandidateBindings,
   type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "../../outbox";
@@ -153,6 +154,11 @@ export default function CandidateExamRuntimePage() {
   const [resolvedPracticeOutbox, setResolvedPracticeOutbox] = useState<
     string | null
   >(null);
+  const [practiceOutbox, setPracticeOutbox] = useState<{
+    context: string | null;
+    attemptId: string;
+    bindingIds: ReadonlySet<string>;
+  } | null>(null);
   const [audioPending, setAudioPending] = useState(false);
   const [navigating, setNavigating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -216,6 +222,11 @@ export default function CandidateExamRuntimePage() {
   // Render the LiD attempt as pending before the effect can inspect IndexedDB.
   const practiceReplayPending =
     isLidPractice && runtimeReady && resolvedPracticeOutbox !== contextKey;
+  const unconfirmedBindings =
+    practiceOutbox?.context === contextKey &&
+    practiceOutbox.attemptId === attemptId
+      ? practiceOutbox.bindingIds
+      : null;
   const lidAssignment =
     lidAssignmentInfo?.context === contextKey
       ? lidAssignmentInfo?.assignment
@@ -402,12 +413,23 @@ export default function CandidateExamRuntimePage() {
   useEffect(() => {
     rejectedPracticeOperations.current.clear();
     setResolvedPracticeOutbox(null);
+    setPracticeOutbox(null);
     savingPracticeResponse.current = false;
     saveBlocked.current = false;
     setRetrySafety(false);
     setRetryingSave(false);
     setSubmissionUnconfirmed(false);
   }, [contextKey]);
+
+  const refreshPracticeBindings = useCallback(
+    async (scope: CandidateAccountScope, id: string, active: () => boolean) => {
+      const bindingIds = await unresolvedCandidateBindings(scope, id);
+      if (active())
+        setPracticeOutbox({ context: contextKey, attemptId: id, bindingIds });
+      return bindingIds;
+    },
+    [contextKey],
+  );
 
   const drainPractice = useCallback(
     async (
@@ -416,6 +438,8 @@ export default function CandidateExamRuntimePage() {
       active: () => boolean,
       reconcile: boolean,
     ) => {
+      await refreshPracticeBindings(scope, id, active);
+      if (!active()) return;
       let expired = false;
       const result = await syncCandidateOutbox(
         scope,
@@ -464,8 +488,12 @@ export default function CandidateExamRuntimePage() {
         await loadRuntime(id).catch(() => undefined);
         return;
       }
-      saveBlocked.current = Boolean(result.retryNeeded || result.conflicts);
-      if (result.retryNeeded || result.conflicts) {
+      const remaining = await refreshPracticeBindings(scope, id, active);
+      if (!active()) return;
+      saveBlocked.current = Boolean(
+        result.retryNeeded || result.conflicts || remaining.size,
+      );
+      if (saveBlocked.current) {
         setRetrySafety(true);
         setStatus(result.conflicts ? "Conflict" : "Save failed");
         return;
@@ -485,7 +513,7 @@ export default function CandidateExamRuntimePage() {
       setError(null);
       setStatus("Saved");
     },
-    [loadRuntime, markExpired, updateRuntime],
+    [loadRuntime, markExpired, refreshPracticeBindings, updateRuntime],
   );
 
   function retryPractice(discardConflict = false) {
@@ -697,6 +725,13 @@ export default function CandidateExamRuntimePage() {
     if (lidForm) savingPracticeResponse.current = true;
     const expectedContext = contextKey;
     const bindingId = currentItem.binding_id;
+    if (lidForm && !audioOperationId) {
+      setPracticeOutbox({
+        context: expectedContext,
+        attemptId,
+        bindingIds: new Set([...(unconfirmedBindings ?? []), bindingId]),
+      });
+    }
     const operationId = audioOperationId ?? crypto.randomUUID();
     let acknowledgement: AudioAttachmentAck | null = null;
     let failure: unknown;
@@ -1097,14 +1132,10 @@ export default function CandidateExamRuntimePage() {
     ({ binding_id }) => !savedBindings.has(binding_id),
   );
   const unanswered = unansweredItems.length;
-  const confirmedOverviewCount =
-    items.length -
-    unanswered -
-    (practiceControlsBlocked &&
-    currentBinding &&
-    savedBindings.has(currentBinding)
-      ? 1
-      : 0);
+  const confirmedOverviewCount = items.filter(
+    ({ binding_id }) =>
+      savedBindings.has(binding_id) && !unconfirmedBindings?.has(binding_id),
+  ).length;
   const showQuestionOverview =
     lidForm &&
     runtimeReady &&
@@ -1383,7 +1414,9 @@ export default function CandidateExamRuntimePage() {
         <details className={styles.questionOverview} lang="de">
           <summary>Fragenübersicht</summary>
           <p>
-            {confirmedOverviewCount} von {items.length} Antworten gespeichert
+            {unconfirmedBindings
+              ? `${confirmedOverviewCount} von ${items.length} Antworten gespeichert`
+              : "Der Antwortstatus wird geprüft."}
           </p>
           <ol className={styles.questionGrid} role="list">
             {items.map(({ binding_id }, index) => {
@@ -1400,11 +1433,13 @@ export default function CandidateExamRuntimePage() {
                   >
                     <span>Frage {index + 1}</span>
                     <small>
-                      {isCurrent && practiceControlsBlocked
-                        ? "Nicht bestätigt"
-                        : savedBindings.has(binding_id)
-                          ? "Gespeichert"
-                          : "Offen"}
+                      {!unconfirmedBindings
+                        ? "Wird geprüft"
+                        : unconfirmedBindings.has(binding_id)
+                          ? "Nicht bestätigt"
+                          : savedBindings.has(binding_id)
+                            ? "Gespeichert"
+                            : "Offen"}
                     </small>
                   </button>
                 </li>

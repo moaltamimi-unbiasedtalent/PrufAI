@@ -1240,6 +1240,131 @@ test("Berlin practice overview shows saved answers and supports direct keyboard 
   await expect(current("Question 33 of 33")).toBeFocused();
 });
 
+test("Berlin overview tracks the failed save binding after another tab navigates", async ({
+  page,
+  context,
+}) => {
+  const { id, org } = await createPracticeAssignment(page);
+  const owner = await keyboardCandidateLogin(page);
+  const initial = await startFromKeyboard(page, id);
+  const attempt = initial.attempt_id;
+  const root = `${candidate}/exam-attempts/${attempt}`;
+  const [first, , , , fifth] =
+    initial.runtime_plan.modules[0].sections[0].tasks[0].items;
+  const savePath = `${root}/responses/${first.binding_id}`;
+  const routePattern = `**${savePath}`;
+  const confirmed = page
+    .getByRole("status")
+    .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." });
+  const failed = page
+    .getByRole("status")
+    .filter({ hasText: "Speicherung nicht bestätigt" });
+  const firstOption = page.getByRole("radio").first();
+  await expect(confirmed).toBeVisible();
+  const firstSave = apiResponse(page, savePath, "PUT");
+  await firstOption.focus();
+  await page.keyboard.press("Space");
+  const original = await firstSave;
+  expect(original.status()).toBe(200);
+  expect((await original.json()).revision).toBe(1);
+  await expect(confirmed).toBeVisible();
+
+  const other = await context.newPage();
+  try {
+    await other.goto(`/candidate/exams/${attempt}`);
+    await expect(
+      other.getByRole("heading", { name: "Question 1 of 33" }),
+    ).toBeVisible();
+    await other
+      .locator("summary")
+      .filter({ hasText: "Fragenübersicht" })
+      .click();
+    const navigation = apiResponse(other, `${root}/navigate`, "POST");
+    await other
+      .getByRole("button", { name: "Frage 5 Offen", exact: true })
+      .click();
+    const reply = await navigation;
+    expect(reply.status()).toBe(200);
+    expect((await reply.json()).current_binding_id).toBe(fifth.binding_id);
+    await expect(
+      other.getByRole("heading", { name: "Question 5 of 33" }),
+    ).toBeFocused();
+  } finally {
+    await other.close();
+  }
+  await page.bringToFront();
+  await expect(
+    page.getByRole("heading", { name: "Question 1 of 33" }),
+  ).toBeVisible();
+
+  const writes = [];
+  let allowSave = false;
+  await page.route(routePattern, async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes.push(route.request().postDataJSON());
+    if (allowSave) return route.continue();
+    await route.abort("connectionfailed");
+  });
+  try {
+    await firstOption.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(failed).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Question 5 of 33" }),
+    ).toBeVisible();
+    await expect(failed).toBeVisible();
+    expect(writes).toHaveLength(2);
+    expect(writes[0].expected_revision).toBe(1);
+    expect(writes[1]).toEqual(writes[0]);
+
+    const overview = page
+      .locator("details")
+      .filter({ hasText: "Fragenübersicht" });
+    const row = (label) =>
+      overview.getByRole("button", { name: label, exact: true });
+    const submit = page.getByRole("button", {
+      name: "Submit attempt",
+      exact: true,
+    });
+    await overview.locator("summary").click();
+    await expect(row("Frage 1 Nicht bestätigt")).toBeVisible();
+    await expect(row("Frage 1 Gespeichert")).toHaveCount(0);
+    await expect(row("Frage 5 Offen")).toHaveAttribute("aria-current", "step");
+    await expect(overview).toContainText("0 von 33 Antworten gespeichert");
+    await expect(row("Frage 1 Nicht bestätigt")).toBeDisabled();
+    await expect(submit).toBeDisabled();
+
+    allowSave = true;
+    const replay = apiResponse(page, savePath, "PUT");
+    await page
+      .getByRole("button", {
+        name: "Speicherung erneut versuchen",
+        exact: true,
+      })
+      .click();
+    const recovered = await replay;
+    expect(recovered.status()).toBe(200);
+    expect((await recovered.json()).revision).toBe(2);
+    await expect(confirmed).toBeVisible();
+    expect(writes).toEqual([writes[0], writes[0], writes[0]]);
+    await expect(row("Frage 1 Gespeichert")).toBeVisible();
+    await expect(row("Frage 5 Offen")).toHaveAttribute("aria-current", "step");
+    await expect(overview).toContainText("1 von 33 Antworten gespeichert");
+    await expect(submit).toBeEnabled();
+
+    const stored = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(owner, org),
+    });
+    expect(stored.status()).toBe(200);
+    expect((await stored.json()).responses).toEqual([
+      { binding_id: first.binding_id, revision: 2, payload: writes[0].payload },
+    ]);
+  } finally {
+    await page.unroute(routePattern);
+  }
+});
+
 test("narrow keyboard Berlin practice recovers lost acknowledgements and resolves a stale revision safely", async ({
   page,
   context,

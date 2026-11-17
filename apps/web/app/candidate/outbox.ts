@@ -224,6 +224,46 @@ export async function clearAccountOutbox(
   await deleteDatabase(LEGACY_DATABASE);
 }
 
+function readOperations(
+  database: IDBDatabase,
+): Promise<CandidateOutboxOperation[]> {
+  return new Promise((resolve, reject) => {
+    const request = database
+      .transaction(STORE, "readonly")
+      .objectStore(STORE)
+      .getAll();
+    request.onsuccess = () =>
+      resolve(request.result as CandidateOutboxOperation[]);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function isExpired(operation: CandidateOutboxOperation): boolean {
+  return Date.now() - Date.parse(operation.queuedAt) > MAX_RETENTION_MS;
+}
+
+export async function unresolvedCandidateBindings(
+  scope: CandidateAccountScope,
+  attemptId: string,
+): Promise<ReadonlySet<string>> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    const operations = await readOperations(database);
+    requireActiveAccount(scope, generation);
+    return new Set(
+      operations
+        .filter(
+          (operation) =>
+            operation.attemptId === attemptId && !isExpired(operation),
+        )
+        .map(({ bindingId }) => bindingId),
+    );
+  } finally {
+    closeDatabase(database);
+  }
+}
+
 export async function syncCandidateOutbox(
   scope: CandidateAccountScope,
   send: (
@@ -235,17 +275,7 @@ export async function syncCandidateOutbox(
   requireActiveAccount(scope, generation);
   const database = await openCandidateOutbox(scope);
   try {
-    const operations = await new Promise<CandidateOutboxOperation[]>(
-      (resolve, reject) => {
-        const request = database
-          .transaction(STORE, "readonly")
-          .objectStore(STORE)
-          .getAll();
-        request.onsuccess = () =>
-          resolve(request.result as CandidateOutboxOperation[]);
-        request.onerror = () => reject(request.error);
-      },
-    );
+    const operations = await readOperations(database);
     let acknowledged = 0;
     let conflicts = 0;
     const blockedBindings = new Set<string>();
@@ -254,7 +284,7 @@ export async function syncCandidateOutbox(
     )) {
       requireActiveAccount(scope, generation);
       if (attemptId && operation.attemptId !== attemptId) continue;
-      if (Date.now() - Date.parse(operation.queuedAt) > MAX_RETENTION_MS) {
+      if (isExpired(operation)) {
         await removeCandidateOperation(database, operation.operationId);
         continue;
       }

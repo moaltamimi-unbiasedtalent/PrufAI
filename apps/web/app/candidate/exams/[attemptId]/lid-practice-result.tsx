@@ -73,7 +73,7 @@ export function LidPracticeResultPanel({
   }, [attemptId, reload]);
 
   return (
-    <section aria-labelledby="lid-practice-result">
+    <section lang="en" aria-labelledby="lid-practice-result">
       <h2 id="lid-practice-result">LiD practice result</h2>
       <p>Classification: PRACTICE · NOT OFFICIAL · NOT CERTIFIED</p>
       <p>Practice jurisdiction: {bundeslandLabel}</p>
@@ -82,7 +82,10 @@ export function LidPracticeResultPanel({
       )}
       {!result && state !== "loading" && (
         <>
-          <p role={state === "error" ? "alert" : "status"}>
+          <p
+            role={state === "error" ? "alert" : "status"}
+            lang={state === "error" ? "de" : undefined}
+          >
             {state === "pending"
               ? "Your submission is saved. The practice result will appear after your institution reviews and releases it."
               : "Das Übungsergebnis ist momentan nicht abrufbar. Prüfen Sie die Verbindung und versuchen Sie es erneut."}
@@ -99,7 +102,7 @@ export function LidPracticeResultPanel({
         </>
       )}
       {result && !current && (
-        <p role="status">
+        <p role="status" lang="de">
           Das Ergebnis wird nur bei bestätigter Freigabe angezeigt.
         </p>
       )}

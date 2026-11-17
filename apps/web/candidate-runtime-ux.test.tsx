@@ -40,6 +40,24 @@ describe("candidate runtime accessibility", () => {
     expect(crossedTimerMilestone(0, 0)).toBeUndefined();
   });
 
+  it("labels the Berlin timer and its milestone announcements in German", () => {
+    const markup = renderToStaticMarkup(
+      <RuntimeTimer monotonicDeadline={null} language="de" />,
+    );
+    expect(markup).toContain(
+      '<section lang="de" aria-labelledby="time-heading">',
+    );
+    expect(markup).toContain(
+      'aria-label="Verbleibende Zeit: Warten auf die Zeitvorgabe des Servers"',
+    );
+    expect(markup).toContain('aria-live="polite" aria-atomic="true"');
+    expect(crossedTimerMilestone(301, 298, "de")).toBe("Noch 5 Minuten");
+    expect(crossedTimerMilestone(298, 296, "de")).toBeUndefined();
+    expect(crossedTimerMilestone(61, 0, "de")).toBe(
+      "Die Zeit ist abgelaufen. Der Serverstatus wird geprüft.",
+    );
+  });
+
   it("renders an accessible loading state before runtime data is available", () => {
     const markup = renderToStaticMarkup(<CandidateExamRuntimePage />);
     expect(markup).toContain('role="status"');

@@ -54,6 +54,14 @@ const modeLabels: Record<string, string> = {
   AUDIO: "Recorded audio",
 };
 
+const practiceModeLabels: Record<ResponseMode, string> = {
+  SELECT_ONE: "Einfachauswahl",
+  SELECT_MULTIPLE: "Mehrfachauswahl",
+  TEXT: "Kurzantwort",
+  LONG_TEXT: "Freitext",
+  AUDIO: "Audioaufnahme",
+};
+
 function flattenItems(runtime: RuntimeDto): RuntimeItem[] {
   return (runtime.runtime_plan.modules ?? []).flatMap((module) =>
     module.sections.flatMap((section) =>
@@ -995,21 +1003,23 @@ export default function CandidateExamRuntimePage() {
     );
   if (screen === "prestart") {
     const duration = runtime?.runtime_plan.duration_seconds;
+    const german = Boolean(lidForm || lidAssignment);
     return (
       <main
-        className={lidForm || lidAssignment ? styles.practice : undefined}
+        lang={german ? "de" : undefined}
+        className={german ? styles.practice : undefined}
         style={
-          lidForm || lidAssignment
+          german
             ? undefined
             : { maxWidth: 960, margin: "0 auto", padding: "3rem 1.5rem" }
         }
       >
         <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Candidate exam
+          {german ? "Prüfungsübung" : "Candidate exam"}
         </p>
         <h1>{lidForm?.title ?? lidAssignment?.title ?? "Exam assignment"}</h1>
         {(lidForm || lidAssignment) && (
-          <p>
+          <p lang="en">
             {lidForm?.notice ??
               lidAssignment?.notice ??
               "ORIGINAL SYNTHETIC TEST CONTENT · NOT AN OFFICIAL BAMF QUESTION"}
@@ -1017,42 +1027,53 @@ export default function CandidateExamRuntimePage() {
         )}
         {lidForm && (
           <p>
-            Selected practice Bundesland: {lidForm.bundesland_label}. The state
-            stays fixed for this attempt.
+            Gewähltes Bundesland: {lidForm.bundesland_label}. Das Bundesland
+            bleibt für diesen Versuch festgelegt.
           </p>
         )}
         <p>
-          This pre-start screen does not start the attempt or begin the timer.
-        </p>
-        <p>Availability: confirmed by the server.</p>
-        <p>
-          Duration:{" "}
-          {duration ? `${Math.ceil(duration / 60)} minutes` : "Server-defined"}
+          {german
+            ? "Die Bearbeitungszeit beginnt erst, wenn Sie die Übung starten."
+            : "This pre-start screen does not start the attempt or begin the timer."}
         </p>
         <p>
-          Content is delivered only after the server confirms the start
-          operation.
+          {german
+            ? "Verfügbarkeit vom Server bestätigt."
+            : "Availability: confirmed by the server."}
         </p>
-        <h2>Instructions</h2>
         <p>
-          Answer each question using the supported response control. Your
-          progress is saved by the server.
+          {german
+            ? duration
+              ? `Bearbeitungszeit: ${Math.ceil(duration / 60)} Minuten`
+              : "Der Server legt die Bearbeitungszeit fest."
+            : `Duration: ${duration ? `${Math.ceil(duration / 60)} minutes` : "Server-defined"}`}
+        </p>
+        <p>
+          {german
+            ? "Die Fragen erscheinen, sobald der Server den Start bestätigt hat."
+            : "Content is delivered only after the server confirms the start operation."}
+        </p>
+        <h2>{german ? "Hinweise" : "Instructions"}</h2>
+        <p>
+          {german
+            ? "Wählen Sie zu jeder Frage eine Antwort. Der Server speichert Ihren Fortschritt."
+            : "Answer each question using the supported response control. Your progress is saved by the server."}
         </p>
         {lidAssignment && !attemptId && (
           <>
             <p id="practice-state-help">
-              Select the state for this practice attempt. A state without enough
-              eligible questions is unavailable.
+              Wählen Sie ein Bundesland für diese Übung. Bundesländer mit zu
+              wenigen verfügbaren Fragen können Sie nicht auswählen.
             </p>
             <label>
-              Practice Bundesland
+              Bundesland für die Übung
               <select
                 aria-describedby="practice-state-help"
                 value={practiceState}
                 disabled={starting}
                 onChange={(event) => setPracticeState(event.target.value)}
               >
-                <option value="">Select a Bundesland</option>
+                <option value="">Bundesland auswählen</option>
                 {lidAssignment.bundeslaender.map((state) => (
                   <option
                     key={state.code}
@@ -1060,7 +1081,7 @@ export default function CandidateExamRuntimePage() {
                     disabled={!state.available}
                   >
                     {state.label}
-                    {state.available ? "" : " — Content unavailable"}
+                    {state.available ? "" : " – keine Fragen verfügbar"}
                   </option>
                 ))}
               </select>
@@ -1076,11 +1097,23 @@ export default function CandidateExamRuntimePage() {
               starting || Boolean(lidAssignment && !selectedPracticeState)
             }
           >
-            {starting ? "Preparing exam…" : "Prepare exam"}
+            {german
+              ? starting
+                ? "Übung wird vorbereitet…"
+                : "Übung vorbereiten"
+              : starting
+                ? "Preparing exam…"
+                : "Prepare exam"}
           </button>
         ) : (
           <button type="button" onClick={startAttempt} disabled={starting}>
-            {starting ? "Starting exam…" : "Start exam"}
+            {german
+              ? starting
+                ? "Übung wird gestartet…"
+                : "Übung starten"
+              : starting
+                ? "Starting exam…"
+                : "Start exam"}
           </button>
         )}
       </main>
@@ -1091,6 +1124,9 @@ export default function CandidateExamRuntimePage() {
     prompt?: string;
     options?: Array<{ option_id: string; display_text?: string }>;
   };
+  const promptNotice = lidForm?.notice;
+  const promptWithNotice =
+    promptNotice && content.prompt?.startsWith(`${promptNotice}\n\n`);
   const mode = (currentItem?.response_mode ?? "LONG_TEXT") as ResponseMode;
   const selected = (response.option_ids as string[] | undefined) ?? [];
   const textValue = (response.text as string | undefined) ?? "";
@@ -1143,6 +1179,7 @@ export default function CandidateExamRuntimePage() {
     currentItem?.navigationMode === "FREE_WITHIN_MODULE";
   return (
     <main
+      lang={lidForm ? "de" : undefined}
       className={lidForm ? styles.practice : undefined}
       style={
         lidForm
@@ -1156,21 +1193,25 @@ export default function CandidateExamRuntimePage() {
         </a>
       )}
       <p style={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
-        Candidate exam
+        {lidForm ? "Prüfungsübung" : "Candidate exam"}
       </p>
       <h1>{lidForm?.title ?? "Runtime"}</h1>
       {lidForm && (
         <>
-          <p>{lidForm.notice}</p>
-          <p>Selected practice Bundesland: {lidForm.bundesland_label}</p>
+          <p lang="en">{lidForm.notice}</p>
+          <p>Gewähltes Bundesland: {lidForm.bundesland_label}</p>
           <p>
-            {lidForm.general_count + lidForm.state_count} questions ·{" "}
-            {lidForm.general_count} general · {lidForm.state_count}{" "}
-            state-specific
+            {lidForm.general_count + lidForm.state_count} Fragen, davon{" "}
+            {lidForm.general_count} allgemeine Fragen und {lidForm.state_count}{" "}
+            zum Bundesland
           </p>
         </>
       )}
-      <p>Attempt {attemptId} · Server time controls the deadline.</p>
+      {lidForm ? (
+        <p>Versuch {attemptId}</p>
+      ) : (
+        <p>Attempt {attemptId} · Server time controls the deadline.</p>
+      )}
       {expired ? (
         <section lang="de" aria-labelledby="expired-attempt">
           <h2 id="expired-attempt">Prüfungszeit abgelaufen</h2>
@@ -1186,12 +1227,13 @@ export default function CandidateExamRuntimePage() {
         </section>
       ) : lidForm && runtime?.status === "SUBMITTED" ? (
         <h2 ref={submissionHeadingRef} tabIndex={-1}>
-          Submission state: Submitted
+          Übung abgegeben
         </h2>
       ) : (
         <RuntimeTimer
           key={attemptId}
           monotonicDeadline={runtime?.monotonic_deadline ?? null}
+          language={lidForm ? "de" : "en"}
           onDeadline={refreshAttempt}
         />
       )}
@@ -1202,9 +1244,11 @@ export default function CandidateExamRuntimePage() {
           bundeslandLabel={lidForm.bundesland_label}
         />
       )}
-      <p>
-        Module and task position: {currentIndex + 1} of {items.length}
-      </p>
+      {!lidForm && (
+        <p>
+          Module and task position: {currentIndex + 1} of {items.length}
+        </p>
+      )}
       <p
         role={lidForm ? "status" : undefined}
         lang={lidForm ? "de" : undefined}
@@ -1215,10 +1259,12 @@ export default function CandidateExamRuntimePage() {
             : "Verbindung unterbrochen"
           : `Connection: ${online ? "Online" : "Offline — changes are queued"}`}
       </p>
-      <p>Saved response revision: {savedRevision}</p>
+      <p>
+        {lidForm ? "Gespeicherte Antwortversion" : "Saved response revision"}:{" "}
+        {savedRevision}
+      </p>
       {lidForm ? (
         <>
-          <p aria-hidden="true">Autosave: {practiceSaveStatus}</p>
           <p role="status" aria-atomic="true" lang="de" id={errorId}>
             {practiceReplayPending && !online
               ? "Der Antwortstatus wird nach Wiederherstellung der Verbindung geprüft."
@@ -1258,19 +1304,37 @@ export default function CandidateExamRuntimePage() {
       <section aria-labelledby="question-heading">
         <h2 id="question-heading" ref={questionHeadingRef} tabIndex={-1}>
           {lidForm
-            ? `Question ${currentIndex + 1} of ${items.length}`
+            ? `Frage ${currentIndex + 1} von ${items.length}`
             : "Question"}
         </h2>
-        <p id={promptId}>{content.prompt ?? "Question content"}</p>
-        <p id={responseHelpId}>Response mode: {modeLabels[mode] ?? mode}</p>
+        <p id={promptId}>
+          {promptWithNotice ? (
+            <>
+              <span lang="en">{promptNotice}</span>
+              {content.prompt?.slice(promptNotice.length)}
+            </>
+          ) : (
+            (content.prompt ??
+            (lidForm ? "Frage nicht verfügbar" : "Question content"))
+          )}
+        </p>
+        <p id={responseHelpId}>
+          {lidForm
+            ? `Antwortformat: ${practiceModeLabels[mode]}`
+            : `Response mode: ${modeLabels[mode] ?? mode}`}
+        </p>
         {(mode === "SELECT_ONE" || mode === "SELECT_MULTIPLE") && (
           <fieldset
             aria-describedby={`${promptId} ${responseHelpId}${lidForm ? " " + errorId : ""}`}
           >
             <legend>
               {mode === "SELECT_ONE"
-                ? "Select one answer"
-                : "Select all answers that apply"}
+                ? lidForm
+                  ? "Wählen Sie eine Antwort"
+                  : "Select one answer"
+                : lidForm
+                  ? "Wählen Sie alle zutreffenden Antworten"
+                  : "Select all answers that apply"}
             </legend>
             {(content.options ?? []).map((option) => (
               <label
@@ -1382,8 +1446,16 @@ export default function CandidateExamRuntimePage() {
           />
         )}
       </section>
-      <nav aria-label="Exam question navigation">
-        <p aria-current="step">Current question {currentIndex + 1}</p>
+      <nav
+        aria-label={
+          lidForm
+            ? "Navigation zwischen den Fragen"
+            : "Exam question navigation"
+        }
+      >
+        <p aria-current="step">
+          {lidForm ? "Aktuelle Frage" : "Current question"} {currentIndex + 1}
+        </p>
         <button
           type="button"
           onClick={() =>
@@ -1392,7 +1464,7 @@ export default function CandidateExamRuntimePage() {
           }
           disabled={navigationBlocked || currentIndex <= 0}
         >
-          Previous question
+          {lidForm ? "Vorherige Frage" : "Previous question"}
         </button>
         <button
           type="button"
@@ -1407,7 +1479,7 @@ export default function CandidateExamRuntimePage() {
             currentIndex >= items.length - 1
           }
         >
-          Next question
+          {lidForm ? "Nächste Frage" : "Next question"}
         </button>
       </nav>
       {showQuestionOverview && (
@@ -1418,6 +1490,9 @@ export default function CandidateExamRuntimePage() {
               ? `${confirmedOverviewCount} von ${items.length} Antworten gespeichert`
               : "Der Antwortstatus wird geprüft."}
           </p>
+          <a href="#practice-submission">
+            Fragenliste überspringen und zur Abgabe
+          </a>
           <ol className={styles.questionGrid} role="list">
             {items.map(({ binding_id }, index) => {
               const isCurrent = binding_id === currentBinding;
@@ -1448,6 +1523,11 @@ export default function CandidateExamRuntimePage() {
           </ol>
         </details>
       )}
+      {showQuestionOverview && (
+        <h2 id="practice-submission" tabIndex={-1}>
+          Abgabe
+        </h2>
+      )}
       <button
         type="button"
         ref={submitTriggerRef}
@@ -1455,8 +1535,9 @@ export default function CandidateExamRuntimePage() {
         onClick={() => {
           if (!lidForm) {
             void submit();
-          } else {
-            submitDialogRef.current?.showModal();
+          } else if (submitDialogRef.current) {
+            submitDialogRef.current.returnValue = "";
+            submitDialogRef.current.showModal();
             cancelSubmitRef.current?.focus();
           }
         }}
@@ -1469,8 +1550,10 @@ export default function CandidateExamRuntimePage() {
           submitting
         }
       >
-        {lidForm && submissionUnconfirmed
-          ? "Abgabe erneut versuchen"
+        {lidForm
+          ? submissionUnconfirmed
+            ? "Abgabe erneut versuchen"
+            : "Übung abgeben"
           : "Submit attempt"}
       </button>
       {lidForm && !expired && (
@@ -1483,8 +1566,10 @@ export default function CandidateExamRuntimePage() {
           ref={submitDialogRef}
           aria-labelledby={submitTitleId}
           aria-describedby={submitDescriptionId}
-          onClose={() => {
+          onClose={(event) => {
             if (
+              !event.currentTarget.open &&
+              event.currentTarget.returnValue !== "question" &&
               !submittingRef.current &&
               runtimeRef.current?.status === "IN_PROGRESS"
             )
@@ -1495,11 +1580,11 @@ export default function CandidateExamRuntimePage() {
             borderRadius: "0.5rem",
           }}
         >
-          <h2 id={submitTitleId}>Submit this practice exam?</h2>
+          <h2 id={submitTitleId}>Möchten Sie die Übung abgeben?</h2>
           <div id={submitDescriptionId}>
-            <p>After you submit, you can no longer change your answers.</p>
+            <p>Nach der Abgabe können Sie Ihre Antworten nicht mehr ändern.</p>
             <p>
-              {unanswered} of {items.length} questions unanswered.
+              {unanswered} von {items.length} Fragen sind unbeantwortet.
             </p>
             {unanswered > 0 && !submissionUnconfirmed && (
               <p lang="de">
@@ -1512,10 +1597,10 @@ export default function CandidateExamRuntimePage() {
             ref={cancelSubmitRef}
             onClick={() => submitDialogRef.current?.close()}
           >
-            Keep working
+            Weiter bearbeiten
           </button>{" "}
           <button type="button" onClick={() => void submit()}>
-            Submit final answers
+            Endgültig abgeben
           </button>
           {unanswered > 0 && !submissionUnconfirmed && (
             <button
@@ -1524,8 +1609,12 @@ export default function CandidateExamRuntimePage() {
               onClick={() => {
                 const [next] = unansweredItems;
                 if (next) {
-                  submitDialogRef.current?.close();
-                  void navigateTo(next.binding_id);
+                  submitDialogRef.current?.close("question");
+                  if (next.binding_id === currentBinding) {
+                    questionHeadingRef.current?.focus();
+                  } else {
+                    void navigateTo(next.binding_id);
+                  }
                 }
               }}
             >

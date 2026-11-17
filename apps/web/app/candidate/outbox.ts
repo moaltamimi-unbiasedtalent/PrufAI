@@ -11,12 +11,14 @@ export type CandidateAccountScope = { userId: string; organisationId: string };
 
 const LEGACY_DATABASE = "prufai-candidate-runtime";
 const STORE = "response-outbox";
+const SUBMISSIONS = "submission-fences";
 const MAX_OPERATIONS = 100;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_RETENTION_MS = 24 * 60 * 60 * 1000;
 let activeAccount: string | null = null;
 let accountGeneration = 0;
 const openDatabases = new Map<IDBDatabase, string>();
+let notificationSource: string | undefined;
 
 function closeDatabase(database: IDBDatabase): void {
   database.close();
@@ -54,6 +56,68 @@ function databaseName(scope: CandidateAccountScope): string {
   return `prufai-candidate-runtime-v2:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.organisationId)}`;
 }
 
+function attemptResource(scope: CandidateAccountScope, attemptId: string) {
+  return `${databaseName(scope)}:attempt:${encodeURIComponent(attemptId)}`;
+}
+
+export class CandidateOutboxBlocked extends Error {}
+
+// Hold the exclusive lock across the shared read and the API action. Refuse a
+// concurrent action instead of sending it later after the edit has resolved.
+export async function withCandidateAttemptLock<T>(
+  scope: CandidateAccountScope,
+  attemptId: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const generation = accountGeneration;
+  requireActiveAccount(scope, generation);
+  if (!navigator.locks)
+    return Promise.reject(
+      new CandidateOutboxBlocked("attempt lock unavailable"),
+    );
+  return navigator.locks.request(
+    attemptResource(scope, attemptId),
+    { ifAvailable: true },
+    async (lock) => {
+      if (!lock) throw new CandidateOutboxBlocked("attempt lock busy");
+      requireActiveAccount(scope, generation);
+      return action();
+    },
+  );
+}
+
+export function observeCandidateOutbox(
+  scope: CandidateAccountScope,
+  attemptId: string,
+  changed: () => void,
+): () => void {
+  if (typeof BroadcastChannel === "undefined") return () => {};
+  try {
+    const channel = new BroadcastChannel(attemptResource(scope, attemptId));
+    channel.onmessage = (event) => {
+      if (event.data !== notificationSource) changed();
+    };
+    return () => channel.close();
+  } catch {
+    return () => {};
+  }
+}
+
+export function notifyCandidateOutbox(
+  scope: CandidateAccountScope,
+  attemptId: string,
+): void {
+  if (typeof BroadcastChannel === "undefined") return;
+  try {
+    const channel = new BroadcastChannel(attemptResource(scope, attemptId));
+    notificationSource ??= crypto.randomUUID();
+    channel.postMessage(notificationSource);
+    channel.close();
+  } catch {
+    // Focus and periodic reads can refresh stale UI. Actions always read IDB.
+  }
+}
+
 function deleteDatabase(name: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(name);
@@ -75,11 +139,23 @@ async function openCandidateOutbox(
   await deleteDatabase(LEGACY_DATABASE);
   requireActiveAccount(scope, generation);
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(name, 1);
-    request.onupgradeneeded = () =>
-      request.result.createObjectStore(STORE, { keyPath: "operationId" });
+    let blocked = false;
+    const request = indexedDB.open(name, 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(STORE))
+        request.result.createObjectStore(STORE, { keyPath: "operationId" });
+      request.result.createObjectStore(SUBMISSIONS);
+    };
+    request.onblocked = () => {
+      blocked = true;
+      reject(new CandidateOutboxBlocked("outbox schema upgrade is blocked"));
+    };
     request.onsuccess = () => {
       const database = request.result;
+      if (blocked) {
+        database.close();
+        return;
+      }
       try {
         requireActiveAccount(scope, generation);
         openDatabases.set(database, name);
@@ -246,19 +322,52 @@ export async function unresolvedCandidateBindings(
   scope: CandidateAccountScope,
   attemptId: string,
 ): Promise<ReadonlySet<string>> {
+  return (await readCandidateAttemptBarrier(scope, attemptId)).bindingIds;
+}
+
+export async function readCandidateAttemptBarrier(
+  scope: CandidateAccountScope,
+  attemptId: string,
+): Promise<{ bindingIds: ReadonlySet<string>; submissionStarted: boolean }> {
   const generation = accountGeneration;
   const database = await openCandidateOutbox(scope);
   try {
-    const operations = await readOperations(database);
+    const transaction = database.transaction([STORE, SUBMISSIONS], "readonly");
+    const complete = transactionComplete(transaction);
+    const operations = transaction.objectStore(STORE).getAll();
+    const submission = transaction.objectStore(SUBMISSIONS).get(attemptId);
+    await complete;
     requireActiveAccount(scope, generation);
-    return new Set(
-      operations
-        .filter(
-          (operation) =>
-            operation.attemptId === attemptId && !isExpired(operation),
-        )
-        .map(({ bindingId }) => bindingId),
-    );
+    return {
+      bindingIds: new Set(
+        (operations.result as CandidateOutboxOperation[])
+          .filter((operation) => operation.attemptId === attemptId)
+          .map(({ bindingId }) => bindingId),
+      ),
+      submissionStarted: submission.result === true,
+    };
+  } finally {
+    closeDatabase(database);
+  }
+}
+
+// This fence survives a closed tab or an ambiguous submission response. While
+// present, the same submission may be retried, with answer edits kept blocked.
+// The caller holds the attempt lock while persisting the fence and submitting.
+export async function fenceCandidateSubmission(
+  scope: CandidateAccountScope,
+  attemptId: string,
+): Promise<void> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    requireActiveAccount(scope, generation);
+    const transaction = database.transaction(SUBMISSIONS, "readwrite");
+    const complete = transactionComplete(transaction);
+    transaction.objectStore(SUBMISSIONS).put(true, attemptId);
+    await complete;
+    requireActiveAccount(scope, generation);
+    notifyCandidateOutbox(scope, attemptId);
   } finally {
     closeDatabase(database);
   }
@@ -270,6 +379,7 @@ export async function syncCandidateOutbox(
     operation: CandidateOutboxOperation,
   ) => Promise<"ack" | "conflict" | "expired" | "retry">,
   attemptId?: string,
+  { retainUnresolved = false }: { retainUnresolved?: boolean } = {},
 ): Promise<{ acknowledged: number; conflicts: number; retryNeeded?: boolean }> {
   const generation = accountGeneration;
   requireActiveAccount(scope, generation);
@@ -284,7 +394,7 @@ export async function syncCandidateOutbox(
     )) {
       requireActiveAccount(scope, generation);
       if (attemptId && operation.attemptId !== attemptId) continue;
-      if (isExpired(operation)) {
+      if (!retainUnresolved && isExpired(operation)) {
         await removeCandidateOperation(database, operation.operationId);
         continue;
       }

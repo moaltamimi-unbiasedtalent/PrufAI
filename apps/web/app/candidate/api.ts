@@ -295,10 +295,10 @@ export const candidateApi = {
         client_operation_id: operationId,
       }),
     }),
-  navigate: (attemptId: string, bindingId: string) =>
+  navigate: (attemptId: string, bindingId: string, signal?: AbortSignal) =>
     request<{ current_binding_id: string }>(
       `/exam-attempts/${attemptId}/navigate?binding_id=${encodeURIComponent(bindingId)}`,
-      { method: "POST" },
+      { method: "POST", signal },
     ),
   heartbeat: (attemptId: string) =>
     timedAttemptRequest<CandidateAttempt & { server_now: string }>(

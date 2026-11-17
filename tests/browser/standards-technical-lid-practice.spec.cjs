@@ -455,7 +455,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       201,
     );
     attemptId = prepared.id;
-    await expect(page).toHaveURL(new RegExp(`/candidate/exams/${attemptId}$`));
+    await expect(page).toHaveURL(
+      new RegExp(`/candidate/exams/de-${attemptId}$`),
+    );
     await expect(page.getByText(/Gewähltes Bundesland: Berlin/)).toBeVisible();
     await expect(
       page.getByText("Bearbeitungszeit: 60 Minuten", { exact: true }),
@@ -1016,6 +1018,28 @@ async function createPracticeAssignment(page) {
   return { org, id };
 }
 
+// Deliberately withhold presentation refresh to exercise handler guards against
+// a truly stale tab. The shared IndexedDB and Web Lock implementations stay real.
+async function holdPracticeObserver(tab) {
+  await tab.addInitScript(() => {
+    class SilentChannel {
+      onmessage = null;
+      postMessage() {}
+      close() {}
+    }
+    Object.defineProperty(window, "BroadcastChannel", {
+      value: SilentChannel,
+    });
+    const interval = window.setInterval.bind(window);
+    window.setInterval = (handler, delay, ...args) =>
+      delay === 2000 ? 0 : interval(handler, delay, ...args);
+    const listen = window.addEventListener.bind(window);
+    window.addEventListener = (name, ...args) => {
+      if (name !== "focus") listen(name, ...args);
+    };
+  });
+}
+
 async function tabTo(page, target, max = 32, key = "Tab") {
   const focused = () =>
     target.evaluate((element) => document.activeElement === element);
@@ -1503,6 +1527,224 @@ test("Berlin overview tracks the failed save binding after another tab navigates
   }
 });
 
+test("Berlin shared outbox blocks stale-tab navigation and submission without reload until one exact retry", async ({
+  page,
+  context,
+}) => {
+  const { id, org } = await createPracticeAssignment(page);
+  const owner = await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const attempt = runtime.attempt_id;
+  const root = `${candidate}/exam-attempts/${attempt}`;
+  const [first] = runtime.runtime_plan.modules[0].sections[0].tasks[0].items;
+  const savePath = `${root}/responses/${first.binding_id}`;
+  const confirmed = (tab) =>
+    tab.getByRole("status").filter({
+      hasText: "Alle Änderungen sind vom Server bestätigt.",
+    });
+  const overview = (tab) =>
+    tab.locator("details").filter({ hasText: "Fragenübersicht" });
+  const submit = (tab) =>
+    tab.getByRole("button", { name: "Übung abgeben", exact: true });
+  await expect(confirmed(page)).toBeVisible();
+  const originalSave = apiResponse(page, savePath, "PUT");
+  await page.getByRole("radio").first().focus();
+  await page.keyboard.press("Space");
+  expect((await originalSave).status()).toBe(200);
+  await expect(confirmed(page)).toBeVisible();
+
+  const other = await context.newPage();
+  const transitions = [];
+  other.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      [root + "/navigate", root + "/submit"].includes(
+        new URL(request.url()).pathname,
+      )
+    )
+      transitions.push(new URL(request.url()).pathname);
+  });
+  const writes = [];
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let forward = false;
+  await page.route(`**${savePath}`, async (route) => {
+    writes.push(route.request().postDataJSON());
+    if (forward) return route.continue();
+    await held;
+    await route.abort("connectionfailed");
+  });
+  try {
+    await other.goto(`/candidate/exams/de-${attempt}`);
+    await expect(confirmed(other)).toBeVisible();
+    await overview(other).locator("summary").click();
+    const navigate = apiResponse(other, root + "/navigate", "POST");
+    await overview(other)
+      .getByRole("button", { name: "Frage 5 Offen" })
+      .click();
+    expect((await navigate).status()).toBe(200);
+    await expect(
+      other.getByRole("heading", { name: "Frage 5 von 33" }),
+    ).toBeFocused();
+    transitions.length = 0;
+
+    // Keep a third tab's UI stale to prove the action handler and shared lock,
+    // even when notification and polling updates have not reached that tab.
+    const stale = await context.newPage();
+    await holdPracticeObserver(stale);
+    try {
+      await stale.goto(`/candidate/exams/de-${attempt}`);
+      await expect(confirmed(stale)).toBeVisible();
+      // Open the modal before the replacement so final submission invokes its
+      // own barrier instead of relying on the trigger's disabled appearance.
+      await submit(stale).click();
+      stale.on("request", (request) => {
+        if (
+          request.method() === "POST" &&
+          [root + "/navigate", root + "/submit"].includes(
+            new URL(request.url()).pathname,
+          )
+        )
+          transitions.push(new URL(request.url()).pathname);
+      });
+      await page.bringToFront();
+      const staged = page.waitForRequest(
+        (request) =>
+          request.method() === "PUT" &&
+          new URL(request.url()).pathname === savePath,
+      );
+      await page.getByRole("radio").first().focus();
+      await page.keyboard.press("ArrowDown");
+      const operation = (await staged).postDataJSON();
+      expect(operation.expected_revision).toBe(1);
+      expect(operation.client_operation_id).toMatch(/^[a-f0-9-]{36}$/);
+      await expect(rowFor(other, "Frage 1 Nicht bestätigt")).toBeVisible();
+      await expect(rowFor(other, "Frage 5 Offen")).toHaveAttribute(
+        "aria-current",
+        "step",
+      );
+      await expect(overview(other)).toContainText(
+        "0 von 33 Antworten gespeichert",
+      );
+      await expect(confirmed(other)).toHaveCount(0);
+      await expect(submit(other)).toBeDisabled();
+      await expect(
+        other.getByRole("button", { name: "Nächste Frage" }),
+      ).toBeDisabled();
+      await stale.getByRole("button", { name: "Endgültig abgeben" }).click();
+      await expect(stale.locator("main").getByRole("alert")).toHaveText(
+        "Synchronisieren Sie Ihre Antworten vor der Abgabe.",
+      );
+      await stale.getByRole("button", { name: "Nächste Frage" }).click();
+      await expect(stale.locator("main").getByRole("alert")).toContainText(
+        "bevor Sie die Frage wechseln",
+      );
+      expect(transitions).toEqual([]);
+
+      release();
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "Speicherung nicht bestätigt" }),
+      ).toBeVisible();
+      await expect(submit(other)).toBeDisabled();
+      // On failure the stale tab can acquire the lock, but IDB still denies it.
+      await submit(stale).click();
+      await stale.getByRole("button", { name: "Endgültig abgeben" }).click();
+      await expect(stale.locator("main").getByRole("alert")).toHaveText(
+        "Synchronisieren Sie Ihre Antworten vor der Abgabe.",
+      );
+      expect(transitions).toEqual([]);
+      expect(writes).toEqual([operation]);
+      const beforeRetry = writes.length;
+      forward = true;
+      const retry = apiResponse(page, savePath, "PUT");
+      await page
+        .getByRole("button", {
+          name: "Speicherung erneut versuchen",
+          exact: true,
+        })
+        .click();
+      const response = await retry;
+      expect(response.status()).toBe(200);
+      expect((await response.json()).revision).toBe(2);
+      await expect(confirmed(page)).toBeVisible();
+      expect(writes).toHaveLength(beforeRetry + 1);
+      expect(writes.at(-1)).toEqual(operation);
+      await expect(rowFor(other, "Frage 1 Gespeichert")).toBeVisible();
+      await expect(rowFor(other, "Frage 5 Offen")).toHaveAttribute(
+        "aria-current",
+        "step",
+      );
+      await expect(overview(other)).toContainText(
+        "1 von 33 Antworten gespeichert",
+      );
+      await expect(submit(other)).toBeEnabled();
+      const stored = await privateRequest(other, "GET", root + "/runtime", {
+        headers: scoped(owner, org),
+      });
+      expect((await stored.json()).responses).toEqual([
+        {
+          binding_id: first.binding_id,
+          revision: 2,
+          payload: operation.payload,
+        },
+      ]);
+      let releaseSubmission;
+      const submissionHeld = new Promise((resolve) => {
+        releaseSubmission = resolve;
+      });
+      await other.route(`**${root}/submit`, async (route) => {
+        await submissionHeld;
+        await route.continue();
+      });
+      const submitting = other.waitForRequest(
+        (request) =>
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === root + "/submit",
+      );
+      const submitted = apiResponse(other, root + "/submit", "POST");
+      try {
+        await submit(other).click();
+        await other.getByRole("button", { name: "Endgültig abgeben" }).click();
+        await submitting;
+        await expect(page.getByRole("radio").first()).toHaveAttribute(
+          "aria-disabled",
+          "true",
+        );
+        await page
+          .getByRole("radio")
+          .first()
+          .evaluate((radio) => radio.click());
+        await expect(page.getByRole("radio").first()).not.toBeChecked();
+        expect(writes).toHaveLength(2);
+      } finally {
+        releaseSubmission();
+      }
+      expect((await submitted).status()).toBe(200);
+      await expect(
+        other.getByRole("heading", { name: "Übung abgegeben" }),
+      ).toBeFocused();
+      expect(transitions).toEqual([root + "/submit"]);
+      await page.bringToFront();
+      await expect(page.getByRole("radio").first()).toBeDisabled();
+    } finally {
+      await stale.close();
+    }
+  } finally {
+    release();
+    await page.unroute(`**${savePath}`);
+    await context.setOffline(false);
+    await other.close();
+  }
+
+  function rowFor(tab, label) {
+    return overview(tab).getByRole("button", { name: label, exact: true });
+  }
+});
+
 test("narrow keyboard Berlin practice recovers lost acknowledgements and resolves a stale revision safely", async ({
   page,
   context,
@@ -1729,8 +1971,10 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     await page.unroute(path);
   }
 
-  // Two tabs hold revision 2. Only the first writer may create revision 3.
+  // Hold the observer stale at revision 2 to preserve the real server's
+  // revision-conflict rejection when another tab creates revision 3.
   const secondTab = await context.newPage();
+  await holdPracticeObserver(secondTab);
   await secondTab.goto(`/candidate/exams/${attempt}`);
   const tabAnswers = secondTab.getByRole("radio");
   await expect(tabAnswers.nth(1)).toBeChecked();
@@ -2346,5 +2590,186 @@ test("Berlin pilot restricts role workspaces and withdraws exact results despite
       scorePage.close(),
     ]);
     await restartOwnedApi();
+  }
+});
+
+test("Berlin localized routes announce German loading and recover from the initial runtime outage", async ({
+  page,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
+  const pattern = `**${root}/runtime`;
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const called = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === root + "/runtime",
+  );
+  await page.route(
+    pattern,
+    async (route) => {
+      await pending;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "SERVICE_UNAVAILABLE" }),
+      });
+    },
+    { times: 1 },
+  );
+  try {
+    await page.goto(`/candidate/exams/de-${runtime.attempt_id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await called;
+    const loading = page
+      .getByRole("status")
+      .filter({ hasText: "Übung wird geladen…" });
+    await expect(loading).toBeVisible();
+    await expect(page.locator("main")).toHaveAttribute("lang", "de");
+    await expect(page.getByText("Loading exam…", { exact: true })).toHaveCount(
+      0,
+    );
+  } finally {
+    release();
+  }
+  await expect(
+    page.getByRole("heading", { name: "Übung nicht verfügbar" }),
+  ).toBeVisible();
+  await expect(page.locator("main").getByRole("alert")).toHaveAttribute(
+    "lang",
+    "de",
+  );
+  await expect(page.locator("main").getByRole("alert")).toHaveText(
+    "Die Übung ist vorübergehend nicht erreichbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
+  );
+  await expect(
+    page.getByRole("link", { name: "Zurück zu meinen Prüfungen" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Frage 1 von 33" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+});
+
+test("Berlin transition barriers fail closed on shared-storage reads and unavailable locks", async ({
+  page,
+  context,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
+  const blocked = [];
+  const tab = await context.newPage();
+  await tab.addInitScript(() => {
+    const read = IDBObjectStore.prototype.getAll;
+    IDBObjectStore.prototype.getAll = function (...args) {
+      if (window.rejectOutboxRead && this.name === "response-outbox")
+        throw new DOMException(
+          "Synthetic storage failure",
+          "InvalidStateError",
+        );
+      return read.apply(this, args);
+    };
+  });
+  tab.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      [root + "/navigate", root + "/submit"].includes(
+        new URL(request.url()).pathname,
+      )
+    )
+      blocked.push(new URL(request.url()).pathname);
+  });
+  try {
+    await tab.goto(`/candidate/exams/de-${runtime.attempt_id}`);
+    await expect(
+      tab
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    // The modal is already open when the shared read becomes unavailable.
+    await tab.getByRole("button", { name: "Übung abgeben" }).click();
+    await tab.evaluate(() => {
+      window.rejectOutboxRead = true;
+    });
+    await tab.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await expect(tab.locator("main").getByRole("alert")).toHaveText(
+      "Synchronisieren Sie Ihre Antworten vor der Abgabe.",
+    );
+    await expect(
+      tab.getByRole("button", { name: "Übung abgeben" }),
+    ).toBeDisabled();
+    await expect(
+      tab
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toHaveCount(0);
+    expect(blocked).toEqual([]);
+    await tab.evaluate(() => {
+      window.rejectOutboxRead = false;
+    });
+    await expect(
+      tab.getByRole("button", { name: "Übung abgeben" }),
+    ).toBeEnabled();
+
+    const requested = tab.waitForRequest(
+      (request) => new URL(request.url()).pathname === root + "/runtime",
+    );
+    await tab.route(
+      `**${root}/runtime`,
+      async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response });
+      },
+      { times: 1 },
+    );
+    await tab.reload();
+    await requested;
+    await expect(
+      tab
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    await tab.evaluate(() => {
+      window.rejectOutboxRead = true;
+    });
+    await tab.getByRole("button", { name: "Nächste Frage" }).click();
+    await expect(tab.locator("main").getByRole("alert")).toContainText(
+      "bevor Sie die Frage wechseln",
+    );
+    expect(blocked).toEqual([]);
+  } finally {
+    await tab.close();
+  }
+  const unsupported = await context.newPage();
+  try {
+    await unsupported.addInitScript(() => {
+      Object.defineProperty(navigator, "locks", { value: undefined });
+    });
+    await unsupported.goto(`/candidate/exams/de-${runtime.attempt_id}`);
+    await expect(
+      unsupported.getByRole("button", { name: "Übung abgeben" }),
+    ).toBeDisabled();
+    await expect(unsupported.getByRole("radio").first()).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(
+      unsupported
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toHaveCount(0);
+  } finally {
+    await unsupported.close();
   }
 });

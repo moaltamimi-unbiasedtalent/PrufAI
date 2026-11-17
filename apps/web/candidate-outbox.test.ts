@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearAccountOutbox,
+  fenceCandidateSubmission,
   lockActiveCandidateAccount,
   queueCandidateOperation,
+  readCandidateAttemptBarrier,
   syncCandidateOutbox,
   unresolvedCandidateBindings,
+  withCandidateAttemptLock,
   type CandidateAccountScope,
   type CandidateOutboxOperation,
 } from "./app/candidate/outbox";
@@ -16,6 +19,7 @@ function indexedDbDouble() {
   type StoredDatabase = {
     rows: Map<string, CandidateOutboxOperation>;
     connections: number;
+    submissions?: Map<string, boolean>;
   };
   const databases = new Map<string, StoredDatabase>();
   const request = <T>(result: T) => ({
@@ -36,6 +40,7 @@ function indexedDbDouble() {
       let closed = false;
       const database = {
         createObjectStore: () => undefined,
+        objectStoreNames: { contains: () => false },
         close: () => {
           if (!closed) stored.connections -= 1;
           closed = true;
@@ -47,7 +52,12 @@ function indexedDbDouble() {
             onerror: null as null | (() => void),
             onabort: null as null | (() => void),
             abort: () => queueMicrotask(() => transaction.onabort?.()),
-            objectStore: () => ({
+            objectStore: (name: string) => ({
+              get: (key: string) => {
+                const result = request(stored.submissions?.get(key));
+                setTimeout(() => transaction.oncomplete?.(), 0);
+                return result;
+              },
               getAll: () => {
                 const result = request(
                   [...stored.rows.values()].map((row) => structuredClone(row)),
@@ -55,11 +65,19 @@ function indexedDbDouble() {
                 queueMicrotask(() => result.onsuccess?.());
                 return result;
               },
-              put: (operation: CandidateOutboxOperation) => {
-                stored.rows.set(
-                  operation.operationId,
-                  structuredClone(operation),
-                );
+              put: (
+                operation: CandidateOutboxOperation | boolean,
+                key: string,
+              ) => {
+                if (name === "submission-fences") {
+                  stored.submissions ??= new Map();
+                  stored.submissions.set(key, operation === true);
+                } else if (typeof operation !== "boolean") {
+                  stored.rows.set(
+                    operation.operationId,
+                    structuredClone(operation),
+                  );
+                }
                 setTimeout(() => transaction.oncomplete?.(), 0);
               },
               delete: (operationId: string) => {
@@ -248,6 +266,105 @@ describe("account-bound candidate outbox", () => {
         queuedAt: "invalid",
       }),
     ).rejects.toThrow("expired");
+  });
+
+  it("retains an aged unresolved Berlin operation and retries its original identity", async () => {
+    lockActiveCandidateAccount(alice);
+    const pending = operation("original", "answer");
+    await queueCandidateOperation(alice, pending);
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 48 * 60 * 60 * 1000);
+    try {
+      expect(
+        await unresolvedCandidateBindings(alice, pending.attemptId),
+      ).toEqual(new Set([pending.bindingId]));
+      const send = vi.fn(async () => "retry" as const);
+      expect(
+        await syncCandidateOutbox(alice, send, pending.attemptId, {
+          retainUnresolved: true,
+        }),
+      ).toMatchObject({ retryNeeded: true });
+      expect(send).toHaveBeenCalledExactlyOnceWith(pending);
+      expect(
+        await unresolvedCandidateBindings(alice, pending.attemptId),
+      ).toEqual(new Set([pending.bindingId]));
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("scopes a submission fence to its attempt, account and organisation", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt");
+    expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
+      submissionStarted: true,
+    });
+    expect(await readCandidateAttemptBarrier(alice, "another")).toMatchObject({
+      submissionStarted: false,
+    });
+    lockActiveCandidateAccount(otherAcademy);
+    expect(
+      await readCandidateAttemptBarrier(otherAcademy, "attempt"),
+    ).toMatchObject({ submissionStarted: false });
+    lockActiveCandidateAccount(bob);
+    expect(await readCandidateAttemptBarrier(bob, "attempt")).toMatchObject({
+      submissionStarted: false,
+    });
+    await expect(readCandidateAttemptBarrier(alice, "attempt")).rejects.toThrow(
+      "account changed",
+    );
+  });
+
+  it("refuses an attempt action when the browser cannot acquire a lock", async () => {
+    lockActiveCandidateAccount(alice);
+    vi.stubGlobal("navigator", {});
+    const action = vi.fn(async () => "sent");
+    await expect(
+      withCandidateAttemptLock(alice, "attempt", action),
+    ).rejects.toThrow("lock unavailable");
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("refuses competing actions and isolates locks by account and attempt", async () => {
+    lockActiveCandidateAccount(alice);
+    const held = new Set<string>();
+    vi.stubGlobal("navigator", {
+      locks: {
+        request: async (
+          resource: string,
+          options: { ifAvailable: boolean },
+          action: (lock: object | null) => Promise<unknown>,
+        ) => {
+          expect(options).toEqual({ ifAvailable: true });
+          if (held.has(resource)) return action(null);
+          held.add(resource);
+          try {
+            return await action({});
+          } finally {
+            held.delete(resource);
+          }
+        },
+      },
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = withCandidateAttemptLock(alice, "attempt", () => gate);
+    const send = vi.fn(async () => "sent");
+    await expect(
+      withCandidateAttemptLock(alice, "attempt", send),
+    ).rejects.toThrow("lock busy");
+    expect(send).not.toHaveBeenCalled();
+    expect(await withCandidateAttemptLock(alice, "another", send)).toBe("sent");
+    lockActiveCandidateAccount(bob);
+    expect(await withCandidateAttemptLock(bob, "attempt", send)).toBe("sent");
+    release();
+    await running;
+    await expect(
+      withCandidateAttemptLock(alice, "attempt", send),
+    ).rejects.toThrow("account changed");
   });
 
   it("cancels in-flight access before it can reopen a purged account queue", async () => {

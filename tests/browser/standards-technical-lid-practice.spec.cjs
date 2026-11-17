@@ -1593,6 +1593,8 @@ test("Berlin shared outbox blocks stale-tab navigation and submission without re
     // Keep a third tab's UI stale to prove the action handler and shared lock,
     // even when notification and polling updates have not reached that tab.
     const stale = await context.newPage();
+    const staleNavigation = await context.newPage();
+    const staleFailed = await context.newPage();
     await holdPracticeObserver(stale);
     try {
       await stale.goto(`/candidate/exams/de-${attempt}`);
@@ -1609,6 +1611,21 @@ test("Berlin shared outbox blocks stale-tab navigation and submission without re
         )
           transitions.push(new URL(request.url()).pathname);
       });
+      for (const tab of [staleNavigation, staleFailed]) {
+        await holdPracticeObserver(tab);
+        await tab.goto(`/candidate/exams/de-${attempt}`);
+        await expect(confirmed(tab)).toBeVisible();
+        tab.on("request", (request) => {
+          if (
+            request.method() === "POST" &&
+            [root + "/navigate", root + "/submit"].includes(
+              new URL(request.url()).pathname,
+            )
+          )
+            transitions.push(new URL(request.url()).pathname);
+        });
+      }
+      await submit(staleFailed).click();
       await page.bringToFront();
       const staged = page.waitForRequest(
         (request) =>
@@ -1637,10 +1654,16 @@ test("Berlin shared outbox blocks stale-tab navigation and submission without re
       await expect(stale.locator("main").getByRole("alert")).toHaveText(
         "Synchronisieren Sie Ihre Antworten vor der Abgabe.",
       );
-      await stale.getByRole("button", { name: "Nächste Frage" }).click();
-      await expect(stale.locator("main").getByRole("alert")).toContainText(
-        "bevor Sie die Frage wechseln",
-      );
+      await expect(confirmed(stale)).toHaveCount(0);
+      await expect(submit(stale)).toBeDisabled();
+      await staleNavigation
+        .getByRole("button", { name: "Nächste Frage" })
+        .click();
+      await expect(
+        staleNavigation.locator("main").getByRole("alert"),
+      ).toContainText("bevor Sie die Frage wechseln");
+      await expect(confirmed(staleNavigation)).toHaveCount(0);
+      await expect(submit(staleNavigation)).toBeDisabled();
       expect(transitions).toEqual([]);
 
       release();
@@ -1651,11 +1674,14 @@ test("Berlin shared outbox blocks stale-tab navigation and submission without re
       ).toBeVisible();
       await expect(submit(other)).toBeDisabled();
       // On failure the stale tab can acquire the lock, but IDB still denies it.
-      await submit(stale).click();
-      await stale.getByRole("button", { name: "Endgültig abgeben" }).click();
-      await expect(stale.locator("main").getByRole("alert")).toHaveText(
+      await staleFailed
+        .getByRole("button", { name: "Endgültig abgeben" })
+        .click();
+      await expect(staleFailed.locator("main").getByRole("alert")).toHaveText(
         "Synchronisieren Sie Ihre Antworten vor der Abgabe.",
       );
+      await expect(confirmed(staleFailed)).toHaveCount(0);
+      await expect(submit(staleFailed)).toBeDisabled();
       expect(transitions).toEqual([]);
       expect(writes).toEqual([operation]);
       const beforeRetry = writes.length;
@@ -1732,6 +1758,8 @@ test("Berlin shared outbox blocks stale-tab navigation and submission without re
       await expect(page.getByRole("radio").first()).toBeDisabled();
     } finally {
       await stale.close();
+      await staleNavigation.close();
+      await staleFailed.close();
     }
   } finally {
     release();

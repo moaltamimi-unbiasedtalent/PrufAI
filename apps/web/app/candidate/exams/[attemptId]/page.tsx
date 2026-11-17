@@ -1098,11 +1098,12 @@ export default function CandidateExamRuntimePage() {
     } catch (cause) {
       if (currentContext.current === expectedContext) {
         if (isExpired(cause)) markExpired();
-        else if (cause instanceof CandidateOutboxBlocked)
+        else if (cause instanceof CandidateOutboxBlocked) {
+          setPracticeOutbox(null);
           setError(
             "Die Antworten müssen bestätigt sein, bevor Sie die Frage wechseln können.",
           );
-        else setError(safeError(cause, Boolean(lidForm)));
+        } else setError(safeError(cause, Boolean(lidForm)));
       }
     } finally {
       if (currentContext.current === expectedContext) {
@@ -1189,6 +1190,7 @@ export default function CandidateExamRuntimePage() {
           markExpired();
           setSubmissionUnconfirmed(false);
         } else if (cause instanceof CandidateOutboxBlocked) {
+          setPracticeOutbox(null);
           setError("Synchronisieren Sie Ihre Antworten vor der Abgabe.");
         } else if (lidForm) {
           try {

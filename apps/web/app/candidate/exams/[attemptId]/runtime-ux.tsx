@@ -82,24 +82,36 @@ export function runtimeStateMessage(status: RuntimeState): string | null {
 }
 
 const timerMilestones = [
-  [0, "Time is up. Checking the server status."],
-  [60, "1 minute remaining"],
-  [300, "5 minutes remaining"],
-  [600, "10 minutes remaining"],
+  [
+    0,
+    {
+      en: "Time is up. Checking the server status.",
+      de: "Die Zeit ist abgelaufen. Der Serverstatus wird geprüft.",
+    },
+  ],
+  [60, { en: "1 minute remaining", de: "Noch 1 Minute" }],
+  [300, { en: "5 minutes remaining", de: "Noch 5 Minuten" }],
+  [600, { en: "10 minutes remaining", de: "Noch 10 Minuten" }],
 ] as const;
 
-export function crossedTimerMilestone(previous: number, current: number) {
+export function crossedTimerMilestone(
+  previous: number,
+  current: number,
+  language: "en" | "de" = "en",
+) {
   return timerMilestones.find(
     ([seconds]) => previous > seconds && current <= seconds,
-  )?.[1];
+  )?.[1][language];
 }
 
 export function RuntimeTimer({
   monotonicDeadline,
   onDeadline,
+  language = "en",
 }: {
   monotonicDeadline: number | null;
   onDeadline?: () => void;
+  language?: "en" | "de";
 }) {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [milestone, setMilestone] = useState<string | null>(null);
@@ -121,7 +133,7 @@ export function RuntimeTimer({
       const announcement =
         earlier === null
           ? undefined
-          : crossedTimerMilestone(earlier, remaining);
+          : crossedTimerMilestone(earlier, remaining, language);
       if (announcement) setMilestone(announcement);
       if (remaining === 0 && !atZero.current) onDeadline?.();
       atZero.current = remaining === 0;
@@ -136,16 +148,23 @@ export function RuntimeTimer({
       document.removeEventListener("visibilitychange", update);
       window.removeEventListener("focus", update);
     };
-  }, [monotonicDeadline, onDeadline]);
+  }, [monotonicDeadline, onDeadline, language]);
 
-  const label =
+  const german = language === "de";
+  const display =
     remainingSeconds === null
-      ? "Remaining time: waiting for the server deadline"
-      : `Remaining time: ${formatRemaining(remainingSeconds)}`;
+      ? german
+        ? "Warten auf die Zeitvorgabe des Servers"
+        : "Waiting for server deadline"
+      : formatRemaining(remainingSeconds);
+  const heading = german ? "Verbleibende Zeit" : "Time remaining";
+  const label = german
+    ? `${heading}: ${display}`
+    : `Remaining time: ${remainingSeconds === null ? "waiting for the server deadline" : display}`;
 
   return (
-    <section aria-labelledby="time-heading">
-      <h2 id="time-heading">Time remaining</h2>
+    <section lang={language} aria-labelledby="time-heading">
+      <h2 id="time-heading">{heading}</h2>
       <p>
         <time
           aria-label={label}
@@ -153,17 +172,16 @@ export function RuntimeTimer({
             remainingSeconds === null ? undefined : `PT${remainingSeconds}S`
           }
         >
-          {remainingSeconds === null
-            ? "Waiting for server deadline"
-            : formatRemaining(remainingSeconds)}
+          {display}
         </time>
       </p>
       <p style={visuallyHidden} aria-live="polite" aria-atomic="true">
         {milestone}
       </p>
       <p>
-        Timing is controlled by the server. This display is only a local
-        estimate.
+        {german
+          ? "Der Server bestimmt das Ende der Bearbeitungszeit. Die Anzeige kann leicht abweichen."
+          : "Timing is controlled by the server. This display is only a local estimate."}
       </p>
     </section>
   );

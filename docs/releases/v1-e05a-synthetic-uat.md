@@ -10,10 +10,26 @@ The Berlin screen could lose the original save ID after a connection error, even
 
 Pending responses survive a same-account reload only when browser storage is available and the outbox write succeeded. Storage is bounded and shared-device sign-out clears it. A disconnected page cannot load an exam from scratch, and the server can reject a queued write after expiry. If the browser cannot save locally, the UI says so. The reconnect test uses an expiring synthetic attempt and the real server's rejection or acknowledgement.
 
-## Open E05 follow-ups
+## Berlin question overview follow-up
 
-- **Localization (U11, U13).** Localize the remaining English Berlin navigation and submit dialog labels, and mark German text with the correct language. Verify comprehension and pronunciation in an authorized human session.
-- **Keyboard traversal (U10).** Provide a keyboard-accessible path past the expanded question grid to avoid traversing every available question button to reach Submit. Verify focus order and return with real keyboard and assistive-technology sessions.
+| Scenario | Previous behavior | Correction and automated retest |
+| --- | --- | --- |
+| U10 keyboard traversal | An expanded overview placed the question buttons before submission, with no shortcut past the list. | The link **Fragenliste überspringen und zur Abgabe** moves focus to **Abgabe**. The next Tab reaches **Übung abgeben** when available. Tab from the link still enters the grid. Playwright checks both paths, visible focus, the current-question marker, and return focus after Escape, cancellation, and jumping to an unanswered question. |
+| U11 and U13 runtime localization | German overview rows sat beside English navigation, timer and submission controls. | The Berlin practice page declares German for its controls and live messages. The original English disclosure and result copy retain their own language annotations. Playwright checks the navigation, dialog name and description, save status, and timer milestone. |
+| U05 interrupted saves | A failed replacement can remain queued while a second tab changes the current question. | The two-tab replay test checks **Nicht bestätigt**, **Offen**, and **Gespeichert**, the saved count, the submission guard, and the original operation ID and expected revision. |
+
+The automated checks cover a 320 CSS-pixel viewport and 200% CSS zoom in Chromium. Browser-toolbar zoom, a physical phone, keyboard-only participants, screen readers, and German-language comprehension require observed sessions.
+
+## H10 handoff for authorized human sessions
+
+Use one synthetic candidate account and a separate synthetic attempt per participant. Record the tested commit, browser and OS versions, device or keyboard, zoom setting, assistive technology and version, outcomes, any assistance, and a private evidence reference. Keep participant identity and consent records in the approved study channel.
+
+- **U10 keyboard only.** Ask the participant to open the overview, go to a question using the grid, bypass the grid, cancel the dialog, and use the first-unanswered action. Observe focus visibility and where focus returns. Ask the participant to demonstrate how they reach any of the 33 questions.
+- **U11 screen reader.** On an actual supported VoiceOver or NVDA setup, listen for the question position, current marker, three answer states, timer milestone and submission warning. Check how the pending-save guard and an unsuccessful retry are conveyed.
+- **U12 physical devices and zoom.** Repeat overview, answering, bypass and cancellation on a physical phone in both orientations. Use browser-toolbar zoom on desktop and check for clipping, horizontal scrolling and any controls obscured by the dialog.
+- **U13 German comprehension.** Ask German-speaking participants to explain when an answer is saved, what happens after final submission, and how to resume following a connection failure. Record their interpretation and any help needed.
+
+Human keyboard testing, screen-reader testing, physical-device testing and German comprehension are **NOT RUN** for this revision. H10 remains **OPEN**.
 
 ## Walkthroughs
 
@@ -33,4 +49,4 @@ Copy one row per observed task:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | | | |
 
-Record confusion, assistance and unsuccessful steps as observed. Use synthetic data in screenshots or notes and keep credentials and answer-bearing captures private. Automated keyboard and mobile viewport checks support technical acceptance. Human keyboard, screen-reader and physical-phone UAT remain **NOT VERIFIED**. Record actual human findings only after the authorized session.
+Record confusion, assistance and unsuccessful steps as observed. Use synthetic data in screenshots or notes and keep credentials and answer-bearing captures private. Record human findings only after the authorized session.

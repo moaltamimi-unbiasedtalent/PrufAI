@@ -422,7 +422,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     const assignment = page.getByRole("article", { name: title });
     await assignment.getByRole("link", { name: /Prepare exam/ }).click();
     const state = page.getByRole("combobox", {
-      name: "Practice Bundesland",
+      name: "Bundesland für die Übung",
       exact: true,
     });
     await expect(state.locator("option[value^='DE-']")).toHaveCount(16);
@@ -431,7 +431,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       true,
     );
     await expect(
-      page.getByRole("button", { name: "Prepare exam", exact: true }),
+      page.getByRole("button", { name: "Übung vorbereiten", exact: true }),
     ).toBeDisabled();
     const unavailable = await privateRequest(
       page,
@@ -449,23 +449,21 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await state.selectOption("DE-BE");
     const prepared = await clickResponse(
       page,
-      "Prepare exam",
+      "Übung vorbereiten",
       `${candidate}/exam-assignments/${assignmentId}/attempts`,
       "POST",
       201,
     );
     attemptId = prepared.id;
     await expect(page).toHaveURL(new RegExp(`/candidate/exams/${attemptId}$`));
+    await expect(page.getByText(/Gewähltes Bundesland: Berlin/)).toBeVisible();
     await expect(
-      page.getByText(/Selected practice Bundesland: Berlin/),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Duration: 60 minutes", { exact: true }),
+      page.getByText("Bearbeitungszeit: 60 Minuten", { exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("radio")).toHaveCount(0);
     const started = await clickResponse(
       page,
-      "Start exam",
+      "Übung starten",
       `${candidate}/exam-attempts/${attemptId}/start`,
       "POST",
       200,
@@ -535,18 +533,18 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await expect(clock).toHaveAttribute("datetime", /PT30[1-5]S/);
     await page.clock.fastForward(7000);
     const live = page
-      .getByRole("region", { name: "Time remaining" })
+      .getByRole("region", { name: "Verbleibende Zeit" })
       .locator("[aria-live=polite]");
-    await expect(live).toHaveText("5 minutes remaining");
+    await expect(live).toHaveText("Noch 5 Minuten");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(live).toHaveText("5 minutes remaining");
+    await expect(live).toHaveText("Noch 5 Minuten");
     await page.unroute("**/heartbeat");
     await page.reload();
     await expect(clock).toHaveAttribute("datetime", /PT(35\d\d|3600)S/);
 
     for (const [index, item] of items.entries()) {
       await expect(
-        page.getByText(`Current question ${index + 1}`, { exact: true }),
+        page.getByText(`Aktuelle Frage ${index + 1}`, { exact: true }),
       ).toBeVisible();
       const radios = page.getByRole("radio");
       await expect(radios).toHaveCount(4);
@@ -568,19 +566,19 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
         .check();
       expect((await saved).status()).toBe(200);
       await expect(
-        page.getByText("Saved response revision: 1", { exact: true }),
+        page.getByText("Gespeicherte Antwortversion: 1", { exact: true }),
       ).toBeVisible();
       if (index === 2) {
         await restartOwnedApi();
         await page.reload();
         await expect(
-          page.getByText("Selected practice Bundesland: Berlin", {
+          page.getByText("Gewähltes Bundesland: Berlin", {
             exact: true,
           }),
         ).toBeVisible();
         await expect(
           page.getByRole("combobox", {
-            name: "Practice Bundesland",
+            name: "Bundesland für die Übung",
             exact: true,
           }),
         ).toHaveCount(0);
@@ -590,33 +588,33 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       }
       if (index < items.length - 1)
         await page
-          .getByRole("button", { name: "Next question", exact: true })
+          .getByRole("button", { name: "Nächste Frage", exact: true })
           .click();
     }
     const trigger = page.getByRole("button", {
-      name: "Submit attempt",
+      name: "Übung abgeben",
       exact: true,
     });
     await trigger.focus();
     await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog", {
-      name: "Submit this practice exam?",
+      name: "Möchten Sie die Übung abgeben?",
     });
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAccessibleDescription(
-      /you can no longer change your answers/,
+      /können Sie Ihre Antworten nicht mehr ändern/,
     );
-    await expect(dialog).toContainText("0 of 33 questions unanswered");
+    await expect(dialog).toContainText("0 von 33 Fragen sind unbeantwortet.");
     await expect(
-      dialog.getByRole("button", { name: "Keep working" }),
+      dialog.getByRole("button", { name: "Weiter bearbeiten" }),
     ).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(
-      dialog.getByRole("button", { name: "Submit final answers" }),
+      dialog.getByRole("button", { name: "Endgültig abgeben" }),
     ).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await expect(
-      dialog.getByRole("button", { name: "Keep working" }),
+      dialog.getByRole("button", { name: "Weiter bearbeiten" }),
     ).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
@@ -625,14 +623,14 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
     await trigger.click();
     const submitted = await clickResponse(
       page,
-      "Submit final answers",
+      "Endgültig abgeben",
       `${candidate}/exam-attempts/${attemptId}/submit`,
       "POST",
       200,
     );
     expect(submitted).toMatchObject({ id: attemptId, status: "SUBMITTED" });
     await expect(
-      page.getByText("Autosave: Submitted", { exact: true }),
+      page.getByText("Der Server hat die Abgabe bestätigt.", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -916,18 +914,18 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
 
     await page.goto(`/candidate/exams/assignment-${expiryAssignment}`);
     await page
-      .getByRole("combobox", { name: "Practice Bundesland" })
+      .getByRole("combobox", { name: "Bundesland für die Übung" })
       .selectOption("DE-BE");
     const prepared = await clickResponse(
       page,
-      "Prepare exam",
+      "Übung vorbereiten",
       `${candidate}/exam-assignments/${expiryAssignment}/attempts`,
       "POST",
       201,
     );
     const started = await clickResponse(
       page,
-      "Start exam",
+      "Übung starten",
       `${candidate}/exam-attempts/${prepared.id}/start`,
       "POST",
       200,
@@ -942,7 +940,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       { timeout: 30000 },
     );
     const denied = apiResponse(page, "/navigate", "POST");
-    await page.getByRole("button", { name: "Next question" }).click();
+    await page.getByRole("button", { name: "Nächste Frage" }).click();
     expect((await denied).status()).toBe(409);
     for (const afterReload of [false, true]) {
       if (afterReload) await page.reload();
@@ -957,7 +955,7 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       await expect(page.getByRole("radio").first()).toBeChecked();
       await expect(page.getByRole("radio").first()).toBeDisabled();
       await expect(
-        page.getByRole("button", { name: "Submit attempt" }),
+        page.getByRole("button", { name: "Übung abgeben" }),
       ).toBeDisabled();
     }
   });
@@ -1018,11 +1016,11 @@ async function createPracticeAssignment(page) {
   return { org, id };
 }
 
-async function tabTo(page, target, max = 32) {
+async function tabTo(page, target, max = 32, key = "Tab") {
   const focused = () =>
     target.evaluate((element) => document.activeElement === element);
   for (let step = 0; step < max && !(await focused()); step += 1)
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(key);
   await expect(target).toBeFocused();
 }
 
@@ -1056,11 +1054,13 @@ async function keyboardCandidateLogin(page) {
 
 async function startFromKeyboard(page, id, nearDeadline) {
   await page.goto(`/candidate/exams/assignment-${id}`);
-  const state = page.getByRole("combobox", { name: "Practice Bundesland" });
+  const state = page.getByRole("combobox", {
+    name: "Bundesland für die Übung",
+  });
   await tabTo(page, state);
   await page.keyboard.press("b");
   await expect(state).toHaveValue("DE-BE");
-  await tabTo(page, page.getByRole("button", { name: "Prepare exam" }));
+  await tabTo(page, page.getByRole("button", { name: "Übung vorbereiten" }));
   const created = apiResponse(page, `/exam-assignments/${id}/attempts`, "POST");
   await page.keyboard.press("Enter");
   const prepared = await created;
@@ -1083,7 +1083,7 @@ async function startFromKeyboard(page, id, nearDeadline) {
     await page.reload();
     return { attempt_id: attempt };
   }
-  await tabTo(page, page.getByRole("button", { name: "Start exam" }));
+  await tabTo(page, page.getByRole("button", { name: "Übung starten" }));
   const started = apiResponse(page, `/exam-attempts/${attempt}/start`, "POST");
   await page.keyboard.press("Enter");
   const reply = await started;
@@ -1093,7 +1093,7 @@ async function startFromKeyboard(page, id, nearDeadline) {
     3600000,
   );
   await expect(
-    page.getByRole("heading", { name: "Question 1 of 33" }),
+    page.getByRole("heading", { name: "Frage 1 von 33" }),
   ).toBeFocused();
   return runtime;
 }
@@ -1118,7 +1118,7 @@ test("Berlin practice overview shows saved answers and supports direct keyboard 
       name: `Frage ${number} ${status}`,
       exact: true,
     });
-  const submit = page.getByRole("button", { name: "Submit attempt" });
+  const submit = page.getByRole("button", { name: "Übung abgeben" });
 
   await expect(
     page.getByRole("status").filter({
@@ -1225,19 +1225,157 @@ test("Berlin practice overview shows saved answers and supports direct keyboard 
     releaseNavigation();
     await page.unroute(navRoute);
   }
-  await expect(current("Question 5 of 33")).toBeFocused();
+  await expect(current("Frage 5 von 33")).toBeFocused();
   await expect(question(5, "Offen")).toHaveAttribute("aria-current", "step");
 
   await page.reload();
-  await expect(current("Question 5 of 33")).toBeVisible();
+  await expect(current("Frage 5 von 33")).toBeVisible();
   await summary.click();
   await expect(question(5, "Offen")).toHaveAttribute("aria-current", "step");
   await expect(question(1, "Gespeichert")).toBeEnabled();
   await question(1, "Gespeichert").click();
-  await expect(current("Question 1 of 33")).toBeFocused();
+  await expect(current("Frage 1 von 33")).toBeFocused();
   await expect(page.getByRole("radio").first()).toBeChecked();
   await question(33, "Offen").click();
-  await expect(current("Question 33 of 33")).toBeFocused();
+  await expect(current("Frage 33 von 33")).toBeFocused();
+});
+
+test("Berlin keyboard bypass reaches the German submission dialog without closing the overview", async ({
+  page,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  await page.setViewportSize({ width: 320, height: 830 });
+  await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const main = page.locator("main[lang=de]");
+  const overview = main
+    .locator("details")
+    .filter({ hasText: "Fragenübersicht" });
+  const summary = overview.locator("summary");
+  const bypass = overview.getByRole("link", {
+    name: "Fragenliste überspringen und zur Abgabe",
+  });
+  const submission = main.getByRole("heading", { name: "Abgabe", exact: true });
+  const submit = main.getByRole("button", {
+    name: "Übung abgeben",
+    exact: true,
+  });
+  const dialog = main.getByRole("dialog", {
+    name: "Möchten Sie die Übung abgeben?",
+  });
+  const cancel = dialog.getByRole("button", { name: "Weiter bearbeiten" });
+  const next = main.getByRole("button", { name: "Nächste Frage" });
+  const mutations = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      request.method() === "POST" &&
+      path.endsWith(`/${runtime.attempt_id}/submit`)
+    )
+      mutations.push(path);
+  });
+
+  const saveStatus = main.getByRole("status").filter({
+    hasText: "Alle Änderungen sind vom Server bestätigt.",
+  });
+  await expect(saveStatus).toHaveAttribute("lang", "de");
+  await expect(saveStatus).toHaveAttribute("aria-atomic", "true");
+  await expect(
+    main.getByRole("region", { name: "Verbleibende Zeit" }),
+  ).toHaveAttribute("lang", "de");
+  await expect(
+    main.getByRole("navigation", { name: "Navigation zwischen den Fragen" }),
+  ).toBeVisible();
+  await expect(
+    main.getByRole("button", { name: "Vorherige Frage" }),
+  ).toBeDisabled();
+  await expect(
+    main.getByRole("group", { name: "Wählen Sie eine Antwort" }),
+  ).toBeVisible();
+
+  await tabTo(page, next);
+  await page.keyboard.press("Tab");
+  await expect(summary).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(overview.getByRole("button")).toHaveCount(33);
+  await expect(
+    overview.getByRole("button", { name: "Frage 1 Offen" }),
+  ).toHaveAttribute("aria-current", "step");
+  await page.keyboard.press("Tab");
+  await expect(bypass).toBeFocused();
+  await expect(bypass).toHaveCSS("outline-style", "solid");
+  await expect(bypass).toHaveCSS("outline-width", "3px");
+  await page.keyboard.press("Tab");
+  await expect(
+    overview.getByRole("button", { name: "Frage 2 Offen" }),
+  ).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(bypass).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(submission).toBeFocused();
+  await expect(overview).toHaveJSProperty("open", true);
+  await page.keyboard.press("Tab");
+  await expect(submit).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(dialog).toHaveAccessibleDescription(
+    /Nach der Abgabe können Sie Ihre Antworten nicht mehr ändern/,
+  );
+  await expect(dialog).toContainText("33 von 33 Fragen sind unbeantwortet.");
+  await expect(cancel).toBeFocused();
+  await expect(cancel).toHaveCSS("outline-style", "solid");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(submit).toBeFocused();
+
+  // Chromium CSS zoom tests reflow at twice the original size in a wider viewport.
+  await page.setViewportSize({ width: 640, height: 900 });
+  await main.evaluate((element) => {
+    element.style.zoom = "2";
+  });
+  await page.keyboard.press("Enter");
+  await expect(cancel).toBeFocused();
+  for (const control of [
+    dialog,
+    cancel,
+    dialog.getByRole("button", { name: "Endgültig abgeben" }),
+    dialog.getByRole("button", { name: "Erste unbeantwortete Frage" }),
+  ]) {
+    const bounds = await control.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(640);
+  }
+  await page.keyboard.press("Enter");
+  await expect(dialog).not.toBeVisible();
+  await expect(submit).toBeFocused();
+
+  const fifth = overview.getByRole("button", { name: "Frage 5 Offen" });
+  await tabTo(page, fifth, 32, "Shift+Tab");
+  await page.keyboard.press("Enter");
+  await expect(
+    main.getByRole("heading", { name: "Frage 5 von 33" }),
+  ).toBeFocused();
+  await expect(fifth).toHaveAttribute("aria-current", "step");
+  await tabTo(page, bypass);
+  await page.keyboard.press("Enter");
+  await expect(submission).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(cancel).toBeFocused();
+  await tabTo(
+    page,
+    dialog.getByRole("button", { name: "Erste unbeantwortete Frage" }),
+  );
+  await page.keyboard.press("Enter");
+  await expect(
+    main.getByRole("heading", { name: "Frage 1 von 33" }),
+  ).toBeFocused();
+  expect(mutations).toEqual([]);
 });
 
 test("Berlin overview tracks the failed save binding after another tab navigates", async ({
@@ -1273,7 +1411,7 @@ test("Berlin overview tracks the failed save binding after another tab navigates
   try {
     await other.goto(`/candidate/exams/${attempt}`);
     await expect(
-      other.getByRole("heading", { name: "Question 1 of 33" }),
+      other.getByRole("heading", { name: "Frage 1 von 33" }),
     ).toBeVisible();
     await other
       .locator("summary")
@@ -1287,14 +1425,14 @@ test("Berlin overview tracks the failed save binding after another tab navigates
     expect(reply.status()).toBe(200);
     expect((await reply.json()).current_binding_id).toBe(fifth.binding_id);
     await expect(
-      other.getByRole("heading", { name: "Question 5 of 33" }),
+      other.getByRole("heading", { name: "Frage 5 von 33" }),
     ).toBeFocused();
   } finally {
     await other.close();
   }
   await page.bringToFront();
   await expect(
-    page.getByRole("heading", { name: "Question 1 of 33" }),
+    page.getByRole("heading", { name: "Frage 1 von 33" }),
   ).toBeVisible();
 
   const writes = [];
@@ -1311,7 +1449,7 @@ test("Berlin overview tracks the failed save binding after another tab navigates
     await expect(failed).toBeVisible();
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "Question 5 of 33" }),
+      page.getByRole("heading", { name: "Frage 5 von 33" }),
     ).toBeVisible();
     await expect(failed).toBeVisible();
     expect(writes).toHaveLength(2);
@@ -1324,7 +1462,7 @@ test("Berlin overview tracks the failed save binding after another tab navigates
     const row = (label) =>
       overview.getByRole("button", { name: label, exact: true });
     const submit = page.getByRole("button", {
-      name: "Submit attempt",
+      name: "Übung abgeben",
       exact: true,
     });
     await overview.locator("summary").click();
@@ -1386,7 +1524,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     name: "Speicherung erneut versuchen",
   });
   const revision = (value) =>
-    page.getByText(`Saved response revision: ${value}`, { exact: true });
+    page.getByText(`Gespeicherte Antwortversion: ${value}`, { exact: true });
   const saveMessage = (text) =>
     page.getByRole("status").filter({ hasText: text });
   const confirmed = "Alle Änderungen sind vom Server bestätigt.";
@@ -1475,7 +1613,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
         await expect(saveMessage(saving)).toBeVisible();
         await expect(saveMessage(confirmed)).toHaveCount(0);
         await expect(
-          page.getByRole("button", { name: "Submit attempt" }),
+          page.getByRole("button", { name: "Übung abgeben" }),
         ).toBeDisabled();
         expect(await page.evaluate(() => window.firstPracticeSaveStatus)).toBe(
           saving,
@@ -1567,7 +1705,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
       overview.getByRole("button", { name: "Frage 2 Offen" }),
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "Submit attempt" }),
+      page.getByRole("button", { name: "Übung abgeben" }),
     ).toBeDisabled();
     await summary.click();
     await tabTo(page, retry);
@@ -1596,7 +1734,9 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   await secondTab.goto(`/candidate/exams/${attempt}`);
   const tabAnswers = secondTab.getByRole("radio");
   await expect(tabAnswers.nth(1)).toBeChecked();
-  await expect(secondTab.getByText("Saved response revision: 2")).toBeVisible();
+  await expect(
+    secondTab.getByText("Gespeicherte Antwortversion: 2"),
+  ).toBeVisible();
   await expect(tabAnswers.nth(1)).toBeEnabled();
   await page.bringToFront();
   await answers.nth(1).focus();
@@ -1616,19 +1756,21 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   await tabTo(secondTab, serverAnswer);
   await secondTab.keyboard.press("Enter");
   await expect(tabAnswers.nth(2)).toBeChecked();
-  await expect(secondTab.getByText("Saved response revision: 3")).toBeVisible();
+  await expect(
+    secondTab.getByText("Gespeicherte Antwortversion: 3"),
+  ).toBeVisible();
   await secondTab.close();
   await page.bringToFront();
 
-  const trigger = page.getByRole("button", { name: "Submit attempt" });
+  const trigger = page.getByRole("button", { name: "Übung abgeben" });
   await expect(trigger).toBeEnabled();
   await tabTo(page, trigger);
   await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", {
-    name: "Submit this practice exam?",
+    name: "Möchten Sie die Übung abgeben?",
   });
   await expect(
-    dialog.getByRole("button", { name: "Keep working" }),
+    dialog.getByRole("button", { name: "Weiter bearbeiten" }),
   ).toBeFocused();
   expect(await mobileWidth()).toBe(true);
   await page.keyboard.press("Escape");
@@ -1640,7 +1782,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   );
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Question 2 of 33" }),
+    page.getByRole("heading", { name: "Frage 2 von 33" }),
   ).toBeFocused();
 
   // Queue a response while genuinely offline. No successful API response is mocked.
@@ -1667,7 +1809,7 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
   await page.setViewportSize({ width: 320, height: 830 });
   await page.goto(`/candidate/exams/${attempt}`);
   await expect(
-    page.getByRole("heading", { name: "Question 2 of 33" }),
+    page.getByRole("heading", { name: "Frage 2 von 33" }),
   ).toBeVisible();
   await expect(page.getByRole("radio").first()).toBeChecked();
   await saved();
@@ -1689,18 +1831,18 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     await route.abort("timedout").catch(() => undefined);
   });
   try {
-    await tabTo(page, page.getByRole("button", { name: "Submit attempt" }));
+    await tabTo(page, page.getByRole("button", { name: "Übung abgeben" }));
     await page.keyboard.press("Enter");
     await tabTo(
       page,
       page
         .getByRole("dialog")
-        .getByRole("button", { name: "Submit final answers" }),
+        .getByRole("button", { name: "Endgültig abgeben" }),
     );
     await page.keyboard.press("Enter");
     expect(await submission).toBe(200);
     const confirmation = page.getByRole("heading", {
-      name: "Submission state: Submitted",
+      name: "Übung abgegeben",
     });
     await expect(confirmation).toBeFocused({ timeout: 15_000 });
   } finally {
@@ -1794,7 +1936,7 @@ test("server deadline rejects a queued Berlin answer reconnected after time expi
   await expect(page.getByRole("radio").first()).not.toBeChecked();
   await expect(page.getByRole("radio").first()).toBeDisabled();
   await expect(
-    page.getByRole("button", { name: "Submit attempt" }),
+    page.getByRole("button", { name: "Übung abgeben" }),
   ).toBeDisabled();
   const state = await privateRequest(page, "GET", root + "/runtime", {
     headers: scoped(owner, org),
@@ -1825,8 +1967,8 @@ test("server deadline rejects a queued Berlin answer reconnected after time expi
     `/exam-attempts/${started.attempt_id}/submit`,
     "POST",
   );
-  await page.getByRole("button", { name: "Submit attempt" }).click();
-  await page.getByRole("button", { name: "Submit final answers" }).click();
+  await page.getByRole("button", { name: "Übung abgeben" }).click();
+  await page.getByRole("button", { name: "Endgültig abgeben" }).click();
   const reply = await submit;
   expect(reply.status()).toBe(200);
   const confirmed = await reply.json();

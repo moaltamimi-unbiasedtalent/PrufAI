@@ -2608,18 +2608,21 @@ test("Berlin localized routes announce German loading and recover from the initi
   const called = page.waitForRequest(
     (request) => new URL(request.url()).pathname === root + "/runtime",
   );
-  await page.route(
-    pattern,
-    async (route) => {
-      await pending;
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ detail: "SERVICE_UNAVAILABLE" }),
-      });
-    },
-    { times: 1 },
+  const failed = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === root + "/runtime" &&
+      response.status() === 503,
   );
+  // Keep the dependency unavailable through the assertion. A single-use route
+  // can be consumed by an earlier view's in-flight reconciliation request.
+  await page.route(pattern, async (route) => {
+    await pending;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "SERVICE_UNAVAILABLE" }),
+    });
+  });
   try {
     await page.goto(`/candidate/exams/de-${runtime.attempt_id}`, {
       waitUntil: "domcontentloaded",
@@ -2636,6 +2639,7 @@ test("Berlin localized routes announce German loading and recover from the initi
   } finally {
     release();
   }
+  await failed;
   await expect(
     page.getByRole("heading", { name: "Übung nicht verfügbar" }),
   ).toBeVisible();
@@ -2649,6 +2653,7 @@ test("Berlin localized routes announce German loading and recover from the initi
   await expect(
     page.getByRole("link", { name: "Zurück zu meinen Prüfungen" }),
   ).toBeVisible();
+  await page.unroute(pattern);
   await page.getByRole("button", { name: "Erneut versuchen" }).click();
   await expect(
     page.getByRole("heading", { name: "Frage 1 von 33" }),

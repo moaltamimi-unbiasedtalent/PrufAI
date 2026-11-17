@@ -6,6 +6,7 @@ import {
   lockActiveCandidateAccount,
   queueCandidateOperation,
   readCandidateAttemptBarrier,
+  releaseRejectedCandidateSubmission,
   syncCandidateOutbox,
   unresolvedCandidateBindings,
   withCandidateAttemptLock,
@@ -19,7 +20,7 @@ function indexedDbDouble() {
   type StoredDatabase = {
     rows: Map<string, CandidateOutboxOperation>;
     connections: number;
-    submissions?: Map<string, boolean>;
+    submissions?: Map<string, unknown>;
   };
   const databases = new Map<string, StoredDatabase>();
   const request = <T>(result: T) => ({
@@ -55,6 +56,7 @@ function indexedDbDouble() {
             objectStore: (name: string) => ({
               get: (key: string) => {
                 const result = request(stored.submissions?.get(key));
+                queueMicrotask(() => result.onsuccess?.());
                 setTimeout(() => transaction.oncomplete?.(), 0);
                 return result;
               },
@@ -66,13 +68,19 @@ function indexedDbDouble() {
                 return result;
               },
               put: (
-                operation: CandidateOutboxOperation | boolean,
+                operation:
+                  | CandidateOutboxOperation
+                  | boolean
+                  | { submissionId: string; recoverable: boolean },
                 key: string,
               ) => {
                 if (name === "submission-fences") {
                   stored.submissions ??= new Map();
-                  stored.submissions.set(key, operation === true);
-                } else if (typeof operation !== "boolean") {
+                  stored.submissions.set(key, structuredClone(operation));
+                } else if (
+                  typeof operation !== "boolean" &&
+                  "operationId" in operation
+                ) {
                   stored.rows.set(
                     operation.operationId,
                     structuredClone(operation),
@@ -81,7 +89,9 @@ function indexedDbDouble() {
                 setTimeout(() => transaction.oncomplete?.(), 0);
               },
               delete: (operationId: string) => {
-                stored.rows.delete(operationId);
+                if (name === "submission-fences")
+                  stored.submissions?.delete(operationId);
+                else stored.rows.delete(operationId);
                 setTimeout(() => transaction.oncomplete?.(), 0);
               },
             }),
@@ -324,6 +334,80 @@ describe("account-bound candidate outbox", () => {
       withCandidateAttemptLock(alice, "attempt", action),
     ).rejects.toThrow("lock unavailable");
     expect(action).not.toHaveBeenCalled();
+  });
+
+  it("clears only the matching recoverable fence and retains unrelated answers", async () => {
+    lockActiveCandidateAccount(alice);
+    const submissionId = await fenceCandidateSubmission(alice, "attempt");
+    await queueCandidateOperation(alice, {
+      ...operation("unrelated", "another attempt"),
+      attemptId: "another",
+    });
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", submissionId),
+    ).toBe(true);
+    expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
+      submissionStarted: false,
+    });
+    expect(await unresolvedCandidateBindings(alice, "another")).toEqual(
+      new Set(["question"]),
+    );
+  });
+
+  it("refuses an older rejection and keeps the newer fence", async () => {
+    lockActiveCandidateAccount(alice);
+    const old = await fenceCandidateSubmission(alice, "attempt");
+    const newer = await fenceCandidateSubmission(alice, "attempt");
+    expect(newer).not.toBe(old);
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", old),
+    ).toBe(false);
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", newer),
+    ).toBe(false);
+    expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
+      submissionStarted: true,
+    });
+  });
+
+  it("keeps legacy boolean fences conservative through a new rejected retry", async () => {
+    lockActiveCandidateAccount(alice);
+    await readCandidateAttemptBarrier(alice, "attempt");
+    const database = [...indexedDb.databases.values()][0];
+    database.submissions = new Map([["attempt", true]]);
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", "unknown"),
+    ).toBe(false);
+    const retry = await fenceCandidateSubmission(alice, "attempt");
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", retry),
+    ).toBe(false);
+    expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
+      submissionStarted: true,
+    });
+  });
+
+  it("refuses recovery when this attempt has unresolved answers or the account changes", async () => {
+    lockActiveCandidateAccount(alice);
+    const submissionId = await fenceCandidateSubmission(alice, "attempt");
+    await queueCandidateOperation(alice, operation("pending", "unconfirmed"));
+    expect(
+      await releaseRejectedCandidateSubmission(alice, "attempt", submissionId),
+    ).toBe(false);
+    expect(await unresolvedCandidateBindings(alice, "attempt")).toEqual(
+      new Set(["question"]),
+    );
+    const pending = releaseRejectedCandidateSubmission(
+      alice,
+      "attempt",
+      submissionId,
+    );
+    lockActiveCandidateAccount(bob);
+    await expect(pending).rejects.toThrow("account changed");
+    lockActiveCandidateAccount(alice);
+    expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
+      submissionStarted: true,
+    });
   });
 
   it("refuses competing actions and isolates locks by account and attempt", async () => {

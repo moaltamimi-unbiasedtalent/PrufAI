@@ -120,12 +120,32 @@ export class CandidateApiError extends Error {
   readonly status: number;
   readonly code: string;
 
-  constructor(status: number, code: string) {
+  constructor(
+    status: number,
+    code: string,
+    readonly allowedMethods: string | null = null,
+    readonly redirected = false,
+  ) {
     super(code);
     this.name = "CandidateApiError";
     this.status = status;
     this.code = code;
   }
+}
+
+// FastAPI's method router rejects before the POST handler executes. No other
+// response status is treated as proof that submission did not mutate state.
+export function isDefiniteSubmissionRejection(cause: unknown): boolean {
+  return (
+    cause instanceof CandidateApiError &&
+    cause.status === 405 &&
+    cause.code === "Method Not Allowed" &&
+    !cause.redirected &&
+    cause.allowedMethods
+      ?.split(",")
+      .map((method) => method.trim())
+      .includes("POST") === true
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -142,7 +162,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Preserve a normalized status when the server response is not JSON.
     }
-    throw new CandidateApiError(response.status, code);
+    throw new CandidateApiError(
+      response.status,
+      code,
+      response.headers.get("Allow"),
+      response.redirected,
+    );
   }
   return (await response.json()) as T;
 }

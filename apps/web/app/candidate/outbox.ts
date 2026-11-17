@@ -140,11 +140,14 @@ async function openCandidateOutbox(
   requireActiveAccount(scope, generation);
   return new Promise((resolve, reject) => {
     let blocked = false;
-    const request = indexedDB.open(name, 2);
+    // Older clients interpret only boolean fences. Refuse their version-2
+    // reads after upgrading instead of letting them overlook identity records.
+    const request = indexedDB.open(name, 3);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE))
         request.result.createObjectStore(STORE, { keyPath: "operationId" });
-      request.result.createObjectStore(SUBMISSIONS);
+      if (!request.result.objectStoreNames.contains(SUBMISSIONS))
+        request.result.createObjectStore(SUBMISSIONS);
     };
     request.onblocked = () => {
       blocked = true;
@@ -344,7 +347,7 @@ export async function readCandidateAttemptBarrier(
           .filter((operation) => operation.attemptId === attemptId)
           .map(({ bindingId }) => bindingId),
       ),
-      submissionStarted: submission.result === true,
+      submissionStarted: submission.result !== undefined,
     };
   } finally {
     closeDatabase(database);
@@ -357,17 +360,89 @@ export async function readCandidateAttemptBarrier(
 export async function fenceCandidateSubmission(
   scope: CandidateAccountScope,
   attemptId: string,
-): Promise<void> {
+): Promise<string> {
   const generation = accountGeneration;
+  const submissionId = crypto.randomUUID();
   const database = await openCandidateOutbox(scope);
   try {
     requireActiveAccount(scope, generation);
     const transaction = database.transaction(SUBMISSIONS, "readwrite");
     const complete = transactionComplete(transaction);
-    transaction.objectStore(SUBMISSIONS).put(true, attemptId);
+    const store = transaction.objectStore(SUBMISSIONS);
+    const previous = store.get(attemptId);
+    previous.onsuccess = () => {
+      try {
+        requireActiveAccount(scope, generation);
+        store.put(
+          { submissionId, recoverable: previous.result === undefined },
+          attemptId,
+        );
+      } catch {
+        transaction.abort();
+      }
+    };
     await complete;
     requireActiveAccount(scope, generation);
     notifyCandidateOutbox(scope, attemptId);
+    return submissionId;
+  } finally {
+    closeDatabase(database);
+  }
+}
+
+// The caller retains the exclusive attempt lock and has verified a definite
+// rejection and an authenticated IN_PROGRESS runtime for this submission.
+export async function releaseRejectedCandidateSubmission(
+  scope: CandidateAccountScope,
+  attemptId: string,
+  submissionId: string,
+): Promise<boolean> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    const transaction = database.transaction([STORE, SUBMISSIONS], "readwrite");
+    const complete = transactionComplete(transaction);
+    const fences = transaction.objectStore(SUBMISSIONS);
+    const fence = fences.get(attemptId);
+    const operations = transaction.objectStore(STORE).getAll();
+    let fenceReady = false;
+    let operationsReady = false;
+    let released = false;
+    const check = () => {
+      if (!fenceReady || !operationsReady) return;
+      try {
+        requireActiveAccount(scope, generation);
+        const value: unknown = fence.result;
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "submissionId" in value &&
+          value.submissionId === submissionId &&
+          "recoverable" in value &&
+          value.recoverable === true &&
+          !(operations.result as CandidateOutboxOperation[]).some(
+            (op) => op.attemptId === attemptId,
+          )
+        ) {
+          fences.delete(attemptId);
+          released = true;
+        }
+      } catch {
+        transaction.abort();
+      }
+    };
+    fence.onsuccess = () => {
+      fenceReady = true;
+      check();
+    };
+    operations.onsuccess = () => {
+      operationsReady = true;
+      check();
+    };
+    await complete;
+    requireActiveAccount(scope, generation);
+    if (released) notifyCandidateOutbox(scope, attemptId);
+    return released;
   } finally {
     closeDatabase(database);
   }

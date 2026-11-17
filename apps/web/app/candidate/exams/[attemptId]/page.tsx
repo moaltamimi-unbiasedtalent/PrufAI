@@ -17,6 +17,7 @@ import { LidPracticeResultPanel } from "./lid-practice-result";
 import {
   CandidateApiError,
   candidateApi,
+  isDefiniteSubmissionRejection,
   type RuntimeState as RuntimeDto,
 } from "../../api";
 import {
@@ -35,6 +36,7 @@ import {
   observeCandidateOutbox,
   queueCandidateOperation,
   readCandidateAttemptBarrier,
+  releaseRejectedCandidateSubmission,
   syncCandidateOutbox,
   withCandidateAttemptLock,
   type CandidateAccountScope,
@@ -1158,8 +1160,9 @@ export default function CandidateExamRuntimePage() {
                 if (state.status !== "IN_PROGRESS")
                   throw new CandidateOutboxBlocked("attempt is not writable");
               }
+              let submissionId: string;
               try {
-                await fenceCandidateSubmission(scope, attemptId);
+                submissionId = await fenceCandidateSubmission(scope, attemptId);
               } catch {
                 setPracticeOutbox(null);
                 throw new CandidateOutboxBlocked(
@@ -1170,12 +1173,69 @@ export default function CandidateExamRuntimePage() {
                 throw new CandidateOutboxBlocked("attempt context changed");
               setSharedSubmissionStarted(true);
               setSubmissionUnconfirmed(true);
-              return candidateApi.submit(
-                attemptId,
-                AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
-              );
+              try {
+                return await candidateApi.submit(
+                  attemptId,
+                  AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+                );
+              } catch (cause) {
+                if (isDefiniteSubmissionRejection(cause)) {
+                  const state = await candidateApi.runtime(
+                    attemptId,
+                    AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+                  );
+                  if (currentContext.current !== expectedContext) throw cause;
+                  if (
+                    state.status === "IN_PROGRESS" &&
+                    (await releaseRejectedCandidateSubmission(
+                      scope,
+                      attemptId,
+                      submissionId,
+                    )) &&
+                    currentContext.current === expectedContext
+                  ) {
+                    // Recovery is complete under the lock. Repaint the
+                    // authoritative responses without making another request.
+                    updateRuntime(
+                      (current) =>
+                        current && {
+                          ...current,
+                          status: state.status,
+                          responses: state.responses,
+                        },
+                    );
+                    const shownBinding =
+                      runtimeRef.current?.session.current_binding_id ??
+                      flattenItems(state)[0]?.binding_id;
+                    setResponse(
+                      state.responses.find(
+                        (answer) => answer.binding_id === shownBinding,
+                      )?.payload ?? {},
+                    );
+                    setSharedSubmissionStarted(false);
+                    setSubmissionUnconfirmed(false);
+                    setRetrySafety(false);
+                    saveBlocked.current = false;
+                    setPracticeOutbox({
+                      context: contextKey,
+                      attemptId,
+                      bindingIds: new Set(),
+                    });
+                    setStatus("Saved");
+                    setError(
+                      "Die Abgabe wurde abgelehnt. Ihre Übung ist weiterhin offen. Sie können Ihre Antworten bearbeiten und die Abgabe erneut versuchen.",
+                    );
+                    requestAnimationFrame(() =>
+                      questionHeadingRef.current?.focus(),
+                    );
+                    return null;
+                  }
+                }
+                throw cause;
+              }
             })
           : await candidateApi.submit(attemptId);
+      if (!submitted) return;
       if (currentContext.current !== expectedContext) return;
       updateRuntime((current) =>
         current ? { ...current, status: submitted.status } : current,

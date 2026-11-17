@@ -2806,3 +2806,351 @@ test("Berlin transition barriers fail closed on shared-storage reads and unavail
     await unsupported.close();
   }
 });
+
+async function submissionFence(page, attemptId, replacement) {
+  return page.evaluate(
+    async ({ attemptId, replacement }) => {
+      const databases = await indexedDB.databases();
+      const named = databases.find((database) =>
+        database.name.startsWith("prufai-candidate-runtime-v2:"),
+      );
+      if (!named)
+        throw new Error("The synthetic candidate outbox is unavailable.");
+      return new Promise((resolve, reject) => {
+        const opened = indexedDB.open(named.name);
+        opened.onerror = () =>
+          reject(
+            new Error("The synthetic candidate outbox could not be opened."),
+          );
+        opened.onsuccess = () => {
+          const db = opened.result;
+          const transaction = db.transaction(
+            "submission-fences",
+            replacement === undefined ? "readonly" : "readwrite",
+          );
+          const store = transaction.objectStore("submission-fences");
+          if (replacement !== undefined) store.put(replacement, attemptId);
+          const row = store.get(attemptId);
+          transaction.oncomplete = () => {
+            db.close();
+            resolve(row.result ?? null);
+          };
+          transaction.onerror = () => {
+            db.close();
+            reject(
+              new Error("The synthetic submission fence could not be read."),
+            );
+          };
+        };
+      });
+    },
+    { attemptId, replacement },
+  );
+}
+
+test("Berlin definitive router rejection releases its own fence and restores editing after reload", async ({
+  page,
+  context,
+}) => {
+  const { id, org } = await createPracticeAssignment(page);
+  const owner = await keyboardCandidateLogin(page);
+  const state = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${state.attempt_id}`;
+  const first = state.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+  const peer = await context.newPage();
+  try {
+    await peer.goto(`/candidate/exams/de-${state.attempt_id}`);
+    await expect(
+      peer
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    await page.route(`**${root}/submit`, (route) =>
+      route.continue({ method: "PATCH" }),
+    );
+    const rejected = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === root + "/submit" &&
+        response.status() === 405,
+    );
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    expect((await rejected).headers().allow).toContain("POST");
+    await expect(page.locator("main").getByRole("alert")).toContainText(
+      "Die Abgabe wurde abgelehnt",
+    );
+    const live = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(owner, org),
+    });
+    expect((await live.json()).status).toBe("IN_PROGRESS");
+    expect(await submissionFence(page, state.attempt_id)).toBeNull();
+    await expect(peer.getByRole("radio").first()).toBeEnabled();
+    const saved = apiResponse(
+      page,
+      root + "/responses/" + first.binding_id,
+      "PUT",
+    );
+    await page.getByRole("radio").first().check();
+    expect((await saved).status()).toBe(200);
+    const navigate = apiResponse(page, root + "/navigate", "POST");
+    await page.getByRole("button", { name: "Nächste Frage" }).click();
+    expect((await navigate).status()).toBe(200);
+    await page.reload();
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    await expect(page.getByRole("radio").first()).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Vorherige Frage" }),
+    ).toBeEnabled();
+    await page.unroute(`**${root}/submit`);
+    let successes = 0;
+    page.on("response", (response) => {
+      if (
+        new URL(response.url()).pathname === root + "/submit" &&
+        response.status() === 200
+      )
+        successes += 1;
+    });
+    const submitted = apiResponse(page, root + "/submit", "POST");
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    expect((await submitted).status()).toBe(200);
+    await expect(
+      page.getByRole("heading", { name: "Übung abgegeben" }),
+    ).toBeFocused();
+    expect(successes).toBe(1);
+  } finally {
+    await peer.close();
+  }
+});
+
+test("Berlin ambiguous submission stays fenced through reload and a definite rejected retry", async ({
+  page,
+  context,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  await keyboardCandidateLogin(page);
+  const state = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${state.attempt_id}`;
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+  const peer = await context.newPage();
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  try {
+    await peer.goto(`/candidate/exams/de-${state.attempt_id}`);
+    await expect(
+      peer
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    const writes = [];
+    peer.on("request", (request) => {
+      if (
+        request.method() === "PUT" &&
+        new URL(request.url()).pathname.startsWith(root + "/responses/")
+      )
+        writes.push(request);
+    });
+    await page.route(`**${root}/submit`, async (route) => {
+      await held;
+      await route.abort("connectionfailed");
+    });
+    const sent = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === root + "/submit",
+    );
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await sent;
+    const initial = await submissionFence(page, state.attempt_id);
+    expect(initial.recoverable).toBe(true);
+    expect(initial.submissionId).toMatch(/^[a-f0-9-]{36}$/);
+    await expect(peer.getByRole("radio").first()).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await peer
+      .getByRole("radio")
+      .first()
+      .evaluate((radio) => radio.click());
+    expect(writes).toEqual([]);
+    release();
+    await expect(page.locator("main").getByRole("alert")).toContainText(
+      "Die Abgabe ist noch nicht bestätigt",
+    );
+    await page.unroute(`**${root}/submit`);
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Abgabe erneut versuchen" }),
+    ).toBeEnabled();
+    expect(await submissionFence(page, state.attempt_id)).toEqual(initial);
+    await page.route(`**${root}/submit`, (route) =>
+      route.continue({ method: "PATCH" }),
+    );
+    await page.getByRole("button", { name: "Abgabe erneut versuchen" }).click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await expect(page.locator("main").getByRole("alert")).toContainText(
+      "Die Abgabe ist noch nicht bestätigt",
+    );
+    const retried = await submissionFence(page, state.attempt_id);
+    expect(retried.submissionId).not.toBe(initial.submissionId);
+    expect(retried.recoverable).toBe(false);
+    await expect(page.getByRole("radio").first()).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await page.getByRole("button", { name: "Abgabe erneut versuchen" }).click();
+    await page.getByRole("button", { name: "Weiter bearbeiten" }).click();
+    expect(await submissionFence(page, state.attempt_id)).toEqual(retried);
+    await page.unroute(`**${root}/submit`);
+    const submitted = apiResponse(page, root + "/submit", "POST");
+    await page.getByRole("button", { name: "Abgabe erneut versuchen" }).click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    expect((await submitted).status()).toBe(200);
+  } finally {
+    release();
+    await peer.close();
+  }
+});
+
+test("Berlin rejection recovery preserves newer and legacy fences and fails closed on verification errors", async ({
+  page,
+}) => {
+  for (const scenario of [
+    "newer",
+    "legacy",
+    "runtime-failure",
+    "storage-failure",
+    "submitted",
+    "expired",
+  ]) {
+    const { id, org } = await createPracticeAssignment(page);
+    const owner = await keyboardCandidateLogin(page);
+    const state = await startFromKeyboard(page, id);
+    const root = `${candidate}/exam-attempts/${state.attempt_id}`;
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toBeVisible();
+    if (scenario === "legacy") {
+      await submissionFence(page, state.attempt_id, true);
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect(
+        page.getByRole("button", { name: "Abgabe erneut versuchen" }),
+      ).toBeVisible();
+    }
+    await page.route(`**${root}/submit`, (route) =>
+      route.continue({ method: "PATCH" }),
+    );
+    let release;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const verifying = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === root + "/runtime",
+    );
+    await page.route(`**${root}/runtime`, async (route) => {
+      await held;
+      if (scenario === "runtime-failure")
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "SERVICE_UNAVAILABLE" }),
+        });
+      return route.continue();
+    });
+    await page
+      .getByRole("button", {
+        name:
+          scenario === "legacy" ? "Abgabe erneut versuchen" : "Übung abgeben",
+        exact: true,
+      })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await verifying;
+    let newer;
+    try {
+      if (scenario === "newer") {
+        newer = { submissionId: randomUUID(), recoverable: true };
+        await submissionFence(page, state.attempt_id, newer);
+      } else if (scenario === "storage-failure") {
+        await page.evaluate(() => {
+          const original = IDBObjectStore.prototype.getAll;
+          window.restoreRecoveryReads = () => {
+            IDBObjectStore.prototype.getAll = original;
+          };
+          IDBObjectStore.prototype.getAll = function (...args) {
+            if (this.name === "response-outbox")
+              throw new DOMException(
+                "Synthetic recovery read failure",
+                "InvalidStateError",
+              );
+            return original.apply(this, args);
+          };
+        });
+      } else if (scenario === "submitted") {
+        const submitted = await privateRequest(page, "POST", root + "/submit", {
+          headers: scoped(owner, org),
+        });
+        expect(submitted.status()).toBe(200);
+      } else if (scenario === "expired") {
+        execFileSync(
+          "python3",
+          ["tests/browser/expire-lid-attempt.py", state.attempt_id],
+          { timeout: 30000 },
+        );
+      }
+    } finally {
+      release();
+    }
+    if (["submitted", "expired"].includes(scenario)) {
+      await expect(
+        page.getByRole("heading", {
+          name:
+            scenario === "submitted"
+              ? "Übung abgegeben"
+              : "Prüfungszeit abgelaufen",
+        }),
+      ).toBeVisible();
+      await expect(page.getByRole("radio").first()).toBeDisabled();
+    } else {
+      await expect(page.locator("main").getByRole("alert")).toContainText(
+        "Die Abgabe ist noch nicht bestätigt",
+      );
+      await expect(page.getByRole("radio").first()).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    }
+    const fence = await submissionFence(page, state.attempt_id);
+    expect(fence).toBeTruthy();
+    if (newer) expect(fence).toEqual(newer);
+    if (scenario === "legacy") expect(fence.recoverable).toBe(false);
+    if (scenario === "storage-failure")
+      await page.evaluate(() => window.restoreRecoveryReads());
+    await page.unroute(`**${root}/submit`);
+    await page.unroute(`**${root}/runtime`);
+    console.log(`REJECTION_RECOVERY_BOUNDARY = PASS (${scenario})`);
+    await logout(page);
+  }
+});

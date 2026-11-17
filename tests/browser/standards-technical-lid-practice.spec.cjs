@@ -640,6 +640,9 @@ test("LiD Standards, institution and candidate run the real Berlin practice jour
       ),
     ).toBeVisible();
     await expect(page.getByRole("radio").first()).toBeDisabled();
+    await expect(
+      page.getByText("Fragenübersicht", { exact: true }),
+    ).toHaveCount(0);
     const unreleased = await privateRequest(
       page,
       "GET",
@@ -1095,6 +1098,148 @@ async function startFromKeyboard(page, id, nearDeadline) {
   return runtime;
 }
 
+test("Berlin practice overview shows saved answers and supports direct keyboard navigation", async ({
+  page,
+  context,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  await page.setViewportSize({ width: 320, height: 830 });
+  await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
+  const items = runtime.runtime_plan.modules[0].sections[0].tasks[0].items;
+  const overview = page
+    .locator("details")
+    .filter({ hasText: "Fragenübersicht" });
+  const summary = overview.locator("summary");
+  const current = (name) => page.getByRole("heading", { name, exact: true });
+  const question = (number, status) =>
+    overview.getByRole("button", {
+      name: `Frage ${number} ${status}`,
+      exact: true,
+    });
+  const submit = page.getByRole("button", { name: "Submit attempt" });
+
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "Alle Änderungen sind vom Server bestätigt.",
+    }),
+  ).toBeVisible();
+  await tabTo(page, summary);
+  await page.keyboard.press("Enter");
+  await expect(overview.getByRole("button")).toHaveCount(33);
+  for (let position = 1; position <= 33; position += 1)
+    await expect(question(position, "Offen")).toBeVisible();
+  await expect(question(1, "Offen")).toHaveAttribute("aria-current", "step");
+  await expect(overview).toContainText("0 von 33 Antworten gespeichert");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  const firstAnswer = page.getByRole("radio").first();
+  await expect(firstAnswer).toBeEnabled();
+
+  const answerPath = `${root}/responses/${items[0].binding_id}`;
+  let releaseSave;
+  const holdSave = new Promise((resolve) => {
+    releaseSave = resolve;
+  });
+  await page.route(`**${answerPath}`, async (route) => {
+    await holdSave;
+    await route.continue();
+  });
+  try {
+    const requested = page.waitForRequest(
+      (request) =>
+        request.method() === "PUT" &&
+        new URL(request.url()).pathname === answerPath,
+      { timeout: 10_000 },
+    );
+    const response = apiResponse(page, answerPath, "PUT");
+    await firstAnswer.focus();
+    await expect(firstAnswer).toBeFocused();
+    await page.keyboard.press("Space");
+    await requested;
+    await expect(question(5, "Offen")).toBeDisabled();
+    await expect(submit).toBeDisabled();
+    await expect(question(1, "Nicht bestätigt")).toBeVisible();
+    await expect(question(1, "Gespeichert")).toHaveCount(0);
+    releaseSave();
+    expect((await response).status()).toBe(200);
+    await expect(question(1, "Gespeichert")).toBeVisible();
+  } finally {
+    releaseSave();
+    await page.unroute(`**${answerPath}`);
+  }
+  await expect(overview).toContainText("1 von 33 Antworten gespeichert");
+
+  await context.setOffline(true);
+  try {
+    await expect(question(5, "Offen")).toBeDisabled();
+  } finally {
+    await context.setOffline(false);
+  }
+  await expect(question(5, "Offen")).toBeEnabled();
+  const fifth = question(5, "Offen");
+  await tabTo(page, fifth);
+  expect(
+    await fifth.evaluate(
+      (button) =>
+        button.matches(":focus-visible") &&
+        getComputedStyle(button).outlineStyle === "solid",
+    ),
+  ).toBe(true);
+  const navPath = `${root}/navigate`;
+  const navRoute = (url) => url.pathname === navPath;
+  let releaseNavigation;
+  const holdNavigation = new Promise((resolve) => {
+    releaseNavigation = resolve;
+  });
+  let navigationRequests = 0;
+  await page.route(navRoute, async (route) => {
+    navigationRequests += 1;
+    await holdNavigation;
+    await route.continue();
+  });
+  try {
+    const requested = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === navPath,
+      { timeout: 10_000 },
+    );
+    const navigated = apiResponse(page, navPath, "POST");
+    await page.keyboard.press("Enter");
+    await requested;
+    await expect(fifth).toBeDisabled();
+    await expect(question(33, "Offen")).toBeDisabled();
+    await fifth.evaluate((button) => button.click());
+    await question(33, "Offen").evaluate((button) => button.click());
+    releaseNavigation();
+    const reply = await navigated;
+    expect(reply.status()).toBe(200);
+    expect((await reply.json()).current_binding_id).toBe(items[4].binding_id);
+    expect(navigationRequests).toBe(1);
+  } finally {
+    releaseNavigation();
+    await page.unroute(navRoute);
+  }
+  await expect(current("Question 5 of 33")).toBeFocused();
+  await expect(question(5, "Offen")).toHaveAttribute("aria-current", "step");
+
+  await page.reload();
+  await expect(current("Question 5 of 33")).toBeVisible();
+  await summary.click();
+  await expect(question(5, "Offen")).toHaveAttribute("aria-current", "step");
+  await expect(question(1, "Gespeichert")).toBeEnabled();
+  await question(1, "Gespeichert").click();
+  await expect(current("Question 1 of 33")).toBeFocused();
+  await expect(page.getByRole("radio").first()).toBeChecked();
+  await question(33, "Offen").click();
+  await expect(current("Question 33 of 33")).toBeFocused();
+});
+
 test("narrow keyboard Berlin practice recovers lost acknowledgements and resolves a stale revision safely", async ({
   page,
   context,
@@ -1282,6 +1427,24 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     await expect(saveMessage("Speicherung nicht bestätigt")).toBeVisible();
     await expect(saveMessage(confirmed)).toHaveCount(0);
     await expect(revision(1)).toBeVisible();
+    const overview = page
+      .locator("details")
+      .filter({ hasText: "Fragenübersicht" });
+    const summary = overview.locator("summary");
+    await summary.click();
+    await expect(
+      overview.getByRole("button", { name: "Frage 1 Nicht bestätigt" }),
+    ).toBeVisible();
+    await expect(
+      overview.getByRole("button", { name: "Frage 1 Gespeichert" }),
+    ).toHaveCount(0);
+    await expect(
+      overview.getByRole("button", { name: "Frage 2 Offen" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Submit attempt" }),
+    ).toBeDisabled();
+    await summary.click();
     await tabTo(page, retry);
     forward = true;
     const [manualResponse] = await Promise.all([
@@ -1294,6 +1457,11 @@ test("narrow keyboard Berlin practice recovers lost acknowledgements and resolve
     await saved();
     await expect(revision(2)).toBeVisible();
     await expect(answers.nth(1)).toBeChecked();
+    await summary.click();
+    await expect(
+      overview.getByRole("button", { name: "Frage 1 Gespeichert" }),
+    ).toBeVisible();
+    await summary.click();
   } finally {
     await page.unroute(path);
   }

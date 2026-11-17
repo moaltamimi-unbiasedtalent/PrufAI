@@ -1084,7 +1084,32 @@ export default function CandidateExamRuntimePage() {
   );
   const practiceAnswersBlocked =
     practiceControlsBlocked || submitting || submissionUnconfirmed;
-  const unanswered = items.length - (runtime?.responses.length ?? 0);
+  const navigationBlocked =
+    !editable ||
+    practiceControlsBlocked ||
+    submissionUnconfirmed ||
+    audioPending ||
+    navigating;
+  const savedBindings = new Set(
+    runtime?.responses.map(({ binding_id }) => binding_id),
+  );
+  const unansweredItems = items.filter(
+    ({ binding_id }) => !savedBindings.has(binding_id),
+  );
+  const unanswered = unansweredItems.length;
+  const confirmedOverviewCount =
+    items.length -
+    unanswered -
+    (practiceControlsBlocked &&
+    currentBinding &&
+    savedBindings.has(currentBinding)
+      ? 1
+      : 0);
+  const showQuestionOverview =
+    lidForm &&
+    runtimeReady &&
+    runtime?.runtime_plan.modules.length === 1 &&
+    currentItem?.navigationMode === "FREE_WITHIN_MODULE";
   return (
     <main
       className={lidForm ? styles.practice : undefined}
@@ -1334,14 +1359,7 @@ export default function CandidateExamRuntimePage() {
             currentIndex > 0 &&
             void navigateTo(items[currentIndex - 1].binding_id)
           }
-          disabled={
-            !editable ||
-            practiceControlsBlocked ||
-            submissionUnconfirmed ||
-            audioPending ||
-            navigating ||
-            currentIndex <= 0
-          }
+          disabled={navigationBlocked || currentIndex <= 0}
         >
           Previous question
         </button>
@@ -1353,11 +1371,7 @@ export default function CandidateExamRuntimePage() {
             void navigateTo(items[currentIndex + 1].binding_id)
           }
           disabled={
-            !editable ||
-            practiceControlsBlocked ||
-            submissionUnconfirmed ||
-            audioPending ||
-            navigating ||
+            navigationBlocked ||
             currentIndex < 0 ||
             currentIndex >= items.length - 1
           }
@@ -1365,6 +1379,40 @@ export default function CandidateExamRuntimePage() {
           Next question
         </button>
       </nav>
+      {showQuestionOverview && (
+        <details className={styles.questionOverview} lang="de">
+          <summary>Fragenübersicht</summary>
+          <p>
+            {confirmedOverviewCount} von {items.length} Antworten gespeichert
+          </p>
+          <ol className={styles.questionGrid} role="list">
+            {items.map(({ binding_id }, index) => {
+              const isCurrent = binding_id === currentBinding;
+              return (
+                <li key={binding_id}>
+                  <button
+                    type="button"
+                    aria-current={isCurrent ? "step" : undefined}
+                    disabled={
+                      navigationBlocked || !online || submitting || isCurrent
+                    }
+                    onClick={() => void navigateTo(binding_id)}
+                  >
+                    <span>Frage {index + 1}</span>
+                    <small>
+                      {isCurrent && practiceControlsBlocked
+                        ? "Nicht bestätigt"
+                        : savedBindings.has(binding_id)
+                          ? "Gespeichert"
+                          : "Offen"}
+                    </small>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </details>
+      )}
       <button
         type="button"
         ref={submitTriggerRef}
@@ -1439,12 +1487,7 @@ export default function CandidateExamRuntimePage() {
               type="button"
               lang="de"
               onClick={() => {
-                const next = items.find(
-                  (item) =>
-                    !runtime?.responses.some(
-                      (answer) => answer.binding_id === item.binding_id,
-                    ),
-                );
+                const [next] = unansweredItems;
                 if (next) {
                   submitDialogRef.current?.close();
                   void navigateTo(next.binding_id);

@@ -39,24 +39,27 @@ function actionFor(
   assignment: CandidateAssignment,
 ): { label: string; href: string } | { label: string; disabled: true } {
   const latest = assignment.attempts.at(-1);
+  const route = assignment.lid_practice
+    ? "/candidate/exams/de-"
+    : "/candidate/exams/";
   if (latest?.status === "READY" && assignment.lid_practice)
     return {
       label: "Continue preparation",
-      href: `/candidate/exams/${latest.id}`,
+      href: `${route}${latest.id}`,
     };
   if (latest?.status === "IN_PROGRESS")
-    return { label: "Resume", href: `/candidate/exams/${latest.id}` };
+    return { label: "Resume", href: `${route}${latest.id}` };
   if (latest?.status === "SUBMITTED")
     return {
       label: "View submitted state",
-      href: `/candidate/exams/${latest.id}`,
+      href: `${route}${latest.id}`,
     };
   if (latest?.status === "EXPIRED") return { label: "Expired", disabled: true };
   if (assignment.status === "CANCELLED")
     return { label: "Cancelled", disabled: true };
   return {
     label: "Prepare exam",
-    href: `/candidate/exams/assignment-${assignment.id}`,
+    href: `${route}assignment-${assignment.id}`,
   };
 }
 

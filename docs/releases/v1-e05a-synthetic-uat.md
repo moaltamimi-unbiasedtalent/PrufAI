@@ -20,6 +20,20 @@ Pending responses survive a same-account reload only when browser storage is ava
 
 The automated checks cover a 320 CSS-pixel viewport and 200% CSS zoom in Chromium. Browser-toolbar zoom, a physical phone, keyboard-only participants, screen readers, and German-language comprehension require observed sessions.
 
+## Cross-tab integrity and initial language correction
+
+The PR #72 acceptance review reproduced submission from a tab opened before another tab's replacement answer failed. The stale tab submitted the previous server revision. It also reproduced English loading and outage messages on the Berlin route, including an English alert marked as German.
+
+Berlin attempts now use an exclusive Web Lock named by the authenticated account, organisation and attempt. Staging and replay hold that lock until their shared outbox work and bounded API request finish. Navigation and submission acquire the same lock, read IndexedDB, and refuse the request while any unresolved binding exists. A competing action fails immediately. Failed shared reads or unavailable Web Locks keep the controls blocked. This coordination applies to cooperating tabs on the same origin and browser storage partition.
+
+BroadcastChannel sends opaque refresh notifications. It carries no answers, credentials or operation IDs. Focus and periodic reads refresh the same shared state. Before confirming that the pending set is empty, an observing tab refreshes server revisions. An ambiguous submission leaves a persistent attempt fence in IndexedDB. A retry checks the server and may repeat the idempotent submission while answer edits remain blocked. Unresolved Berlin operations keep their original identity, revision and payload even after the ordinary outbox retention interval. Explicit server rejection and conflict reconciliation still determine their disposition.
+
+Candidate dashboard links and preparation redirects use a `de-` route prefix for Berlin practice so initial loading and outage text can be German before the runtime GET returns. The prefix only chooses display language. Authentication, assignment access and attempt identity continue to come from the existing API. Generic exam links keep their existing route and language behavior. English disclosures and result sections retain their language annotations.
+
+The corrective no-reload regression holds a replacement request, attempts navigation and final submission from a stale tab, and requires zero transition requests. It repeats the checks after failure, verifies the question-specific row labels and saved count, and retries once with the original operation ID and expected revision. A separate test injects failed IndexedDB reads and missing Web Locks. The existing account-switch, offline, revision-conflict, expired-attempt and generic exam journeys remain required.
+
+PR #72 merged with zero submitted GitHub reviews. Independent pre-merge review remains unverified. Keep that historical review exception separate from this corrective PR. H10, PR #60 P2 and E02A-S1 remain OPEN. E03A is BLOCKED, production readiness is NO and pilot launch is NOT AUTHORIZED.
+
 ## H10 handoff for authorized human sessions
 
 Use one synthetic candidate account and a separate synthetic attempt per participant. Record the tested commit, browser and OS versions, device or keyboard, zoom setting, assistive technology and version, outcomes, any assistance, and a private evidence reference. Keep participant identity and consent records in the approved study channel.

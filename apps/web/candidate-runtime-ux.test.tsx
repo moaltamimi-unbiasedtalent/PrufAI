@@ -12,13 +12,18 @@ import {
 } from "./app/candidate/exams/[attemptId]/runtime-ux";
 import type { RuntimeState } from "./app/candidate/api";
 
+const route = vi.hoisted(() => ({ attemptId: "attempt-123" }));
+
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ attemptId: "attempt-123" }),
+  useParams: () => ({ attemptId: route.attemptId }),
   useRouter: () => ({ replace: vi.fn() }),
 }));
 
 describe("candidate runtime accessibility", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    route.attemptId = "attempt-123";
+  });
 
   it("renders a stable, labelled timer without per-second live announcements", () => {
     const markup = renderToStaticMarkup(
@@ -63,6 +68,15 @@ describe("candidate runtime accessibility", () => {
     expect(markup).toContain('role="status"');
     expect(markup).toContain("Loading exam");
     expect(markup).not.toContain("dangerouslySetInnerHTML");
+  });
+
+  it("announces German loading before the Berlin runtime request resolves", () => {
+    route.attemptId = "de-attempt-123";
+    const markup = renderToStaticMarkup(<CandidateExamRuntimePage />);
+    expect(markup).toContain('<main lang="de">');
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain("Übung wird geladen…");
+    expect(markup).not.toContain("Loading exam");
   });
 
   it("keeps conflict, expiry and submitted states explicit", () => {

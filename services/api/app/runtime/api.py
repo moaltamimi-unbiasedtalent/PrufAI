@@ -646,7 +646,9 @@ def writer_status(
         attempt = CandidateRuntimeService._owned_attempt(session, _context(principal), attempt_id)
         if "lid_practice" not in attempt.runtime_plan:
             raise ValueError("writer policy is only available for LiD practice")
-        CandidateRuntimeService.expire_if_due(session, _context(principal), attempt)
+        # Refresh under the same attempt lock before expiry can mutate status;
+        # a stale metadata poll must not overwrite a concurrently final submission.
+        attempt = SpeakingAudioService.lock_attempt(session, _context(principal), attempt_id)
         owned = False
         if writer_id is not None and attempt.status.value in {"READY", "IN_PROGRESS"}:
             try:

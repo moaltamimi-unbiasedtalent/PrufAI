@@ -768,6 +768,14 @@ export default function CandidateExamRuntimePage() {
         const barrier = await readCandidateAttemptBarrier(scope, id);
         if (!current()) return;
         const { bindingIds, submissionStarted } = barrier;
+        // Offline observation still uses the authoritative shared local queue.
+        // A network probe cannot replace known pending answers with uncertainty.
+        if (!navigator.onLine) {
+          hadUnresolved = Boolean(bindingIds.size);
+          setSharedSubmissionStarted(submissionStarted);
+          setPracticeOutbox({ context: contextKey, attemptId: id, bindingIds });
+          return;
+        }
         const marker = await candidateWriterIdentity(scope, id);
         const authority = await candidateApi.writerStatus(
           id,

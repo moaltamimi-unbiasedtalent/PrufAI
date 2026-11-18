@@ -1098,6 +1098,12 @@ async function startFromKeyboard(page, id, nearDeadline) {
   await expect(state).toHaveValue("DE-BE");
   await tabTo(page, page.getByRole("button", { name: "Übung vorbereiten" }));
   const created = apiResponse(page, `/exam-assignments/${id}/attempts`, "POST");
+  const writerClaim = page.waitForResponse(
+    (reply) =>
+      reply.request().method() === "POST" &&
+      /\/exam-attempts\/[^/]+\/writer$/.test(new URL(reply.url()).pathname) &&
+      reply.status() === 200,
+  );
   await page.keyboard.press("Enter");
   const prepared = await created;
   expect(prepared.status()).toBe(201);
@@ -1110,11 +1116,24 @@ async function startFromKeyboard(page, id, nearDeadline) {
   expect(deadlineAt).toBeNull();
   await expect(page.locator("time")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
+  const claimed = await writerClaim;
+  expect(new URL(claimed.url()).pathname).toBe(
+    `${candidate}/exam-attempts/${attempt}/writer`,
+  );
+  await expect(
+    page.getByRole("button", { name: "Übung starten", exact: true }),
+  ).toBeEnabled();
   if (nearDeadline) {
     execFileSync(
       "python3",
       ["tests/browser/expire-lid-attempt.py", attempt, String(nearDeadline)],
-      { timeout: 30_000 },
+      {
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          PRUFAI_E2E_WRITER_ID: claimed.request().postDataJSON().client_id,
+        },
+      },
     );
     await page.reload();
     return { attempt_id: attempt };

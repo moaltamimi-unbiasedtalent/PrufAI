@@ -59,7 +59,15 @@ def main() -> None:
                 "_now",
                 return_value=now - timedelta(seconds=duration - seconds),
             ):
-                runtime.CandidateRuntimeService.start(session, context, attempt.id)
+                # Use the browser's already claimed identity. The disposable
+                # deadline fixture must meet the same writer guard as the API.
+                runtime.CandidateRuntimeService.start(
+                    session,
+                    context,
+                    attempt.id,
+                    writer_id=uuid.UUID(os.environ["PRUFAI_E2E_WRITER_ID"]),
+                    writer_generation=attempt.writer_generation,
+                )
             session.commit()
             return
         if (

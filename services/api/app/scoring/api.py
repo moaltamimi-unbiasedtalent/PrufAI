@@ -13,6 +13,7 @@ from app.authorization import AuthorizationError, AuthorizationService, TenantCo
 from app.authorization.membership import require_active_tenant_permission
 from app.db import get_db_session
 from app.models import AssessmentResult, ResultVersion, ScoringRun
+from app.operations.database_errors import database_http_error
 from app.operations.telemetry import Failure, Signal, record
 from app.result_release.service import ResultReleaseService
 from app.scoring.service import ScoringService
@@ -44,9 +45,14 @@ def _require_result_read(
 
 
 def _error(exc: Exception) -> HTTPException:
+    database_error = database_http_error(exc, namespace="SCORING")
+    if database_error is not None:
+        return database_error
     if isinstance(exc, (AuthorizationError, PermissionError)):
         return HTTPException(status_code=403, detail=str(exc))
-    return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=500, detail="SCORING.INTERNAL_ERROR")
 
 
 def _admin_version(

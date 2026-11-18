@@ -9,7 +9,6 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -31,7 +30,7 @@ from app.models import (
     LidPracticeForm,
     User,
 )
-from app.operations.readiness import is_database_unavailable
+from app.operations.database_errors import database_http_error
 from app.runtime.service import CandidateRuntimeService, RuntimeConflict, RuntimeExpired
 from app.scoring.service import ScoringService
 from app.speaking_audio.api import (
@@ -159,10 +158,9 @@ def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
 
 
 def _runtime_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, DBAPIError) and is_database_unavailable(exc):
-        return HTTPException(status_code=503, detail="RUNTIME.TEMPORARILY_UNAVAILABLE")
-    if isinstance(exc, SQLAlchemyError):
-        return HTTPException(status_code=500, detail="RUNTIME.INTERNAL_ERROR")
+    database_error = database_http_error(exc, namespace="RUNTIME")
+    if database_error is not None:
+        return database_error
     if isinstance(exc, (AudioValidationError, StorageError)):
         return audio_error(exc)
     if isinstance(exc, RuntimeConflict):
@@ -643,12 +641,10 @@ def writer_status(
     writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
 ) -> dict[str, Any]:
     try:
+        # LiD ownership validation locks/refetches the attempt before sources.
         attempt = CandidateRuntimeService._owned_attempt(session, _context(principal), attempt_id)
         if "lid_practice" not in attempt.runtime_plan:
             raise ValueError("writer policy is only available for LiD practice")
-        # Refresh under the same attempt lock before expiry can mutate status;
-        # a stale metadata poll must not overwrite a concurrently final submission.
-        attempt = SpeakingAudioService.lock_attempt(session, _context(principal), attempt_id)
         owned = False
         if writer_id is not None and attempt.status.value in {"READY", "IN_PROGRESS"}:
             try:

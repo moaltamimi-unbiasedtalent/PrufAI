@@ -11,6 +11,10 @@ import {
   runtimeStateMessage,
 } from "./app/candidate/exams/[attemptId]/runtime-ux";
 import type { RuntimeState } from "./app/candidate/api";
+import {
+  CandidateApiError,
+  isDefiniteSubmissionRejection,
+} from "./app/candidate/api";
 
 const route = vi.hoisted(() => ({ attemptId: "attempt-123" }));
 
@@ -23,6 +27,44 @@ describe("candidate runtime accessibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     route.attemptId = "attempt-123";
+  });
+
+  it("recognizes only the endpoint router's non-redirected 405 rejection contract", () => {
+    expect(
+      isDefiniteSubmissionRejection(
+        new CandidateApiError(405, "Method Not Allowed", "POST"),
+      ),
+    ).toBe(true);
+    for (const status of [0, 400, 401, 403, 409, 422, 500, 503]) {
+      expect(
+        isDefiniteSubmissionRejection(
+          new CandidateApiError(status, "Method Not Allowed", "POST"),
+        ),
+      ).toBe(false);
+    }
+    expect(
+      isDefiniteSubmissionRejection(
+        new CandidateApiError(405, "Method Not Allowed"),
+      ),
+    ).toBe(false);
+    expect(
+      isDefiniteSubmissionRejection(
+        new CandidateApiError(405, "Method Not Allowed", "GET"),
+      ),
+    ).toBe(false);
+    expect(
+      isDefiniteSubmissionRejection(
+        new CandidateApiError(405, "Method Not Allowed", "POST", true),
+      ),
+    ).toBe(false);
+    expect(
+      isDefiniteSubmissionRejection(
+        new CandidateApiError(405, "RUNTIME.HTTP_405", "POST"),
+      ),
+    ).toBe(false);
+    expect(isDefiniteSubmissionRejection(new Error("transport failed"))).toBe(
+      false,
+    );
   });
 
   it("renders a stable, labelled timer without per-second live announcements", () => {

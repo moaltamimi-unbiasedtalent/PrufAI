@@ -36,6 +36,16 @@ PR #72 merged with zero submitted GitHub reviews. Independent pre-merge review r
 
 ## H10 handoff for authorized human sessions
 
+### Definite submission rejection recovery
+
+The router's HTTP 405 response with `detail="Method Not Allowed"`, `Allow: POST` and no redirect is the only current response classified as definitely non-mutating. The endpoint is registered only for POST in `services/api/app/runtime/api.py`. The browser regression deliberately forwards a PATCH to that route and verifies the actual router response and unchanged IN_PROGRESS runtime. Other HTTP statuses, transport errors and unverified responses retain the fence.
+
+Each new fence records a submission identity and whether it replaced an earlier uncertain fence. After a qualifying rejection, the existing exclusive attempt lock remains held while the authenticated runtime is checked. A guarded IndexedDB read/write transaction removes only the matching recoverable fence and refuses removal if an answer is unresolved. A delayed older response cannot clear a newer fence. A legacy boolean or an earlier uncertain fence keeps subsequent rejected retries fenced.
+
+The browser database advances to schema version 3 while preserving existing stores and queued operations. Old version-2 readers fail closed after the upgrade, so they cannot overlook identity records. A verified recovery refreshes the server responses and other tabs, announces in German that the attempt remains open, and restores editing and navigation. Closing the dialog alone retains an uncertain fence.
+
+The separate [P1 cross-partition submission milestone](../operations/pre-production-review-checklist.md#p1-cross-partition-submission-integrity-milestone) remains release-blocking. H10, PR #60 P2 and E02A-S1 remain OPEN. E03A remains BLOCKED, production readiness is NO and pilot launch is NOT AUTHORIZED.
+
 Use one synthetic candidate account and a separate synthetic attempt per participant. Record the tested commit, browser and OS versions, device or keyboard, zoom setting, assistive technology and version, outcomes, any assistance, and a private evidence reference. Keep participant identity and consent records in the approved study channel.
 
 - **U10 keyboard only.** Ask the participant to open the overview, go to a question using the grid, bypass the grid, cancel the dialog, and use the first-unanswered action. Observe focus visibility and where focus returns. Ask the participant to demonstrate how they reach any of the 33 questions.

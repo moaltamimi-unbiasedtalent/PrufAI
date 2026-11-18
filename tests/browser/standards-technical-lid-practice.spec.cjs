@@ -2436,16 +2436,15 @@ test("Berlin pilot restricts role workspaces and withdraws exact results despite
         })
       ).status(),
     ).toBe(200);
-    expect(
-      (
-        await privateRequest(
-          operatorPage,
-          "POST",
-          `${institution}/exam-attempts/${attempt}/score`,
-          { headers: scoped(operator, org) },
-        )
-      ).status(),
-    ).toBe(200);
+    const scored = await privateRequest(
+      operatorPage,
+      "POST",
+      `${institution}/exam-attempts/${attempt}/score`,
+      { headers: scoped(operator, org) },
+    );
+    expect(scored.status()).toBe(200);
+    const scoringRun = await scored.json();
+    expect(scoringRun.status).toBe("COMPLETED");
     const rows = await privateRequest(
       operatorPage,
       "GET",
@@ -2454,6 +2453,27 @@ test("Berlin pilot restricts role workspaces and withdraws exact results despite
     );
     const assignment = (await rows.json()).find((row) => row.id === id);
     const result = assignment.attempts.find((row) => row.id === attempt).result;
+    const canonicalVersions = await privateRequest(
+      operatorPage,
+      "GET",
+      `${institution}/results/${result.id}/versions`,
+      { headers: scoped(operator, org) },
+    );
+    expect(canonicalVersions.status()).toBe(200);
+    const version = (await canonicalVersions.json()).find(
+      (row) => row.result_version_id === result.version_id,
+    );
+    expect(version).toMatchObject({
+      attempt_id: attempt,
+      scoring_run_id: scoringRun.id,
+      status: "REVIEW_REQUIRED",
+      outcome: "UNDETERMINED",
+      review: null,
+      checksum: result.checksum,
+      response_set_checksum: scoringRun.response_set_checksum,
+      scoring_run_checksum: scoringRun.checksum,
+    });
+    expect(result.scoring_run_id).toBe(scoringRun.id);
     const legacy = `${candidate}/results/${result.id}`;
     const releaseAction = `${institution}/result-versions/${result.version_id}`;
     const ownerRequest = (method, path, data) =>
@@ -2486,6 +2506,16 @@ test("Berlin pilot restricts role workspaces and withdraws exact results despite
         })
       ).status(),
     ).toBe(409);
+    const afterDenial = await staff(
+      "GET",
+      `${institution}/results/${result.id}/versions`,
+    );
+    expect(afterDenial.status()).toBe(200);
+    expect(
+      (await afterDenial.json()).find(
+        (row) => row.result_version_id === result.version_id,
+      ),
+    ).toEqual(version);
     expect(
       (await staff("POST", `${releaseAction}/request-review`)).status(),
     ).toBe(200);

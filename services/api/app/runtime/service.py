@@ -302,6 +302,11 @@ class CandidateRuntimeService:
         CandidateRuntimeService._require_candidate(context, attempt.candidate_user_id)
         if context.organisation_id != attempt.organisation_id:
             raise RuntimeError("organisation scope required")
+        if "lid_practice" in attempt.runtime_plan:
+            # Pilot/form validation locks source versions. Match review, save,
+            # submit and takeover by locking/refetching the attempt first, also
+            # before a read/heartbeat can expire it. Generic behavior is unchanged.
+            attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         lid.require_attempt_environment(attempt)
         pilot.require_attempt(session, attempt)
         return attempt
@@ -940,8 +945,6 @@ class CandidateRuntimeService:
         writer_generation: int | None = None,
     ) -> CandidateExamSession:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
-        if "lid_practice" in attempt.runtime_plan:
-            attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         CandidateRuntimeService._require_writer(attempt, writer_id, writer_generation)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS or attempt.session is None:

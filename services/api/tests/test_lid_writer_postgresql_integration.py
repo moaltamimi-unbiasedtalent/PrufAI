@@ -8,6 +8,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select, text
 
 from app.authorization import build_tenant_context
@@ -251,6 +252,7 @@ def test_nonowners_and_platform_identities_cannot_claim_or_transfer(proof, pract
     attempt, first, _item = _new(proof, practice)
     for actor in ("outsider", "revoked", "creator"):
         _claim(proof, attempt, uuid.uuid4(), 1, ack=True, status=403, actor=actor)
+        proof.http("GET", CANDIDATE + f"/exam-attempts/{attempt}/writer", actor=actor, status=403)
     assert _claim(proof, attempt, first, 0)["generation"] == 1
 
 
@@ -300,3 +302,170 @@ def test_concurrent_submit_and_takeover_have_only_one_authorized_outcome(proof, 
             assert stored.status.value == "IN_PROGRESS" and stored.writer_generation == 2
             assert changed["generation"] == 2
             assert submitted["detail"] == "RUNTIME.WRITER_CHANGED"
+
+
+@pytest.mark.parametrize("action", ["request-review", "save", "navigate", "submit", "takeover"])
+def test_writer_poll_locks_attempt_before_sources_and_serializes_mutations(
+    proof, practice, monkeypatch, action
+):
+    """Force real HTTP transactions to overlap; observe the actual PostgreSQL wait."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import event
+
+    from app.config import get_settings
+    from app.main import app
+    from app.models import User
+    from tests.test_expert_references_postgresql_integration import PASSWORD
+
+    attempt, marker, item = _new(proof, practice)
+    _save(proof, attempt, item, marker, 1, 0)
+    org = practice[0]
+    institution = f"/api/v1/organisations/{org}"
+    endpoint = CANDIDATE + f"/exam-attempts/{attempt}"
+    # Authentication updates last_seen on the session row. Separate genuine
+    # sessions avoid serializing both requests on that unrelated row first.
+    with proof.expert.factory() as session:
+        email = session.get(User, proof.expert.actors["candidate"]).email
+    with TestClient(app) as client:
+        signed_in = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+        assert signed_in.status_code == 200
+        poll_headers = {
+            "Authorization": "Bearer " + signed_in.json()["access_token"],
+            "X-PrufAI-Organisation-ID": org,
+        }
+
+    def writer_poll():
+        with TestClient(app) as client:
+            response = client.get(endpoint + "/writer", headers=poll_headers)
+        assert response.status_code == 200
+        return response.json()
+
+    version = None
+    if action == "request-review":
+        proof.http(
+            "POST", endpoint + "/submit", actor="candidate", extra_headers=_headers(marker, 1)
+        )
+        run = proof.http("POST", institution + f"/exam-attempts/{attempt}/score", actor="revoked")
+        assert run["status"] == "COMPLETED"
+        rows = proof.http("GET", institution + "/exam-assignments", actor="revoked")
+        projection = next(row for row in rows if any(a["id"] == attempt for a in row["attempts"]))
+        result = next(a for a in projection["attempts"] if a["id"] == attempt)["result"]
+        versions = proof.http(
+            "GET", institution + f"/results/{result['id']}/versions", actor="revoked"
+        )
+        version = next(v for v in versions if v["result_version_id"] == result["version_id"])
+        assert version["scoring_run_id"] == result["scoring_run_id"] == run["id"]
+        assert version["response_set_checksum"] == run["response_set_checksum"]
+        assert version["scoring_run_checksum"] == run["checksum"]
+        assert version["checksum"] == result["checksum"]
+        assert version["outcome"] == result["outcome"] == "UNDETERMINED"
+        assert version["status"] == result["status"] == "REVIEW_REQUIRED"
+        assert version["review"] is None
+        denied = proof.http(
+            "POST",
+            institution + f"/result-versions/{result['version_id']}/release",
+            actor="revoked",
+            status=409,
+            json={"operation_id": str(uuid.uuid4())},
+        )
+        assert denied["detail"] == "result version requires approved human review"
+
+    monkeypatch.setenv("V1_PILOT_PROFILE", "BERLIN_LID_SYNTHETIC")
+    monkeypatch.setenv("DATABASE_URL", proof.expert.database_url)
+    monkeypatch.setenv("PRUFAI_DISPOSABLE_DATABASE", proof.expert.database_url.rsplit("/", 1)[1])
+    get_settings.cache_clear()
+    with proof.expert.factory() as session:
+        engine = session.get_bind()
+    held, requested, release = threading.Event(), threading.Event(), threading.Event()
+    mutex = threading.Lock()
+    roles = []
+    waiting_pid = []
+
+    def begin(connection):
+        connection.info.pop("e05_role", None)
+        connection.info["e05_attempt_locked"] = False
+
+    def before(connection, cursor, statement, parameters, context, many):
+        if "FOR UPDATE" not in statement:
+            return
+        if "knowledge_document_versions" in statement:
+            assert connection.info["e05_attempt_locked"], "source lock preceded the attempt lock"
+        elif "candidate_exam_attempts" in statement:
+            if "e05_role" not in connection.info:
+                with mutex:
+                    role = "holder" if not roles else "contender"
+                    roles.append(role)
+                connection.info["e05_role"] = role
+            if connection.info["e05_role"] == "contender":
+                waiting_pid.append(connection.connection.driver_connection.info.backend_pid)
+                requested.set()
+
+    def after(connection, cursor, statement, parameters, context, many):
+        if "FOR UPDATE" in statement and "candidate_exam_attempts" in statement:
+            connection.info["e05_attempt_locked"] = True
+            if connection.info["e05_role"] == "holder":
+                held.set()
+                assert release.wait(10), "test coordinator did not release the attempt lock"
+
+    def contender():
+        if action == "request-review":
+            return proof.http(
+                "POST",
+                institution + f"/result-versions/{version['result_version_id']}/request-review",
+                actor="revoked",
+            )
+        if action == "takeover":
+            return _claim(proof, attempt, uuid.uuid4(), 1, ack=True)
+        if action == "save":
+            return _save(proof, attempt, item, marker, 1, 1, option=1)
+        path = "/submit" if action == "submit" else "/navigate?binding_id=" + item["binding_id"]
+        return proof.http(
+            "POST", endpoint + path, actor="candidate", extra_headers=_headers(marker, 1)
+        )
+
+    event.listen(engine, "begin", begin)
+    event.listen(engine, "before_cursor_execute", before)
+    event.listen(engine, "after_cursor_execute", after)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            poll = pool.submit(writer_poll)
+            try:
+                assert held.wait(10), "writer-status did not acquire the attempt lock first"
+                mutation = pool.submit(contender)
+                assert requested.wait(10), "competing HTTP transaction never requested the lock"
+                deadline = time.monotonic() + 5
+                blocked = False
+                while time.monotonic() < deadline:
+                    with proof.expert.factory() as observer:
+                        blocked = (
+                            observer.scalar(
+                                text(
+                                    "SELECT wait_event_type = 'Lock' "
+                                    "FROM pg_stat_activity WHERE pid=:pid"
+                                ),
+                                {"pid": waiting_pid[0]},
+                            )
+                            is True
+                        )
+                    if blocked:
+                        break
+                    threading.Event().wait(0.01)
+                assert blocked, "the competing transaction did not wait on the real PostgreSQL lock"
+                release.set()
+                assert poll.result(timeout=10)["generation"] == 1
+                changed = mutation.result(timeout=10)
+                if action == "request-review":
+                    assert changed["status"] == "PENDING"
+                elif action == "save":
+                    assert changed["revision"] == 2
+                elif action == "submit":
+                    assert changed["status"] == "SUBMITTED"
+                elif action == "takeover":
+                    assert changed["generation"] == 2
+            finally:
+                release.set()
+    finally:
+        event.remove(engine, "begin", begin)
+        event.remove(engine, "before_cursor_execute", before)
+        event.remove(engine, "after_cursor_execute", after)
+        get_settings.cache_clear()

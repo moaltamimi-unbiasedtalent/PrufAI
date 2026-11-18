@@ -3231,7 +3231,6 @@ async function rawWriterMutation(tab, path, identity, org, writer) {
 
 test("Berlin cross-partition writer authority blocks silent submission and retains the original pending operation", async ({
   page,
-  context,
   browser,
 }) => {
   const { id, org } = await createPracticeAssignment(page),
@@ -3248,11 +3247,11 @@ test("Berlin cross-partition writer authority blocks silent submission and retai
   await page.getByRole("radio").first().check();
   expect((await first).status()).toBe(200);
   await practiceConfirmed(page);
-  const separate = await browser.newContext({
-    storageState: await context.storageState(),
-  });
+  const separate = await browser.newContext();
   const other = await separate.newPage();
   try {
+    const otherOwner = await keyboardCandidateLogin(other);
+    expect(otherOwner.token === owner.token).toBe(false);
     await other.goto(`/candidate/exams/de-${state.attempt_id}`);
     await expect(
       other.getByRole("button", {
@@ -3260,7 +3259,12 @@ test("Berlin cross-partition writer authority blocks silent submission and retai
         exact: true,
       }),
     ).toBeVisible();
-    const legacy = await rawWriterMutation(other, root + "/submit", owner, org);
+    const legacy = await rawWriterMutation(
+      other,
+      root + "/submit",
+      otherOwner,
+      org,
+    );
     expect(legacy.status()).toBe(409);
     expect((await legacy.json()).detail).toBe(
       "RUNTIME.WRITER_CONTEXT_REQUIRED",
@@ -3357,7 +3361,7 @@ test("Berlin cross-partition writer authority blocks silent submission and retai
     const stale = await rawWriterMutation(
       other,
       root + "/submit",
-      owner,
+      otherOwner,
       org,
       second,
     );
@@ -3376,7 +3380,7 @@ test("Berlin cross-partition writer authority blocks silent submission and retai
     await page.getByRole("button", { name: "Endgültig abgeben" }).click();
     expect((await submitted).status()).toBe(200);
     console.log(
-      "WRITER_CROSS_PARTITION = PASS (same authenticated state; separate IndexedDB; silent submit denied; explicit generations 1 -> 2 -> 3; original operation/revision retained)",
+      "WRITER_CROSS_PARTITION = PASS (separate authenticated sessions and IndexedDB; silent submit denied; explicit generations 1 -> 2 -> 3; original operation/revision retained)",
     );
   } finally {
     await page.unroute(`**${root}/responses/${item.binding_id}`);
@@ -3386,7 +3390,6 @@ test("Berlin cross-partition writer authority blocks silent submission and retai
 
 test("Berlin writer fencing persists through API restart and recovers an in-flight submission after explicit takeover", async ({
   page,
-  context,
   browser,
 }) => {
   const { id, org } = await createPracticeAssignment(page),
@@ -3401,15 +3404,14 @@ test("Berlin writer fencing persists through API restart and recovers an in-flig
     headers: scoped(owner, org),
   });
   expect((await live.json()).writer.generation).toBe(1);
-  const separate = await browser.newContext({
-      storageState: await context.storageState(),
-    }),
+  const separate = await browser.newContext(),
     other = await separate.newPage();
   let release;
   const held = new Promise((resolve) => {
     release = resolve;
   });
   try {
+    await keyboardCandidateLogin(other);
     await other.goto(`/candidate/exams/de-${state.attempt_id}`);
     await expect(
       other.getByRole("button", { name: "In diesem Browser übernehmen" }),

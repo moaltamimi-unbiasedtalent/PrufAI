@@ -90,7 +90,7 @@ wait, simultaneous takeovers, cached-session rejection, ownership denial,
 immutable answer revisions, sanitized audit receipts and expiry. Its dedicated
 required JUnit report must contain executed tests with zero skips.
 
-Browser coverage uses independent contexts with copied synthetic authentication
+Browser coverage uses independent contexts with distinct real synthetic login sessions
 and separate IndexedDB stores. It verifies stale partition submission denial,
 held/failed writes, explicit takeover in both directions, original-ID retry to
 revision 2, API restart, stale held submission rejection, higher-generation fence

@@ -12,6 +12,7 @@ export type CandidateAccountScope = { userId: string; organisationId: string };
 const LEGACY_DATABASE = "prufai-candidate-runtime";
 const STORE = "response-outbox";
 const SUBMISSIONS = "submission-fences";
+const WRITERS = "writer-identities";
 const MAX_OPERATIONS = 100;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -140,14 +141,16 @@ async function openCandidateOutbox(
   requireActiveAccount(scope, generation);
   return new Promise((resolve, reject) => {
     let blocked = false;
-    // Older clients interpret only boolean fences. Refuse their version-2
-    // reads after upgrading instead of letting them overlook identity records.
-    const request = indexedDB.open(name, 3);
+    // Older clients cannot supply the server writer context. Refuse their
+    // version-2/3 reads after upgrade; retain every existing operation and fence.
+    const request = indexedDB.open(name, 4);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE))
         request.result.createObjectStore(STORE, { keyPath: "operationId" });
       if (!request.result.objectStoreNames.contains(SUBMISSIONS))
         request.result.createObjectStore(SUBMISSIONS);
+      if (!request.result.objectStoreNames.contains(WRITERS))
+        request.result.createObjectStore(WRITERS);
     };
     request.onblocked = () => {
       blocked = true;
@@ -360,6 +363,7 @@ export async function readCandidateAttemptBarrier(
 export async function fenceCandidateSubmission(
   scope: CandidateAccountScope,
   attemptId: string,
+  writerGeneration?: number,
 ): Promise<string> {
   const generation = accountGeneration;
   const submissionId = crypto.randomUUID();
@@ -374,7 +378,11 @@ export async function fenceCandidateSubmission(
       try {
         requireActiveAccount(scope, generation);
         store.put(
-          { submissionId, recoverable: previous.result === undefined },
+          {
+            submissionId,
+            recoverable: previous.result === undefined,
+            ...(writerGeneration === undefined ? {} : { writerGeneration }),
+          },
           attemptId,
         );
       } catch {
@@ -491,6 +499,97 @@ export async function syncCandidateOutbox(
       }
     }
     return { acknowledged, conflicts };
+  } finally {
+    closeDatabase(database);
+  }
+}
+
+export async function candidateWriterIdentity(
+  scope: CandidateAccountScope,
+  attemptId: string,
+): Promise<string> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    const transaction = database.transaction(WRITERS, "readwrite");
+    const complete = transactionComplete(transaction);
+    const store = transaction.objectStore(WRITERS);
+    const value = store.get(attemptId);
+    let identity = "";
+    value.onsuccess = () => {
+      try {
+        requireActiveAccount(scope, generation);
+        if (value.result === undefined) {
+          identity = crypto.randomUUID();
+          store.put(identity, attemptId);
+        } else if (
+          typeof value.result === "string" &&
+          /^[a-f0-9-]{36}$/.test(value.result)
+        ) {
+          identity = value.result;
+        } else throw new CandidateOutboxBlocked("writer identity is invalid");
+      } catch {
+        transaction.abort();
+      }
+    };
+    await complete;
+    requireActiveAccount(scope, generation);
+    if (!identity)
+      throw new CandidateOutboxBlocked("writer identity is unavailable");
+    return identity;
+  } finally {
+    closeDatabase(database);
+  }
+}
+
+// A confirmed higher server generation fences every older in-flight request.
+// The caller holds the attempt lock and has authenticated IN_PROGRESS state at
+// this owned generation. Same-generation and legacy uncertainty remain fenced.
+export async function releaseSupersededCandidateSubmission(
+  scope: CandidateAccountScope,
+  attemptId: string,
+  ownedGeneration: number,
+): Promise<boolean> {
+  const generation = accountGeneration;
+  const database = await openCandidateOutbox(scope);
+  try {
+    const transaction = database.transaction([STORE, SUBMISSIONS], "readwrite");
+    const complete = transactionComplete(transaction);
+    const store = transaction.objectStore(SUBMISSIONS);
+    const fence = store.get(attemptId),
+      operations = transaction.objectStore(STORE).getAll();
+    let ready = 0,
+      released = false;
+    const inspect = () => {
+      if (++ready !== 2) return;
+      try {
+        requireActiveAccount(scope, generation);
+        const value: unknown = fence.result;
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          "writerGeneration" in value &&
+          typeof value.writerGeneration === "number" &&
+          Number.isSafeInteger(value.writerGeneration) &&
+          value.writerGeneration > 0 &&
+          value.writerGeneration < ownedGeneration &&
+          !(operations.result as CandidateOutboxOperation[]).some(
+            (op) => op.attemptId === attemptId,
+          )
+        ) {
+          store.delete(attemptId);
+          released = true;
+        }
+      } catch {
+        transaction.abort();
+      }
+    };
+    fence.onsuccess = inspect;
+    operations.onsuccess = inspect;
+    await complete;
+    requireActiveAccount(scope, generation);
+    if (released) notifyCandidateOutbox(scope, attemptId);
+    return released;
   } finally {
     closeDatabase(database);
   }

@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAccountOutbox,
   fenceCandidateSubmission,
+  candidateWriterIdentity,
+  releaseSupersededCandidateSubmission,
   lockActiveCandidateAccount,
   queueCandidateOperation,
   readCandidateAttemptBarrier,
@@ -21,6 +23,7 @@ function indexedDbDouble() {
     rows: Map<string, CandidateOutboxOperation>;
     connections: number;
     submissions?: Map<string, unknown>;
+    writers?: Map<string, string>;
   };
   const databases = new Map<string, StoredDatabase>();
   const request = <T>(result: T) => ({
@@ -55,7 +58,11 @@ function indexedDbDouble() {
             abort: () => queueMicrotask(() => transaction.onabort?.()),
             objectStore: (name: string) => ({
               get: (key: string) => {
-                const result = request(stored.submissions?.get(key));
+                const result = request(
+                  name === "writer-identities"
+                    ? stored.writers?.get(key)
+                    : stored.submissions?.get(key),
+                );
                 queueMicrotask(() => result.onsuccess?.());
                 setTimeout(() => transaction.oncomplete?.(), 0);
                 return result;
@@ -71,14 +78,22 @@ function indexedDbDouble() {
                 operation:
                   | CandidateOutboxOperation
                   | boolean
+                  | string
                   | { submissionId: string; recoverable: boolean },
                 key: string,
               ) => {
-                if (name === "submission-fences") {
+                if (
+                  name === "writer-identities" &&
+                  typeof operation === "string"
+                ) {
+                  stored.writers ??= new Map();
+                  stored.writers.set(key, operation);
+                } else if (name === "submission-fences") {
                   stored.submissions ??= new Map();
                   stored.submissions.set(key, structuredClone(operation));
                 } else if (
                   typeof operation !== "boolean" &&
+                  typeof operation !== "string" &&
                   "operationId" in operation
                 ) {
                   stored.rows.set(
@@ -408,6 +423,41 @@ describe("account-bound candidate outbox", () => {
     expect(await readCandidateAttemptBarrier(alice, "attempt")).toMatchObject({
       submissionStarted: true,
     });
+  });
+
+  it("keeps one durable writer identity per account and attempt", async () => {
+    lockActiveCandidateAccount(alice);
+    const first = await candidateWriterIdentity(alice, "attempt");
+    expect(await candidateWriterIdentity(alice, "attempt")).toBe(first);
+    expect(await candidateWriterIdentity(alice, "another")).not.toBe(first);
+    lockActiveCandidateAccount(bob);
+    expect(await candidateWriterIdentity(bob, "attempt")).not.toBe(first);
+  });
+
+  it("reconciles only a fenced older server generation, preserving same-generation and legacy uncertainty", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt", 2);
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 2),
+    ).toBe(false);
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 1),
+    ).toBe(false);
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 3),
+    ).toBe(true);
+    await fenceCandidateSubmission(alice, "attempt");
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 4),
+    ).toBe(false);
+    await fenceCandidateSubmission(alice, "queued", 1);
+    await queueCandidateOperation(alice, {
+      ...operation("waiting", "draft"),
+      attemptId: "queued",
+    });
+    expect(await releaseSupersededCandidateSubmission(alice, "queued", 2)).toBe(
+      false,
+    );
   });
 
   it("refuses competing actions and isolates locks by account and attempt", async () => {

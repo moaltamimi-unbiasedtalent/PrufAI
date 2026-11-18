@@ -1,3 +1,20 @@
+export type CandidateWriter = { clientId: string; generation: number };
+export type WriterStatus = {
+  policy: "SINGLE_WRITER";
+  generation: number;
+  claimed: boolean;
+  owned?: boolean;
+};
+
+function writerHeaders(writer?: CandidateWriter): Record<string, string> {
+  return writer
+    ? {
+        "X-PrufAI-Writer-ID": writer.clientId,
+        "X-PrufAI-Writer-Generation": String(writer.generation),
+      }
+    : {};
+}
+
 import type {
   LidPracticeAssignment,
   LidPracticeForm,
@@ -16,6 +33,7 @@ export type CandidateAssignment = {
 };
 
 export type CandidateAttempt = {
+  writer?: WriterStatus;
   id: string;
   status: string;
   attempt_number: number;
@@ -27,6 +45,7 @@ export type CandidateAttempt = {
 };
 
 export type RuntimeState = {
+  writer?: WriterStatus;
   attempt_id: string;
   status: string;
   server_now: string;
@@ -241,9 +260,37 @@ export const candidateApi = {
     timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/runtime`, {
       signal,
     }),
-  start: (attemptId: string) =>
+  writerStatus: (attemptId: string, clientId?: string, signal?: AbortSignal) =>
+    request<WriterStatus & { status: string }>(
+      `/exam-attempts/${attemptId}/writer`,
+      {
+        signal,
+        redirect: "error",
+        headers: clientId ? { "X-PrufAI-Writer-ID": clientId } : {},
+      },
+    ),
+  claimWriter: (
+    attemptId: string,
+    clientId: string,
+    expectedGeneration: number,
+    acknowledgeTakeover: boolean,
+    signal?: AbortSignal,
+  ) =>
+    request<WriterStatus>(`/exam-attempts/${attemptId}/writer`, {
+      method: "POST",
+      redirect: "error",
+      signal,
+      body: JSON.stringify({
+        client_id: clientId,
+        expected_generation: expectedGeneration,
+        acknowledge_takeover: acknowledgeTakeover,
+      }),
+    }),
+  start: (attemptId: string, writer?: CandidateWriter) =>
     timedAttemptRequest<RuntimeState>(`/exam-attempts/${attemptId}/start`, {
       method: "POST",
+      headers: writerHeaders(writer),
+      redirect: writer ? "error" : undefined,
     }),
   startAudioRecording: (
     attemptId: string,
@@ -306,6 +353,7 @@ export const candidateApi = {
     expectedRevision: number,
     operationId: string,
     signal?: AbortSignal,
+    writer?: CandidateWriter,
   ) =>
     request<{
       response_id: string;
@@ -314,16 +362,28 @@ export const candidateApi = {
     }>(`/exam-attempts/${attemptId}/responses/${bindingId}`, {
       method: "PUT",
       signal,
+      headers: writerHeaders(writer),
+      redirect: writer ? "error" : undefined,
       body: JSON.stringify({
         payload,
         expected_revision: expectedRevision,
         client_operation_id: operationId,
       }),
     }),
-  navigate: (attemptId: string, bindingId: string, signal?: AbortSignal) =>
+  navigate: (
+    attemptId: string,
+    bindingId: string,
+    signal?: AbortSignal,
+    writer?: CandidateWriter,
+  ) =>
     request<{ current_binding_id: string }>(
       `/exam-attempts/${attemptId}/navigate?binding_id=${encodeURIComponent(bindingId)}`,
-      { method: "POST", signal },
+      {
+        method: "POST",
+        signal,
+        headers: writerHeaders(writer),
+        redirect: writer ? "error" : undefined,
+      },
     ),
   heartbeat: (attemptId: string) =>
     timedAttemptRequest<CandidateAttempt & { server_now: string }>(
@@ -332,10 +392,12 @@ export const candidateApi = {
         method: "POST",
       },
     ),
-  submit: (attemptId: string, signal?: AbortSignal) =>
+  submit: (attemptId: string, signal?: AbortSignal, writer?: CandidateWriter) =>
     request<CandidateAttempt>(`/exam-attempts/${attemptId}/submit`, {
       method: "POST",
       signal,
+      headers: writerHeaders(writer),
+      redirect: writer ? "error" : undefined,
     }),
   results: () => request<Array<Record<string, unknown>>>("/results"),
   releases: () => request<CandidateRelease[]>("/releases"),

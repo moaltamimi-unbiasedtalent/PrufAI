@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -157,7 +158,38 @@ def _assignment(proof, practice):
 
 
 def _candidate(proof, method, path, *, status=200, json=None):
-    return proof.http(method, CANDIDATE + path, status=status, actor="candidate", json=json)
+    # Positive HTTP fixtures follow the same writer-claim contract as the UI.
+    # Writer-policy negative tests deliberately use raw proof.http calls.
+    extra = {}
+    match = re.match(r"/exam-attempts/([a-f0-9-]+)/(start|submit|navigate|responses/[^/]+)$", path)
+    if method in {"POST", "PUT"} and match and status not in {401, 403, 404}:
+        attempt = match[1]
+        cache = getattr(proof, "candidate_writers", {})
+        if attempt not in cache:
+            state = proof.http(
+                "GET", CANDIDATE + f"/exam-attempts/{attempt}/runtime", actor="candidate"
+            )
+            if state["status"] in {"READY", "IN_PROGRESS"}:
+                marker = uuid.uuid4()
+                owner = proof.http(
+                    "POST",
+                    CANDIDATE + f"/exam-attempts/{attempt}/writer",
+                    actor="candidate",
+                    json={
+                        "client_id": str(marker),
+                        "expected_generation": state["writer"]["generation"],
+                        "acknowledge_takeover": False,
+                    },
+                )
+                cache[attempt] = {
+                    "X-PrufAI-Writer-ID": str(marker),
+                    "X-PrufAI-Writer-Generation": str(owner["generation"]),
+                }
+                proof.candidate_writers = cache
+        extra = cache.get(attempt, {})
+    return proof.http(
+        method, CANDIDATE + path, status=status, actor="candidate", json=json, extra_headers=extra
+    )
 
 
 def _prepare(proof, assignment_id):
@@ -238,7 +270,12 @@ def test_prepare_demo_replays_without_replacing_candidate_work(configured):
                     session, candidate, assignment_id, bundesland="DE-BE"
                 )
                 assert attempt.started_at is None
-                runtime_service.start(session, candidate, attempt.id)
+                marker = uuid.uuid4()
+                authority = runtime_service.claim_writer(
+                    session, candidate, attempt.id, client_id=marker, expected_generation=0
+                )
+                writer = {"writer_id": marker, "writer_generation": authority["generation"]}
+                runtime_service.start(session, candidate, attempt.id, **writer)
                 first_item = _items({"runtime_plan": attempt.runtime_plan})[0]
                 runtime_service.save_response(
                     session,
@@ -248,8 +285,9 @@ def test_prepare_demo_replays_without_replacing_candidate_work(configured):
                     payload={"option_id": _correct_option(first_item)},
                     client_operation_id=uuid.uuid4(),
                     expected_revision=0,
+                    **writer,
                 )
-                runtime_service.submit(session, candidate, attempt.id)
+                runtime_service.submit(session, candidate, attempt.id, **writer)
                 attempt_id, submitted_at = attempt.id, attempt.submitted_at
                 administrator = build_tenant_context(
                     session, assignment.created_by_user_id, assignment.organisation_id

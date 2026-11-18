@@ -13,12 +13,14 @@ import React, {
 import { useAuth } from "../../../../lib/auth";
 import { pilotActive } from "../../../../lib/access";
 import type { LidPracticeAssignment } from "../../../../lib/lid-practice";
+import { WriterPanel, type WriterPhase } from "./writer-panel";
 import { LidPracticeResultPanel } from "./lid-practice-result";
 import {
   CandidateApiError,
   candidateApi,
   isDefiniteSubmissionRejection,
   type RuntimeState as RuntimeDto,
+  type CandidateWriter,
 } from "../../api";
 import {
   AudioResponseControl,
@@ -30,6 +32,8 @@ import {
 } from "./runtime-ux";
 import {
   CandidateOutboxBlocked,
+  candidateWriterIdentity,
+  releaseSupersededCandidateSubmission,
   discardCandidateOperations,
   fenceCandidateSubmission,
   notifyCandidateOutbox,
@@ -205,6 +209,34 @@ export default function CandidateExamRuntimePage() {
   }, []);
   const questionHeadingRef = useRef<HTMLHeadingElement>(null);
   const runtimeRef = useRef<RuntimeDto | null>(null);
+  const writerRef = useRef<{
+    context: string | null;
+    attemptId: string;
+    credential: CandidateWriter;
+  } | null>(null);
+  const [writerState, setWriterState] = useState<{
+    context: string | null;
+    phase: WriterPhase;
+  }>({ context: null, phase: "checking" });
+  const claimingWriter = useRef(false);
+  const claimingWriterToken = useRef(0);
+  const writerAuthoritySequence = useRef(0);
+  const lastWriterRefusal = useRef<{
+    context: string | null;
+    generation: number;
+  } | null>(null);
+  const requireWriter = useCallback((): CandidateWriter | undefined => {
+    if (!runtimeRef.current?.runtime_plan.lid_practice) return undefined;
+    const writer = writerRef.current;
+    if (
+      !writer ||
+      writer.context !== currentContext.current ||
+      writer.attemptId !== runtimeRef.current.attempt_id ||
+      writer.credential.generation !== runtimeRef.current.writer?.generation
+    )
+      throw new CandidateOutboxBlocked("writer authority unavailable");
+    return writer.credential;
+  }, []);
   const saveSequence = useRef<Promise<void>>(Promise.resolve());
   const saveBlocked = useRef(false);
   const savingPracticeResponse = useRef(false);
@@ -214,10 +246,72 @@ export default function CandidateExamRuntimePage() {
   const updateRuntime = useCallback(
     (update: (current: RuntimeDto | null) => RuntimeDto | null) => {
       const state = update(runtimeRef.current);
+      if (
+        state?.runtime_plan.lid_practice &&
+        writerRef.current &&
+        state.writer?.generation !== writerRef.current.credential.generation
+      ) {
+        writerRef.current = null;
+        setWriterState({ context: currentContext.current, phase: "held" });
+      }
       runtimeRef.current = state;
       setRuntime(state);
     },
     [],
+  );
+
+  const writerFailure = useCallback(
+    (cause: unknown) => {
+      if (
+        !(cause instanceof CandidateApiError) ||
+        !cause.code.startsWith("RUNTIME.WRITER_")
+      )
+        return false;
+      const authoritySequence = ++writerAuthoritySequence.current;
+      const expected = currentContext.current,
+        previous = writerRef.current,
+        id = runtimeRef.current?.attempt_id;
+      writerRef.current = null;
+      setWriterState({ context: expected, phase: "checking" });
+      setError(
+        "Die Bearbeitungsfreigabe hat sich geändert. Ihre unbestätigten Antworten bleiben auf diesem Gerät erhalten. Prüfen Sie den gespeicherten Stand vor einer Übernahme.",
+      );
+      if (id)
+        void candidateApi
+          .writerStatus(
+            id,
+            previous?.credential.clientId,
+            AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+          )
+          .then((state) => {
+            if (
+              currentContext.current !== expected ||
+              authoritySequence !== writerAuthoritySequence.current
+            )
+              return;
+            lastWriterRefusal.current = state.owned
+              ? null
+              : { context: expected, generation: state.generation };
+            updateRuntime((current) =>
+              current?.attempt_id === id
+                ? { ...current, status: state.status, writer: state }
+                : current,
+            );
+            setWriterState({
+              context: expected,
+              phase: state.owned ? "checking" : "held",
+            });
+          })
+          .catch(() => {
+            if (
+              currentContext.current === expected &&
+              authoritySequence === writerAuthoritySequence.current
+            )
+              setWriterState({ context: expected, phase: "unavailable" });
+          });
+      return true;
+    },
+    [updateRuntime],
   );
 
   const items = useMemo(
@@ -237,11 +331,24 @@ export default function CandidateExamRuntimePage() {
   const lidForm =
     runtimeContext === contextKey ? runtime?.runtime_plan.lid_practice : null;
   const isLidPractice = Boolean(lidForm);
+  const writerRequired =
+    isLidPractice &&
+    (runtime?.status === "READY" || runtime?.status === "IN_PROGRESS");
+  const writerOwned =
+    writerState.context === contextKey &&
+    writerState.phase === "owned" &&
+    writerRef.current?.context === contextKey &&
+    writerRef.current?.credential.generation === runtime?.writer?.generation;
+  const writerPhase: WriterPhase =
+    writerState.context === contextKey ? writerState.phase : "checking";
+
   const runtimeReady =
     runtimeContext === contextKey && screen === "runtime" && editable;
   // Render the LiD attempt as pending before the effect can inspect IndexedDB.
   const practiceReplayPending =
-    isLidPractice && runtimeReady && resolvedPracticeOutbox !== contextKey;
+    isLidPractice &&
+    runtimeReady &&
+    (resolvedPracticeOutbox !== contextKey || !writerOwned);
   const unconfirmedBindings =
     practiceOutbox?.context === contextKey &&
     practiceOutbox.attemptId === attemptId
@@ -398,6 +505,7 @@ export default function CandidateExamRuntimePage() {
                 status: state.status,
                 deadline_at: state.deadline_at,
                 monotonic_deadline: state.monotonic_deadline,
+                writer: state.writer ?? current.writer,
               },
           );
         }
@@ -440,6 +548,12 @@ export default function CandidateExamRuntimePage() {
   }, [runtime?.status]);
 
   useEffect(() => {
+    writerRef.current = null;
+    claimingWriter.current = false;
+    claimingWriterToken.current = 0;
+    writerAuthoritySequence.current += 1;
+    lastWriterRefusal.current = null;
+    setWriterState({ context: contextKey, phase: "checking" });
     rejectedPracticeOperations.current.clear();
     setResolvedPracticeOutbox(null);
     setPracticeOutbox(null);
@@ -468,6 +582,148 @@ export default function CandidateExamRuntimePage() {
     [contextKey],
   );
 
+  const acquireWriter = useCallback(
+    async (
+      acknowledge = false,
+      expectedGeneration?: number,
+    ): Promise<boolean> => {
+      if (!accountScope || !attemptId || claimingWriter.current) return false;
+      if (!online && writerRef.current?.context === contextKey) return true;
+      const authoritySequence = ++writerAuthoritySequence.current;
+      const active = () =>
+        currentContext.current === contextKey &&
+        authoritySequence === writerAuthoritySequence.current;
+      claimingWriter.current = true;
+      claimingWriterToken.current = authoritySequence;
+      setWriterState({ context: contextKey, phase: "checking" });
+      try {
+        await withCandidateAttemptLock(accountScope, attemptId, async () => {
+          const identity = await candidateWriterIdentity(
+            accountScope,
+            attemptId,
+          );
+          if (!active())
+            throw new CandidateOutboxBlocked("candidate context changed");
+          const claimed = await candidateApi.claimWriter(
+            attemptId,
+            identity,
+            expectedGeneration ?? runtimeRef.current?.writer?.generation ?? 0,
+            acknowledge,
+            AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+          );
+          if (!active()) return;
+          const state = await loadRuntime(attemptId);
+          if (
+            !active() ||
+            !state ||
+            state.writer?.generation !== claimed.generation ||
+            !["READY", "IN_PROGRESS"].includes(state.status)
+          )
+            throw new CandidateOutboxBlocked(
+              "writer state could not be verified",
+            );
+          if (state.status === "IN_PROGRESS") {
+            if (
+              await releaseSupersededCandidateSubmission(
+                accountScope,
+                attemptId,
+                claimed.generation,
+              )
+            ) {
+              setSubmissionUnconfirmed(false);
+              setSharedSubmissionStarted(false);
+              saveBlocked.current = false;
+            }
+            await refreshPracticeBindings(accountScope, attemptId, active);
+          }
+          if (!active()) return;
+          lastWriterRefusal.current = null;
+          writerRef.current = {
+            context: contextKey,
+            attemptId,
+            credential: { clientId: identity, generation: claimed.generation },
+          };
+          setWriterState({ context: contextKey, phase: "owned" });
+          setError(null);
+          requestAnimationFrame(() => questionHeadingRef.current?.focus());
+        });
+        return active() && writerRef.current?.context === contextKey;
+      } catch (cause) {
+        if (!active()) return false;
+        writerRef.current = null;
+        try {
+          await loadRuntime(attemptId);
+          await refreshPracticeBindings(accountScope, attemptId, active);
+        } catch {
+          /* Remain read-only when verification is unavailable. */
+        }
+        if (
+          active() &&
+          cause instanceof CandidateApiError &&
+          cause.code.startsWith("RUNTIME.WRITER_")
+        )
+          lastWriterRefusal.current = {
+            context: contextKey,
+            generation: runtimeRef.current?.writer?.generation ?? 0,
+          };
+        if (active()) setResolvedPracticeOutbox(contextKey);
+        if (active())
+          setWriterState({
+            context: contextKey,
+            phase:
+              cause instanceof CandidateApiError &&
+              cause.code.startsWith("RUNTIME.WRITER_")
+                ? "held"
+                : "unavailable",
+          });
+        return false;
+      } finally {
+        if (claimingWriterToken.current === authoritySequence) {
+          claimingWriter.current = false;
+          claimingWriterToken.current = 0;
+        }
+      }
+    },
+    [
+      accountScope,
+      attemptId,
+      online,
+      contextKey,
+      loadRuntime,
+      refreshPracticeBindings,
+    ],
+  );
+
+  useEffect(() => {
+    // Preparing an assignment replaces the route. Do not acquire under the old
+    // assignment context while that replacement is still in progress.
+    if (runtimeContext !== contextKey || routeId !== attemptId) return;
+    if (
+      lastWriterRefusal.current?.context === contextKey &&
+      lastWriterRefusal.current.generation === runtime?.writer?.generation
+    )
+      return;
+    if (
+      writerRef.current?.context === contextKey &&
+      writerRef.current.credential.generation === runtime?.writer?.generation
+    )
+      return;
+    if (
+      isLidPractice &&
+      ["READY", "IN_PROGRESS"].includes(runtime?.status ?? "")
+    )
+      void acquireWriter();
+  }, [
+    isLidPractice,
+    runtimeContext,
+    routeId,
+    attemptId,
+    runtime?.status,
+    runtime?.writer?.generation,
+    contextKey,
+    acquireWriter,
+  ]);
+
   useEffect(() => {
     if (
       !isLidPractice ||
@@ -485,6 +741,7 @@ export default function CandidateExamRuntimePage() {
     let hadUnresolved = false;
     let refreshing = false;
     const localChange = () =>
+      claimingWriter.current ||
       savingPracticeResponse.current ||
       retryingPracticeResponse.current ||
       submittingRef.current ||
@@ -498,10 +755,12 @@ export default function CandidateExamRuntimePage() {
       )
         return;
       const serial = ++observation;
+      const authoritySequence = writerAuthoritySequence.current;
       refreshing = true;
       const current = () =>
         active &&
         serial === observation &&
+        authoritySequence === writerAuthoritySequence.current &&
         currentContext.current === contextKey &&
         !localChange();
       if (notified) setPracticeOutbox(null);
@@ -509,6 +768,37 @@ export default function CandidateExamRuntimePage() {
         const barrier = await readCandidateAttemptBarrier(scope, id);
         if (!current()) return;
         const { bindingIds, submissionStarted } = barrier;
+        const marker = await candidateWriterIdentity(scope, id);
+        const authority = await candidateApi.writerStatus(
+          id,
+          marker,
+          AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+        );
+        if (!current()) return;
+        if (
+          !authority.owned &&
+          ["READY", "IN_PROGRESS"].includes(authority.status)
+        ) {
+          writerRef.current = null;
+          lastWriterRefusal.current = {
+            context: contextKey,
+            generation: authority.generation,
+          };
+          setWriterState({ context: contextKey, phase: "held" });
+        } else if (
+          authority.owned &&
+          (!writerRef.current ||
+            writerRef.current.credential.generation !== authority.generation)
+        ) {
+          lastWriterRefusal.current = null;
+          writerRef.current = null;
+          void acquireWriter();
+        }
+        updateRuntime((current) =>
+          current?.attempt_id === id
+            ? { ...current, writer: authority, status: authority.status }
+            : current,
+        );
         if (
           !bindingIds.size &&
           (needsRuntime || hadUnresolved || submissionStarted)
@@ -584,6 +874,7 @@ export default function CandidateExamRuntimePage() {
     resolvedPracticeOutbox,
     runtimeReady,
     updateRuntime,
+    acquireWriter,
   ]);
 
   const drainPractice = useCallback(
@@ -612,6 +903,7 @@ export default function CandidateExamRuntimePage() {
               operation.expectedRevision,
               operation.operationId,
               AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+              requireWriter(),
             );
             if (!active()) throw new Error("candidate context changed");
             updateRuntime((current) =>
@@ -623,6 +915,7 @@ export default function CandidateExamRuntimePage() {
             return "ack";
           } catch (cause) {
             if (!active()) throw cause;
+            if (writerFailure(cause)) return "retry";
             if (isExpired(cause)) {
               expired = true;
               markExpired();
@@ -673,7 +966,14 @@ export default function CandidateExamRuntimePage() {
       setError(null);
       setStatus("Saved");
     },
-    [loadRuntime, markExpired, refreshPracticeBindings, updateRuntime],
+    [
+      loadRuntime,
+      markExpired,
+      refreshPracticeBindings,
+      updateRuntime,
+      requireWriter,
+      writerFailure,
+    ],
   );
 
   function retryPractice(discardConflict = false) {
@@ -683,7 +983,8 @@ export default function CandidateExamRuntimePage() {
       !accountScope ||
       pendingSave ||
       retryingPracticeResponse.current ||
-      !editable
+      !editable ||
+      (isLidPractice && !writerOwned)
     )
       return;
     const active = () => currentContext.current === contextKey;
@@ -723,7 +1024,13 @@ export default function CandidateExamRuntimePage() {
   }
 
   useEffect(() => {
-    if (!attemptId || !accountScope || !runtimeReady) return;
+    if (
+      !attemptId ||
+      !accountScope ||
+      !runtimeReady ||
+      (isLidPractice && !writerOwned)
+    )
+      return;
     if (!online) {
       if (!savingPracticeResponse.current) setPendingSave(false);
       return;
@@ -819,6 +1126,7 @@ export default function CandidateExamRuntimePage() {
     accountScope,
     isLidPractice,
     runtimeReady,
+    writerOwned,
     contextKey,
     drainPractice,
     markExpired,
@@ -851,7 +1159,7 @@ export default function CandidateExamRuntimePage() {
     setStarting(true);
     setError(null);
     try {
-      const started = await candidateApi.start(attemptId);
+      const started = await candidateApi.start(attemptId, requireWriter());
       focusQuestion.current = Boolean(lidForm);
       updateRuntime(() => started);
       setScreen("runtime");
@@ -922,6 +1230,7 @@ export default function CandidateExamRuntimePage() {
         queuedAt: new Date().toISOString(),
       };
       if (lidForm && !audioOperationId) {
+        requireWriter();
         const barrier = await readCandidateAttemptBarrier(
           accountScope,
           attemptId,
@@ -1044,6 +1353,7 @@ export default function CandidateExamRuntimePage() {
   }
 
   async function checkPracticeTransition(submission: boolean) {
+    requireWriter();
     if (!accountScope || !attemptId || !online)
       throw new CandidateOutboxBlocked("attempt context unavailable");
     const active = () =>
@@ -1088,6 +1398,7 @@ export default function CandidateExamRuntimePage() {
             attemptId,
             bindingId,
             AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+            requireWriter(),
           );
         });
       } else if (!lidForm) {
@@ -1099,6 +1410,7 @@ export default function CandidateExamRuntimePage() {
       setError(null);
     } catch (cause) {
       if (currentContext.current === expectedContext) {
+        writerFailure(cause);
         if (isExpired(cause)) markExpired();
         else if (cause instanceof CandidateOutboxBlocked) {
           setPracticeOutbox(null);
@@ -1162,7 +1474,11 @@ export default function CandidateExamRuntimePage() {
               }
               let submissionId: string;
               try {
-                submissionId = await fenceCandidateSubmission(scope, attemptId);
+                submissionId = await fenceCandidateSubmission(
+                  scope,
+                  attemptId,
+                  requireWriter()?.generation,
+                );
               } catch {
                 setPracticeOutbox(null);
                 throw new CandidateOutboxBlocked(
@@ -1177,6 +1493,7 @@ export default function CandidateExamRuntimePage() {
                 return await candidateApi.submit(
                   attemptId,
                   AbortSignal.timeout(RECOVERY_TIMEOUT_MS),
+                  requireWriter(),
                 );
               } catch (cause) {
                 if (isDefiniteSubmissionRejection(cause)) {
@@ -1246,6 +1563,7 @@ export default function CandidateExamRuntimePage() {
       setStatus(submitted.status === "EXPIRED" ? "Expired" : "Submitted");
     } catch (cause) {
       if (currentContext.current === expectedContext) {
+        writerFailure(cause);
         if (isExpired(cause)) {
           markExpired();
           setSubmissionUnconfirmed(false);
@@ -1405,6 +1723,16 @@ export default function CandidateExamRuntimePage() {
             </label>
           </>
         )}
+        {writerRequired && (
+          <WriterPanel
+            phase={writerPhase}
+            generation={runtime?.writer?.generation ?? 0}
+            contextKey={contextKey}
+            pendingAnswers={unconfirmedBindings?.size ?? 0}
+            onRetry={() => void acquireWriter()}
+            onTakeover={(generation) => acquireWriter(true, generation)}
+          />
+        )}
         {error && <p role="alert">{error}</p>}
         {!attemptId ? (
           <button
@@ -1423,7 +1751,11 @@ export default function CandidateExamRuntimePage() {
                 : "Prepare exam"}
           </button>
         ) : (
-          <button type="button" onClick={startAttempt} disabled={starting}>
+          <button
+            type="button"
+            onClick={startAttempt}
+            disabled={starting || (writerRequired && !writerOwned)}
+          >
             {german
               ? starting
                 ? "Übung wird gestartet…"
@@ -1473,7 +1805,8 @@ export default function CandidateExamRuntimePage() {
     submissionUnconfirmed || sharedSubmissionStarted;
   const practiceControlsBlocked = Boolean(
     lidForm &&
-      (pendingSave ||
+      (!writerOwned ||
+        pendingSave ||
         practiceReplayPending ||
         retrySafety ||
         practiceStorageUnverified ||
@@ -1575,6 +1908,16 @@ export default function CandidateExamRuntimePage() {
           Module and task position: {currentIndex + 1} of {items.length}
         </p>
       )}
+      {writerRequired && (
+        <WriterPanel
+          phase={writerPhase}
+          generation={runtime?.writer?.generation ?? 0}
+          contextKey={contextKey}
+          pendingAnswers={unconfirmedBindings?.size ?? 0}
+          onRetry={() => void acquireWriter()}
+          onTakeover={(generation) => acquireWriter(true, generation)}
+        />
+      )}
       <p
         role={lidForm ? "status" : undefined}
         lang={lidForm ? "de" : undefined}
@@ -1592,15 +1935,17 @@ export default function CandidateExamRuntimePage() {
       {lidForm ? (
         <>
           <p role="status" aria-atomic="true" lang="de" id={errorId}>
-            {practiceReplayPending && !online
-              ? "Der Antwortstatus wird nach Wiederherstellung der Verbindung geprüft."
-              : practiceStorageUnverified &&
-                  !practiceReplayPending &&
-                  !pendingSave
-                ? "Der Speicherstatus konnte noch nicht sicher bestätigt werden."
-                : sharedAnswersPending && practiceSaveStatus === "Saved"
-                  ? "Antworten warten auf die Bestätigung durch den Server."
-                  : practiceStatus[practiceSaveStatus]}
+            {writerRequired && !writerOwned
+              ? "Die Bearbeitung ist in diesem Browser noch nicht freigegeben."
+              : practiceReplayPending && !online
+                ? "Der Antwortstatus wird nach Wiederherstellung der Verbindung geprüft."
+                : practiceStorageUnverified &&
+                    !practiceReplayPending &&
+                    !pendingSave
+                  ? "Der Speicherstatus konnte noch nicht sicher bestätigt werden."
+                  : sharedAnswersPending && practiceSaveStatus === "Saved"
+                    ? "Antworten warten auf die Bestätigung durch den Server."
+                    : practiceStatus[practiceSaveStatus]}
           </p>
           {editable &&
             !practiceSubmissionPending &&

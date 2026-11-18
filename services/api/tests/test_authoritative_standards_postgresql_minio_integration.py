@@ -80,11 +80,13 @@ class StandardsProof:
     storage: S3CompatibleObjectStorage = field(repr=False)
     headers: dict[str, dict[str, str]] = field(repr=False)
 
-    def http(self, method, path, *, actor="creator", status=200, json=None):
+    def http(self, method, path, *, actor="creator", status=200, json=None, extra_headers=None):
         # Each call has a fresh HTTP client and DB session. The separate browser
         # journey additionally restarts the actual API process.
         with TestClient(app) as client:
-            response = client.request(method, path, headers=self.headers[actor], json=json)
+            response = client.request(
+                method, path, headers=self.headers[actor] | (extra_headers or {}), json=json
+            )
         assert response.status_code in ((status,) if isinstance(status, int) else status), (
             method,
             path,

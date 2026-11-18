@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
@@ -84,6 +84,14 @@ class AttemptCreate(BaseModel):
     bundesland: str | None = Field(default=None, min_length=5, max_length=5, strict=True)
 
 
+class WriterClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_id: uuid.UUID
+    expected_generation: int = Field(ge=0, strict=True)
+    acknowledge_takeover: bool = Field(default=False, strict=True)
+
+
 class ResponseSave(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -142,6 +150,11 @@ def _attempt_payload(attempt: CandidateExamAttempt) -> dict[str, Any]:
         "submitted_at": attempt.submitted_at,
         "expired_at": attempt.expired_at,
         "runtime_plan_checksum": attempt.runtime_plan_checksum,
+        **(
+            {"writer": CandidateRuntimeService.writer_projection(attempt)}
+            if "lid_practice" in attempt.runtime_plan
+            else {}
+        ),
     }
 
 
@@ -622,14 +635,74 @@ def lid_practice_result_status(
     return {"result_version_id": result["result_version_id"]}
 
 
+@candidate_router.get("/exam-attempts/{attempt_id}/writer")
+def writer_status(
+    attempt_id: uuid.UUID,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+    writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
+) -> dict[str, Any]:
+    try:
+        attempt = CandidateRuntimeService._owned_attempt(session, _context(principal), attempt_id)
+        if "lid_practice" not in attempt.runtime_plan:
+            raise ValueError("writer policy is only available for LiD practice")
+        CandidateRuntimeService.expire_if_due(session, _context(principal), attempt)
+        owned = False
+        if writer_id is not None and attempt.status.value in {"READY", "IN_PROGRESS"}:
+            try:
+                CandidateRuntimeService._require_writer(
+                    attempt, writer_id, attempt.writer_generation
+                )
+                owned = attempt.writer_client_hash is not None
+            except RuntimeConflict:
+                pass
+        result = CandidateRuntimeService.writer_projection(attempt) | {
+            "status": attempt.status.value,
+            "owned": owned,
+        }
+        session.commit()
+        return result
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _runtime_error(exc) from exc
+
+
+@candidate_router.post("/exam-attempts/{attempt_id}/writer")
+def claim_writer(
+    attempt_id: uuid.UUID,
+    payload: WriterClaim,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db_session),
+) -> dict[str, Any]:
+    try:
+        result = CandidateRuntimeService.claim_writer(
+            session, _context(principal), attempt_id, **payload.model_dump()
+        )
+        session.commit()
+        return result
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        raise _runtime_error(exc) from exc
+
+
 @candidate_router.post("/exam-attempts/{attempt_id}/start")
 def start_attempt(
     attempt_id: uuid.UUID,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
+    writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
+    writer_generation: Optional[int] = Header(
+        default=None, alias="X-PrufAI-Writer-Generation", ge=1
+    ),
 ) -> dict[str, Any]:
     try:
-        attempt = CandidateRuntimeService.start(session, _context(principal), attempt_id)
+        attempt = CandidateRuntimeService.start(
+            session,
+            _context(principal),
+            attempt_id,
+            writer_id=writer_id,
+            writer_generation=writer_generation,
+        )
         session.commit()
         return CandidateRuntimeService.runtime_state(session, _context(principal), attempt.id)
     except Exception as exc:  # noqa: BLE001
@@ -656,10 +729,20 @@ def save_response(
     payload: ResponseSave,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
+    writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
+    writer_generation: Optional[int] = Header(
+        default=None, alias="X-PrufAI-Writer-Generation", ge=1
+    ),
 ) -> dict[str, Any]:
     try:
         response = CandidateRuntimeService.save_response(
-            session, _context(principal), attempt_id, binding_id, **payload.model_dump()
+            session,
+            _context(principal),
+            attempt_id,
+            binding_id,
+            **payload.model_dump(),
+            writer_id=writer_id,
+            writer_generation=writer_generation,
         )
         session.commit()
         revision = session.scalar(
@@ -695,10 +778,19 @@ def navigate(
     binding_id: uuid.UUID,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
+    writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
+    writer_generation: Optional[int] = Header(
+        default=None, alias="X-PrufAI-Writer-Generation", ge=1
+    ),
 ) -> dict[str, Any]:
     try:
         runtime_session = CandidateRuntimeService.navigate(
-            session, _context(principal), attempt_id, binding_id
+            session,
+            _context(principal),
+            attempt_id,
+            binding_id,
+            writer_id=writer_id,
+            writer_generation=writer_generation,
         )
         session.commit()
         return {"current_binding_id": str(runtime_session.current_binding_id)}
@@ -727,9 +819,19 @@ def submit(
     attempt_id: uuid.UUID,
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
+    writer_id: Optional[uuid.UUID] = Header(default=None, alias="X-PrufAI-Writer-ID"),
+    writer_generation: Optional[int] = Header(
+        default=None, alias="X-PrufAI-Writer-Generation", ge=1
+    ),
 ) -> dict[str, Any]:
     try:
-        attempt = CandidateRuntimeService.submit(session, _context(principal), attempt_id)
+        attempt = CandidateRuntimeService.submit(
+            session,
+            _context(principal),
+            attempt_id,
+            writer_id=writer_id,
+            writer_generation=writer_generation,
+        )
         session.commit()
         return _attempt_payload(attempt)
     except Exception as exc:  # noqa: BLE001

@@ -67,6 +67,14 @@ function indexedDbDouble() {
                 setTimeout(() => transaction.oncomplete?.(), 0);
                 return result;
               },
+              getKey: (key: string) => {
+                const result = request(
+                  stored.submissions?.has(key) ? key : undefined,
+                );
+                queueMicrotask(() => result.onsuccess?.());
+                setTimeout(() => transaction.oncomplete?.(), 0);
+                return result;
+              },
               getAll: () => {
                 const result = request(
                   [...stored.rows.values()].map((row) => structuredClone(row)),
@@ -458,6 +466,157 @@ describe("account-bound candidate outbox", () => {
     expect(await releaseSupersededCandidateSubmission(alice, "queued", 2)).toBe(
       false,
     );
+  });
+
+  it.each([
+    true,
+    false,
+    null,
+    undefined,
+    0,
+    "legacy",
+    {},
+    { submissionId: "old", recoverable: false, writerGeneration: 1 },
+    { submissionId: "old", recoverable: true, writerGeneration: 9 },
+    { provenance: "KNOWN", generationCeiling: 1 },
+    {
+      provenance: "KNOWN",
+      generationCeiling: 1,
+      submissionId: "invalid",
+      recoverable: false,
+    },
+    { provenance: "KNOWN", generationCeiling: 0 },
+    { provenance: "KNOWN", generationCeiling: Infinity },
+    { provenance: "KNOWN", generationCeiling: "1" },
+    { provenance: "LEGACY_UNKNOWN", generationCeiling: 1 },
+  ])(
+    "keeps ambiguous lineage sticky across retries and higher generations: %j",
+    async (legacy) => {
+      lockActiveCandidateAccount(alice);
+      await readCandidateAttemptBarrier(alice, "attempt");
+      const stored = [...indexedDb.databases.values()][0];
+      stored.submissions ??= new Map();
+      stored.submissions.set("attempt", legacy);
+      expect(
+        (await readCandidateAttemptBarrier(alice, "attempt")).submissionStarted,
+      ).toBe(true);
+      const retry = await fenceCandidateSubmission(alice, "attempt", 1);
+      expect(stored.submissions.get("attempt")).toEqual({
+        submissionId: retry,
+        recoverable: false,
+        provenance: "LEGACY_UNKNOWN",
+      });
+      expect(
+        await releaseRejectedCandidateSubmission(alice, "attempt", retry),
+      ).toBe(false);
+      expect(
+        await releaseSupersededCandidateSubmission(alice, "attempt", 2),
+      ).toBe(false);
+      await fenceCandidateSubmission(alice, "attempt", 3);
+      expect(
+        await releaseSupersededCandidateSubmission(alice, "attempt", 4),
+      ).toBe(false);
+      expect(
+        (await readCandidateAttemptBarrier(alice, "attempt")).submissionStarted,
+      ).toBe(true);
+    },
+  );
+
+  it("keeps known retry generations bounded monotonically, independent of definite-rejection recoverability", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt", 1);
+    await fenceCandidateSubmission(alice, "attempt", 3);
+    await fenceCandidateSubmission(alice, "attempt", 2);
+    const value = [...indexedDb.databases.values()][0].submissions!.get(
+      "attempt",
+    );
+    expect(value).toMatchObject({
+      provenance: "KNOWN",
+      generationCeiling: 3,
+      recoverable: false,
+    });
+    for (const generation of [
+      0,
+      -1,
+      NaN,
+      Infinity,
+      3,
+      2,
+      3.5,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(
+        await releaseSupersededCandidateSubmission(
+          alice,
+          "attempt",
+          generation,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 4),
+    ).toBe(true);
+  });
+
+  it("loses known recovery conservatively if a retry lacks valid writer authority", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt", 1);
+    await fenceCandidateSubmission(alice, "attempt");
+    await fenceCandidateSubmission(alice, "attempt", 2);
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 3),
+    ).toBe(false);
+  });
+
+  it("cancels higher-generation recovery on an account change", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt", 1);
+    const pending = releaseSupersededCandidateSubmission(alice, "attempt", 3);
+    lockActiveCandidateAccount(bob);
+    await expect(pending).rejects.toThrow();
+    lockActiveCandidateAccount(alice);
+    expect(
+      (await readCandidateAttemptBarrier(alice, "attempt")).submissionStarted,
+    ).toBe(true);
+  });
+
+  it("keeps a known fence on unavailable shared storage", async () => {
+    lockActiveCandidateAccount(alice);
+    await fenceCandidateSubmission(alice, "attempt", 1);
+    const open = indexedDb.open.bind(indexedDb);
+    vi.spyOn(indexedDb, "open").mockImplementation((name) => {
+      const request = open(name);
+      request.result.transaction = () => {
+        throw new Error("shared storage unavailable");
+      };
+      return request;
+    });
+    await expect(
+      releaseSupersededCandidateSubmission(alice, "attempt", 3),
+    ).rejects.toThrow("shared storage unavailable");
+    expect(
+      [...indexedDb.databases.values()][0].submissions!.has("attempt"),
+    ).toBe(true);
+  });
+
+  it("releases only the known attempt while retaining unrelated queued data", async () => {
+    lockActiveCandidateAccount(alice);
+    const queued = {
+      ...operation("immutable", "private answer"),
+      attemptId: "other",
+    };
+    await queueCandidateOperation(alice, queued);
+    await fenceCandidateSubmission(alice, "attempt", 1);
+    await fenceCandidateSubmission(alice, "other", 1);
+    expect(
+      await releaseSupersededCandidateSubmission(alice, "attempt", 2),
+    ).toBe(true);
+    expect(
+      (await readCandidateAttemptBarrier(alice, "other")).submissionStarted,
+    ).toBe(true);
+    expect(
+      [...indexedDb.databases.values()][0].rows.get(queued.operationId),
+    ).toEqual(queued);
   });
 
   it("refuses competing actions and isolates locks by account and attempt", async () => {

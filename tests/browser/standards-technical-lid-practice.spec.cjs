@@ -1,5 +1,6 @@
 const { execFileSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
+const { candidateMutationHeaders } = require("./writer-fixture.cjs");
 const { test, expect } = require("@playwright/test");
 const { actor, clickResponse, headers } = require("./evaluation-fixture.cjs");
 const {
@@ -43,10 +44,21 @@ async function openLid(page, email) {
 
 async function privateRequest(page, method, path, options) {
   try {
+    const { writerContext = true, ...requestOptions } = options ?? {};
+    const writerHeaders = writerContext
+      ? await candidateMutationHeaders(
+          page,
+          method,
+          path,
+          requestOptions.headers,
+        )
+      : {};
     return await page.request.fetch(path, {
-      ...options,
+      ...requestOptions,
+      headers: { ...requestOptions.headers, ...writerHeaders },
       method,
       failOnStatusCode: false,
+      maxRedirects: 0,
       timeout: 10000,
     });
   } catch {
@@ -56,7 +68,7 @@ async function privateRequest(page, method, path, options) {
 
 async function callUpstream(route) {
   try {
-    return await route.fetch({ timeout: 6000 });
+    return await route.fetch({ timeout: 6000, maxRedirects: 0 });
   } catch {
     await route.abort("failed");
     throw new Error("The intercepted LiD write did not reach the test server.");
@@ -1086,6 +1098,12 @@ async function startFromKeyboard(page, id, nearDeadline) {
   await expect(state).toHaveValue("DE-BE");
   await tabTo(page, page.getByRole("button", { name: "Übung vorbereiten" }));
   const created = apiResponse(page, `/exam-assignments/${id}/attempts`, "POST");
+  const writerClaim = page.waitForResponse(
+    (reply) =>
+      reply.request().method() === "POST" &&
+      /\/exam-attempts\/[^/]+\/writer$/.test(new URL(reply.url()).pathname) &&
+      reply.status() === 200,
+  );
   await page.keyboard.press("Enter");
   const prepared = await created;
   expect(prepared.status()).toBe(201);
@@ -1098,15 +1116,31 @@ async function startFromKeyboard(page, id, nearDeadline) {
   expect(deadlineAt).toBeNull();
   await expect(page.locator("time")).toHaveCount(0);
   await expect(page.getByRole("radio")).toHaveCount(0);
+  const claimed = await writerClaim;
+  expect(new URL(claimed.url()).pathname).toBe(
+    `${candidate}/exam-attempts/${attempt}/writer`,
+  );
+  await expect(
+    page.getByRole("button", { name: "Übung starten", exact: true }),
+  ).toBeEnabled();
   if (nearDeadline) {
     execFileSync(
       "python3",
       ["tests/browser/expire-lid-attempt.py", attempt, String(nearDeadline)],
-      { timeout: 30_000 },
+      {
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          PRUFAI_E2E_WRITER_ID: claimed.request().postDataJSON().client_id,
+        },
+      },
     );
     await page.reload();
     return { attempt_id: attempt };
   }
+  await expect(
+    page.getByRole("button", { name: "Übung starten", exact: true }),
+  ).toBeEnabled();
   await tabTo(page, page.getByRole("button", { name: "Übung starten" }));
   const started = apiResponse(page, `/exam-attempts/${attempt}/start`, "POST");
   await page.keyboard.press("Enter");
@@ -3153,4 +3187,439 @@ test("Berlin rejection recovery preserves newer and legacy fences and fails clos
     console.log(`REJECTION_RECOVERY_BOUNDARY = PASS (${scenario})`);
     await logout(page);
   }
+});
+
+async function takeOverPractice(tab) {
+  await tab
+    .getByRole("button", { name: "In diesem Browser übernehmen", exact: true })
+    .click();
+  const dialog = tab.getByRole("dialog", {
+    name: "Übung in diesem Browser fortsetzen?",
+  });
+  await expect(
+    dialog.getByRole("button", { name: "Abbrechen", exact: true }),
+  ).toBeFocused();
+  const confirm = dialog.getByRole("button", {
+    name: "Übernehmen und Antworten prüfen",
+    exact: true,
+  });
+  await expect(confirm).toBeDisabled();
+  await expect(dialog).toContainText("Noch nicht übertragene Antworten");
+  await dialog.getByRole("checkbox").check();
+  const reply = tab.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname.endsWith("/writer") &&
+      r.request().postDataJSON()?.acknowledge_takeover === true,
+  );
+  await confirm.click();
+  const response = await reply;
+  expect(response.status()).toBe(200);
+  await expect(
+    tab.getByRole("status").filter({
+      hasText: "Die Bearbeitung ist für diesen Browser freigegeben.",
+    }),
+  ).toBeVisible();
+  return {
+    clientId: response.request().postDataJSON().client_id,
+    generation: (await response.json()).generation,
+  };
+}
+
+function practiceConfirmed(tab) {
+  return expect(
+    tab
+      .getByRole("status")
+      .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+  ).toBeVisible();
+}
+
+async function rawWriterMutation(tab, path, identity, org, writer) {
+  return privateRequest(tab, "POST", path, {
+    writerContext: false,
+    headers: {
+      ...scoped(identity, org),
+      ...(writer
+        ? {
+            "X-PrufAI-Writer-ID": writer.clientId,
+            "X-PrufAI-Writer-Generation": String(writer.generation),
+          }
+        : {}),
+    },
+  });
+}
+
+test("Berlin cross-partition writer authority blocks silent submission and retains the original pending operation", async ({
+  page,
+  browser,
+}) => {
+  const { id, org } = await createPracticeAssignment(page),
+    owner = await keyboardCandidateLogin(page),
+    state = await startFromKeyboard(page, id);
+  const root = `${candidate}/exam-attempts/${state.attempt_id}`,
+    item = state.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+  await practiceConfirmed(page);
+  const first = apiResponse(
+    page,
+    root + "/responses/" + item.binding_id,
+    "PUT",
+  );
+  await page.getByRole("radio").first().check();
+  expect((await first).status()).toBe(200);
+  await practiceConfirmed(page);
+  const separate = await browser.newContext();
+  const other = await separate.newPage();
+  try {
+    const otherOwner = await keyboardCandidateLogin(other);
+    expect(otherOwner.token === owner.token).toBe(false);
+    await other.goto(`/candidate/exams/de-${state.attempt_id}`);
+    await expect(
+      other.getByRole("button", {
+        name: "In diesem Browser übernehmen",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const legacy = await rawWriterMutation(
+      other,
+      root + "/submit",
+      otherOwner,
+      org,
+    );
+    expect(legacy.status()).toBe(409);
+    expect((await legacy.json()).detail).toBe(
+      "RUNTIME.WRITER_CONTEXT_REQUIRED",
+    );
+    const transition = [];
+    other.on("request", (r) => {
+      if (
+        ["/submit", "/navigate"].some(
+          (p) => new URL(r.url()).pathname === root + p,
+        )
+      )
+        transition.push(r.url());
+    });
+    await other
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .evaluate((el) => el.click());
+    expect(transition).toEqual([]);
+    await expect(
+      other
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toHaveCount(0);
+    let failed;
+    const writes = [];
+    let retry = false;
+    await page.route(
+      `**${root}/responses/${item.binding_id}`,
+      async (route) => {
+        const op = route.request().postDataJSON();
+        writes.push(op);
+        failed ??= op;
+        if (!retry) return route.abort("connectionfailed");
+        return route.continue();
+      },
+    );
+    await page.getByRole("radio").nth(1).check();
+    await expect(
+      page.getByRole("button", { name: "Speicherung erneut versuchen" }),
+    ).toBeEnabled();
+    expect(failed.expected_revision).toBe(1);
+    // Cancelling the explicit takeover never transfers server authority.
+    await other
+      .getByRole("button", { name: "In diesem Browser übernehmen" })
+      .click();
+    await other.keyboard.press("Escape");
+    const before = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(owner, org),
+    });
+    expect((await before.json()).writer.generation).toBe(1);
+    const second = await takeOverPractice(other);
+    expect(second.generation).toBe(2);
+    await practiceConfirmed(other);
+    await expect(
+      page.getByRole("button", { name: "In diesem Browser übernehmen" }),
+    ).toBeVisible();
+    const stored = await page.evaluate(async (attempt) => {
+      const info = (await indexedDB.databases()).find((d) =>
+        d.name.startsWith("prufai-candidate-runtime-v2:"),
+      );
+      return new Promise((resolve, reject) => {
+        const r = indexedDB.open(info.name);
+        r.onerror = () => reject(new Error("Private outbox unavailable"));
+        r.onsuccess = () => {
+          const db = r.result,
+            q = db
+              .transaction("response-outbox")
+              .objectStore("response-outbox")
+              .getAll();
+          q.onsuccess = () => {
+            db.close();
+            resolve(q.result.filter((row) => row.attemptId === attempt));
+          };
+        };
+      });
+    }, state.attempt_id);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].operationId).toBe(failed.client_operation_id);
+    expect(stored[0].expectedRevision).toBe(1);
+    expect(stored[0].payload).toEqual(failed.payload);
+    retry = true;
+    const committed = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === root + "/responses/" + item.binding_id &&
+        r.request().postDataJSON().client_operation_id ===
+          failed.client_operation_id &&
+        r.status() === 200,
+    );
+    const third = await takeOverPractice(page);
+    expect(third.generation).toBe(3);
+    expect((await (await committed).json()).revision).toBe(2);
+    await practiceConfirmed(page);
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toEqual(failed);
+    const stale = await rawWriterMutation(
+      other,
+      root + "/submit",
+      otherOwner,
+      org,
+      second,
+    );
+    expect(stale.status()).toBe(409);
+    expect((await stale.json()).detail).toBe("RUNTIME.WRITER_CHANGED");
+    const live = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(owner, org),
+    });
+    expect((await live.json()).responses).toEqual([
+      { binding_id: item.binding_id, revision: 2, payload: failed.payload },
+    ]);
+    const submitted = apiResponse(page, root + "/submit", "POST");
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    expect((await submitted).status()).toBe(200);
+    console.log(
+      "WRITER_CROSS_PARTITION = PASS (separate authenticated sessions and IndexedDB; silent submit denied; explicit generations 1 -> 2 -> 3; original operation/revision retained)",
+    );
+  } finally {
+    await page.unroute(`**${root}/responses/${item.binding_id}`);
+    await separate.close();
+  }
+});
+
+test("Berlin writer fencing persists through API restart and recovers an in-flight submission after explicit takeover", async ({
+  page,
+  browser,
+}) => {
+  const { id, org } = await createPracticeAssignment(page),
+    owner = await keyboardCandidateLogin(page),
+    state = await startFromKeyboard(page, id),
+    root = `${candidate}/exam-attempts/${state.attempt_id}`;
+  await practiceConfirmed(page);
+  await restartOwnedApi();
+  await page.reload();
+  await practiceConfirmed(page);
+  const live = await privateRequest(page, "GET", root + "/runtime", {
+    headers: scoped(owner, org),
+  });
+  expect((await live.json()).writer.generation).toBe(1);
+  const separate = await browser.newContext(),
+    other = await separate.newPage();
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  try {
+    await keyboardCandidateLogin(other);
+    await other.goto(`/candidate/exams/de-${state.attempt_id}`);
+    await expect(
+      other.getByRole("button", { name: "In diesem Browser übernehmen" }),
+    ).toBeVisible();
+    await page.route(`**${root}/submit`, async (route) => {
+      await held;
+      await route.continue();
+    });
+    const sent = page.waitForRequest(
+      (r) => new URL(r.url()).pathname === root + "/submit",
+    );
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await sent;
+    expect(
+      (await submissionFence(page, state.attempt_id)).writerGeneration,
+    ).toBe(1);
+    expect((await takeOverPractice(other)).generation).toBe(2);
+    const denied = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === root + "/submit" && r.status() === 409,
+    );
+    release();
+    await denied;
+    await page.unroute(`**${root}/submit`);
+    await expect(
+      page.getByRole("button", { name: "In diesem Browser übernehmen" }),
+    ).toBeVisible();
+    expect(await submissionFence(page, state.attempt_id)).toBeTruthy();
+    expect((await takeOverPractice(page)).generation).toBe(3);
+    await practiceConfirmed(page);
+    expect(await submissionFence(page, state.attempt_id)).toBeNull();
+    await expect(page.getByRole("radio").first()).toBeEnabled();
+    let successes = 0;
+    page.on("response", (r) => {
+      if (new URL(r.url()).pathname === root + "/submit" && r.status() === 200)
+        successes += 1;
+    });
+    const final = apiResponse(page, root + "/submit", "POST");
+    await page
+      .getByRole("button", { name: "Übung abgeben", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    expect((await final).status()).toBe(200);
+    await expect(
+      page.getByRole("heading", { name: "Übung abgegeben" }),
+    ).toBeFocused();
+    expect(successes).toBe(1);
+    console.log(
+      "WRITER_RESTART_AND_SUBMISSION = PASS (API restart retained owner; old in-flight generation denied; higher-generation recovery; one final submission)",
+    );
+  } finally {
+    release();
+    await page.unroute(`**${root}/submit`);
+    await separate.close();
+  }
+});
+
+test("Berlin writer upgrade retains version-three queued answers and legacy fences until explicit recovery", async ({
+  page,
+}) => {
+  const { id, org } = await createPracticeAssignment(page),
+    owner = await keyboardCandidateLogin(page),
+    state = await startFromKeyboard(page, id),
+    root = `${candidate}/exam-attempts/${state.attempt_id}`,
+    item = state.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+  await practiceConfirmed(page);
+  const first = apiResponse(
+    page,
+    root + "/responses/" + item.binding_id,
+    "PUT",
+  );
+  await page.getByRole("radio").first().check();
+  expect((await first).status()).toBe(200);
+  await practiceConfirmed(page);
+  await page.getByRole("link", { name: "My exams", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "My exams", exact: true }),
+  ).toBeVisible();
+  const pending = {
+    attemptId: state.attempt_id,
+    bindingId: item.binding_id,
+    operationId: randomUUID(),
+    expectedRevision: 1,
+    payload: { option_id: item.content.options[1].option_id },
+    queuedAt: new Date().toISOString(),
+  };
+  const legacyAttempt = randomUUID();
+  await page.evaluate(
+    async ({ pending, legacyAttempt }) => {
+      const info = (await indexedDB.databases()).find((d) =>
+        d.name.startsWith("prufai-candidate-runtime-v2:"),
+      );
+      await new Promise((resolve, reject) => {
+        const d = indexedDB.deleteDatabase(info.name);
+        d.onsuccess = resolve;
+        d.onerror = () => reject(new Error("Synthetic storage reset failed"));
+        d.onblocked = () =>
+          reject(new Error("Synthetic storage remained open"));
+      });
+      await new Promise((resolve, reject) => {
+        const r = indexedDB.open(info.name, 3);
+        r.onupgradeneeded = () => {
+          r.result.createObjectStore("response-outbox", {
+            keyPath: "operationId",
+          });
+          r.result.createObjectStore("submission-fences");
+        };
+        r.onerror = () => reject(new Error("Legacy fixture unavailable"));
+        r.onsuccess = () => {
+          const db = r.result,
+            t = db.transaction(
+              ["response-outbox", "submission-fences"],
+              "readwrite",
+            );
+          t.objectStore("response-outbox").put(pending);
+          t.objectStore("submission-fences").put(true, legacyAttempt);
+          t.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+        };
+      });
+    },
+    { pending, legacyAttempt },
+  );
+  await page.goto(`/candidate/exams/de-${state.attempt_id}`);
+  await expect(
+    page.getByRole("button", { name: "In diesem Browser übernehmen" }),
+  ).toBeVisible();
+  const preserved = await page.evaluate(
+    async ({ legacyAttempt }) => {
+      const info = (await indexedDB.databases()).find((d) =>
+        d.name.startsWith("prufai-candidate-runtime-v2:"),
+      );
+      const rows = await new Promise((resolve) => {
+        const r = indexedDB.open(info.name);
+        r.onsuccess = () => {
+          const db = r.result,
+            t = db.transaction(["response-outbox", "submission-fences"]),
+            q = t.objectStore("response-outbox").getAll(),
+            f = t.objectStore("submission-fences").get(legacyAttempt);
+          t.oncomplete = () => {
+            const result = {
+              version: db.version,
+              rows: q.result,
+              legacy: f.result,
+            };
+            db.close();
+            resolve(result);
+          };
+        };
+      });
+      const old = await new Promise((resolve) => {
+        const r = indexedDB.open(info.name, 3);
+        r.onerror = () => resolve(r.error.name);
+        r.onsuccess = () => {
+          r.result.close();
+          resolve("UNEXPECTED_SUCCESS");
+        };
+      });
+      return { ...rows, old };
+    },
+    { legacyAttempt },
+  );
+  expect(preserved).toEqual({
+    version: 4,
+    rows: [pending],
+    legacy: true,
+    old: "VersionError",
+  });
+  const replay = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === root + "/responses/" + item.binding_id &&
+      r.status() === 200,
+  );
+  expect((await takeOverPractice(page)).generation).toBe(2);
+  const reply = await replay;
+  expect(reply.request().postDataJSON()).toEqual({
+    client_operation_id: pending.operationId,
+    expected_revision: 1,
+    payload: pending.payload,
+  });
+  expect((await reply.json()).revision).toBe(2);
+  await practiceConfirmed(page);
+  expect(await submissionFence(page, legacyAttempt)).toBe(true);
+  console.log(
+    "WRITER_STORAGE_UPGRADE = PASS (v3 -> v4; every pending field retained; legacy fence retained; old reader refused; explicit takeover replayed original operation)",
+  );
 });

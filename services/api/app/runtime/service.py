@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -84,6 +85,93 @@ def _payload_checksum(payload: dict[str, Any]) -> str:
 
 
 class CandidateRuntimeService:
+    @staticmethod
+    def writer_projection(attempt: CandidateExamAttempt) -> dict[str, Any]:
+        return {
+            "policy": "SINGLE_WRITER",
+            "generation": attempt.writer_generation,
+            "claimed": attempt.writer_client_hash is not None,
+        }
+
+    @staticmethod
+    def _require_writer(
+        attempt: CandidateExamAttempt,
+        writer_id: uuid.UUID | None,
+        writer_generation: int | None,
+    ) -> None:
+        if (
+            "lid_practice" not in attempt.runtime_plan
+            or attempt.status not in ACTIVE_ATTEMPT_STATUSES
+        ):
+            return
+        if writer_id is None or writer_generation is None:
+            raise RuntimeConflict("RUNTIME.WRITER_CONTEXT_REQUIRED")
+        digest = hashlib.sha256(str(writer_id).encode()).hexdigest()
+        if (
+            attempt.writer_client_hash is None
+            or writer_generation != attempt.writer_generation
+            or not hmac.compare_digest(digest, attempt.writer_client_hash)
+        ):
+            raise RuntimeConflict("RUNTIME.WRITER_CHANGED")
+
+    @staticmethod
+    def claim_writer(
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        *,
+        client_id: uuid.UUID,
+        expected_generation: int,
+        acknowledge_takeover: bool = False,
+    ) -> dict[str, Any]:
+        # The same row lock orders claims, takeovers, saves and final submission.
+        attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
+        lid.require_attempt_environment(attempt)
+        pilot.require_attempt(session, attempt)
+        if "lid_practice" not in attempt.runtime_plan:
+            raise ValueError("writer policy is only available for LiD practice")
+        CandidateRuntimeService.expire_if_due(session, context, attempt)
+        if attempt.status not in ACTIVE_ATTEMPT_STATUSES:
+            raise RuntimeExpired(
+                "RUNTIME.ATTEMPT_EXPIRED"
+                if attempt.status is CandidateAttemptStatus.EXPIRED
+                else "attempt is not writable"
+            )
+        digest = hashlib.sha256(str(client_id).encode()).hexdigest()
+        if attempt.writer_client_hash is not None and hmac.compare_digest(
+            digest, attempt.writer_client_hash
+        ):
+            # Repeating a claim after a lost reply must not advance the generation.
+            return CandidateRuntimeService.writer_projection(attempt)
+        if expected_generation != attempt.writer_generation:
+            raise RuntimeConflict("RUNTIME.WRITER_CHANGED")
+        needs_confirmation = (
+            attempt.writer_client_hash is not None
+            or attempt.status is CandidateAttemptStatus.IN_PROGRESS
+        )
+        if needs_confirmation and not acknowledge_takeover:
+            raise RuntimeConflict("RUNTIME.WRITER_CONFIRMATION_REQUIRED")
+        previous = attempt.writer_generation
+        attempt.writer_client_hash = digest
+        attempt.writer_generation += 1
+        attempt.writer_claimed_at = _now()
+        session.flush()
+        CandidateRuntimeService._audit(
+            session,
+            context,
+            "exam_attempt.writer_transferred" if previous else "exam_attempt.writer_claimed",
+            "CANDIDATE_ATTEMPT",
+            attempt.id,
+            attempt.organisation_id,
+            {
+                "previous_generation": previous,
+                "generation": attempt.writer_generation,
+                "candidate_confirmation": acknowledge_takeover,
+            },
+            evidence_required=True,
+        )
+        return CandidateRuntimeService.writer_projection(attempt)
+
     @staticmethod
     def assignment_options(session: Session, context: TenantContext) -> dict[str, Any]:
         """Resolve bounded, tenant-scoped choices for the existing assignment action."""
@@ -551,12 +639,18 @@ class CandidateRuntimeService:
 
     @staticmethod
     def start(
-        session: Session, context: TenantContext, attempt_id: uuid.UUID
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        *,
+        writer_id: uuid.UUID | None = None,
+        writer_generation: int | None = None,
     ) -> CandidateExamAttempt:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
         practice = attempt.runtime_plan.get("lid_practice")
         if practice is not None:
             attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
+        CandidateRuntimeService._require_writer(attempt, writer_id, writer_generation)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.IN_PROGRESS:
             return attempt
@@ -694,10 +788,13 @@ class CandidateRuntimeService:
         expected_revision: int,
         client_observed_at: Optional[datetime] = None,
         audio_storage: Any = None,
+        writer_id: uuid.UUID | None = None,
+        writer_generation: int | None = None,
     ) -> CandidateResponse:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         lid.require_attempt_environment(attempt)
         pilot.require_attempt(session, attempt)
+        CandidateRuntimeService._require_writer(attempt, writer_id, writer_generation)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         item, mode = CandidateRuntimeService._binding_payload(attempt, binding_id)
         CandidateRuntimeService._validate_payload(item, mode, payload)
@@ -834,9 +931,18 @@ class CandidateRuntimeService:
 
     @staticmethod
     def navigate(
-        session: Session, context: TenantContext, attempt_id: uuid.UUID, binding_id: uuid.UUID
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        binding_id: uuid.UUID,
+        *,
+        writer_id: uuid.UUID | None = None,
+        writer_generation: int | None = None,
     ) -> CandidateExamSession:
         attempt = CandidateRuntimeService._owned_attempt(session, context, attempt_id)
+        if "lid_practice" in attempt.runtime_plan:
+            attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
+        CandidateRuntimeService._require_writer(attempt, writer_id, writer_generation)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is not CandidateAttemptStatus.IN_PROGRESS or attempt.session is None:
             raise RuntimeExpired(
@@ -868,11 +974,17 @@ class CandidateRuntimeService:
 
     @staticmethod
     def submit(
-        session: Session, context: TenantContext, attempt_id: uuid.UUID
+        session: Session,
+        context: TenantContext,
+        attempt_id: uuid.UUID,
+        *,
+        writer_id: uuid.UUID | None = None,
+        writer_generation: int | None = None,
     ) -> CandidateExamAttempt:
         attempt = SpeakingAudioService.lock_attempt(session, context, attempt_id)
         lid.require_attempt_environment(attempt)
         pilot.require_attempt(session, attempt)
+        CandidateRuntimeService._require_writer(attempt, writer_id, writer_generation)
         CandidateRuntimeService.expire_if_due(session, context, attempt)
         if attempt.status is CandidateAttemptStatus.SUBMITTED:
             return attempt
@@ -925,6 +1037,11 @@ class CandidateRuntimeService:
             "deadline_at": attempt.deadline_at.isoformat() if attempt.deadline_at else None,
             "runtime_plan_checksum": attempt.runtime_plan_checksum,
             "runtime_plan": plan,
+            **(
+                {"writer": CandidateRuntimeService.writer_projection(attempt)}
+                if "lid_practice" in plan
+                else {}
+            ),
             "session": {
                 "current_binding_id": str(attempt.session.current_binding_id)
                 if attempt.session and attempt.session.current_binding_id

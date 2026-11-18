@@ -67,6 +67,7 @@ class CandidateExamAttempt(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "candidate_exam_attempts"
     __table_args__ = (
         CheckConstraint("attempt_number > 0", name="ck_candidate_attempt_number"),
+        CheckConstraint("writer_generation >= 0", name="ck_candidate_writer_generation"),
         UniqueConstraint("assignment_id", "attempt_number", name="uq_candidate_attempt_number"),
         Index("ix_candidate_attempt_status_deadline", "status", "deadline_at"),
         Index(
@@ -101,6 +102,11 @@ class CandidateExamAttempt(UUIDPrimaryKeyMixin, Base):
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     expired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    writer_client_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    writer_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    writer_claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     assignment: Mapped[CandidateExamAssignment] = relationship(back_populates="attempts")

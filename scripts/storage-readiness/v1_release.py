@@ -546,6 +546,20 @@ def assess(client, fixture, actors, org):
         json={"bundesland": "DE-BE"},
     ).json()["id"]
     path = f"{CANDIDATE}/exam-attempts/{attempt}"
+    writer = str(uuid4())
+    claimed = call(
+        client,
+        "POST",
+        path + "/writer",
+        headers=candidate,
+        json={"client_id": writer, "expected_generation": 0},
+    ).json()
+    assert claimed["generation"] == 1
+    candidate = {
+        **candidate,
+        "X-PrufAI-Writer-ID": writer,
+        "X-PrufAI-Writer-Generation": str(claimed["generation"]),
+    }
     state = call(client, "POST", path + "/start", headers=candidate).json()
     items = [
         item
@@ -905,10 +919,12 @@ def assert_rollback_schema(head, previous_head):
     if head == previous_head:
         return
     scripts = ScriptDirectory(str(ROOT / "services/api/alembic"))
-    revision = scripts.get_revision(head)
-    assert (
-        head == "0044_v1_worker_exclusion" and revision.down_revision == previous_head
-    )
+    # Only the explicitly reviewed additive migrations are compatible with the
+    # pinned diagnostic API. Do not silently accept future schema changes.
+    allowed = {"0044_v1_worker_exclusion", "0045_lid_writer_fencing"}
+    revisions = list(scripts.iterate_revisions(head, previous_head))
+    assert revisions and all(revision.revision in allowed for revision in revisions)
+    assert revisions[-1].down_revision == previous_head
 
 
 def runtime_env(database, storage, redis_url, decoder, secret):

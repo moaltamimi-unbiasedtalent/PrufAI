@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { WriterPanel } from "./app/candidate/exams/[attemptId]/writer-panel";
 import CandidateExamRuntimePage from "./app/candidate/exams/[attemptId]/page";
 import {
   RuntimeTimer,
@@ -27,6 +28,27 @@ describe("candidate runtime accessibility", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     route.attemptId = "attempt-123";
+  });
+
+  it("explains read-only ownership and requires an explicit German takeover confirmation", () => {
+    const markup = renderToStaticMarkup(
+      <WriterPanel
+        phase="held"
+        generation={2}
+        contextKey="candidate:attempt"
+        pendingAnswers={1}
+        onRetry={() => undefined}
+        onTakeover={async () => false}
+      />,
+    );
+    expect(markup).toContain('lang="de"');
+    expect(markup).toContain("noch nicht beim Server angekommen");
+    expect(markup).toContain("werden nicht automatisch übernommen");
+    expect(markup).toContain("In diesem Browser übernehmen");
+    expect(markup).toContain('type="checkbox"');
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain("werden nicht verworfen");
+    expect(markup).not.toContain("Alle Änderungen sind vom Server bestätigt");
   });
 
   it("recognizes only the endpoint router's non-redirected 405 rejection contract", () => {

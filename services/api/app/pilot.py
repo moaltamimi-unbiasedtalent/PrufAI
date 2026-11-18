@@ -164,6 +164,7 @@ _ALLOWED = {
                 "/exam-assignments/{assignment_id}",
                 _ATTEMPT,
                 _ATTEMPT + "/runtime",
+                _ATTEMPT + "/writer",
                 _ATTEMPT + "/lid-practice-result",
                 _ATTEMPT + "/lid-practice-result/status",
                 "/results",
@@ -221,6 +222,7 @@ _ALLOWED = {
             for value in (
                 "/exam-assignments/{assignment_id}/attempts",
                 _ATTEMPT + "/start",
+                _ATTEMPT + "/writer",
                 _ATTEMPT + "/heartbeat",
                 _ATTEMPT + "/navigate",
                 _ATTEMPT + "/submit",

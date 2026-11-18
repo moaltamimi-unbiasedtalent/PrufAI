@@ -33,7 +33,7 @@ async function candidateMutationHeaders(page, method, path, headers) {
       async ({ userId, orgId, attemptId }) =>
         new Promise((resolve, reject) => {
           const name = `prufai-candidate-runtime-v2:${encodeURIComponent(userId)}:${encodeURIComponent(orgId)}`;
-          const request = indexedDB.open(name, 4);
+          const request = indexedDB.open(name, 5);
           request.onerror = () =>
             reject(new Error("Synthetic writer store unavailable"));
           request.onblocked = () =>

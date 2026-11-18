@@ -141,9 +141,9 @@ async function openCandidateOutbox(
   requireActiveAccount(scope, generation);
   return new Promise((resolve, reject) => {
     let blocked = false;
-    // Older clients cannot supply the server writer context. Refuse their
-    // version-2/3 reads after upgrade; retain every existing operation and fence.
-    const request = indexedDB.open(name, 4);
+    // Version 5 requires provenance-aware fences. Refuse version-2/3/4
+    // clients after upgrade; retain every existing operation and fence.
+    const request = indexedDB.open(name, 5);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE))
         request.result.createObjectStore(STORE, { keyPath: "operationId" });
@@ -341,7 +341,7 @@ export async function readCandidateAttemptBarrier(
     const transaction = database.transaction([STORE, SUBMISSIONS], "readonly");
     const complete = transactionComplete(transaction);
     const operations = transaction.objectStore(STORE).getAll();
-    const submission = transaction.objectStore(SUBMISSIONS).get(attemptId);
+    const submission = transaction.objectStore(SUBMISSIONS).getKey(attemptId);
     await complete;
     requireActiveAccount(scope, generation);
     return {
@@ -355,6 +355,58 @@ export async function readCandidateAttemptBarrier(
   } finally {
     closeDatabase(database);
   }
+}
+
+type SubmissionProvenance =
+  | { provenance: "KNOWN"; generationCeiling: number }
+  | { provenance: "LEGACY_UNKNOWN" };
+
+function validWriterGeneration(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function knownGenerationCeiling(value: unknown): number | null {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "submissionId" in value &&
+    typeof value.submissionId === "string" &&
+    /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+      value.submissionId,
+    ) &&
+    "recoverable" in value &&
+    typeof value.recoverable === "boolean" &&
+    "provenance" in value &&
+    value.provenance === "KNOWN" &&
+    "generationCeiling" in value &&
+    validWriterGeneration(value.generationCeiling)
+  )
+    return value.generationCeiling;
+  return null;
+}
+
+function submissionProvenance(
+  previous: unknown,
+  present: boolean,
+  writerGeneration: number | undefined,
+): SubmissionProvenance {
+  const ceiling = knownGenerationCeiling(previous);
+  if (
+    validWriterGeneration(writerGeneration) &&
+    (!present || ceiling !== null)
+  ) {
+    return {
+      provenance: "KNOWN",
+      generationCeiling: Math.max(
+        ceiling ?? writerGeneration,
+        writerGeneration,
+      ),
+    };
+  }
+  // Untagged v4 records may already contain a generation stamped by a retry.
+  // Only a new, absent fence can establish known lineage; uncertainty is sticky.
+  return { provenance: "LEGACY_UNKNOWN" };
 }
 
 // This fence survives a closed tab or an ambiguous submission response. While
@@ -374,14 +426,18 @@ export async function fenceCandidateSubmission(
     const complete = transactionComplete(transaction);
     const store = transaction.objectStore(SUBMISSIONS);
     const previous = store.get(attemptId);
-    previous.onsuccess = () => {
+    const key = store.getKey(attemptId);
+    let ready = 0;
+    const persist = () => {
+      if (++ready !== 2) return;
       try {
         requireActiveAccount(scope, generation);
+        const present = key.result !== undefined;
         store.put(
           {
             submissionId,
-            recoverable: previous.result === undefined,
-            ...(writerGeneration === undefined ? {} : { writerGeneration }),
+            recoverable: !present,
+            ...submissionProvenance(previous.result, present, writerGeneration),
           },
           attemptId,
         );
@@ -389,6 +445,8 @@ export async function fenceCandidateSubmission(
         transaction.abort();
       }
     };
+    previous.onsuccess = persist;
+    key.onsuccess = persist;
     await complete;
     requireActiveAccount(scope, generation);
     notifyCandidateOutbox(scope, attemptId);
@@ -550,6 +608,7 @@ export async function releaseSupersededCandidateSubmission(
   attemptId: string,
   ownedGeneration: number,
 ): Promise<boolean> {
+  if (!validWriterGeneration(ownedGeneration)) return false;
   const generation = accountGeneration;
   const database = await openCandidateOutbox(scope);
   try {
@@ -564,15 +623,10 @@ export async function releaseSupersededCandidateSubmission(
       if (++ready !== 2) return;
       try {
         requireActiveAccount(scope, generation);
-        const value: unknown = fence.result;
+        const ceiling = knownGenerationCeiling(fence.result);
         if (
-          typeof value === "object" &&
-          value !== null &&
-          "writerGeneration" in value &&
-          typeof value.writerGeneration === "number" &&
-          Number.isSafeInteger(value.writerGeneration) &&
-          value.writerGeneration > 0 &&
-          value.writerGeneration < ownedGeneration &&
+          ceiling !== null &&
+          ceiling < ownedGeneration &&
           !(operations.result as CandidateOutboxOperation[]).some(
             (op) => op.attemptId === attemptId,
           )

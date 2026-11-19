@@ -576,8 +576,8 @@ jobs:
           OBJECT_STORAGE_SECURE: "0"
       - name: LiD single-writer fencing and takeover (required PostgreSQL and real MinIO)
         run: |
-          python -m pytest tests/test_lid_writer_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/lid-writer-required.xml"
-          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/lid-writer-required.xml" test_lid_writer_postgresql_integration
+          python -m pytest tests/test_lid_writer_postgresql_integration.py tests/test_lid_statement_concurrency_postgresql_integration.py -v --junitxml="$RUNNER_TEMP/lid-writer-required.xml"
+          python ../../scripts/check-required-evaluation-junit.py "$RUNNER_TEMP/lid-writer-required.xml" test_lid_writer_postgresql_integration test_lid_statement_concurrency_postgresql_integration
         working-directory: services/api
         env:
           CI: true

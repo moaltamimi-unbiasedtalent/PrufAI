@@ -47,6 +47,47 @@ This remains coordination for cooperating clients. PostgreSQL writer fencing
 continues to enforce server authority across partitions; no backend permission,
 writer-generation, response revision or scoring behavior changes here.
 
+## A9: explicit authenticated retry
+
+On 19 November 2026 the operator instructed this change to adopt the A9
+clarification preserving explicit authenticated retries. This is the engineering
+acceptance contract; it is not independent human acceptance, P2 closure or
+release authority. PR #77 reviewed head
+`80a4fee64dddbf8a6bb7685235c4caee619cca3a` merged as
+`4b4570e31e652b8718e97aee4d29cc8144af3026`. Its separate merge-review exception
+remains open in the [pre-production checklist](../operations/pre-production-review-checklist.md).
+
+An unresolved legacy or ambiguous fence stays `LEGACY_UNKNOWN` through retries
+and rewrites. A newly stamped generation never proves its original lineage.
+Higher-generation ownership alone cannot automatically clear it. Answer editing
+and question navigation remain blocked while the fence is unresolved.
+
+A deliberate retry of the same attempt's submission is permitted through the
+existing authenticated, writer-authorized path. It retains the exclusive
+account/attempt lock, shared-outbox checks, successful server-state verification
+and no unresolved queued answers. Cancelling the dialog sends no submission and
+does not clear the fence. Failed verification sends no submission or fence
+rewrite. A rejected or uncertain retry retains unknown provenance and keeps
+editing/navigation blocked. The separate matching-submission definite-rejection
+recovery keeps its existing identity and recoverability restrictions; rejecting
+a new retry does not prove the original unknown submission was rejected.
+
+A confirmed `SUBMITTED` or `EXPIRED` state is read-only. Submission does not
+release a score or statement. An idempotent repeat may return HTTP 200 for the
+existing submitted attempt; it must not duplicate finalization or its submission
+audit event. This corrects the earlier blanket "submission remains blocked"
+wording: an explicit checked retry is distinct from automatic fence release or
+resuming edits. No runtime behavior is changed by this clarification.
+
+The browser regression follows legacy true, a failed retry, takeovers to
+generations 2 and 3, reload, cancellation, failed verification, another definite
+rejection and explicit successful retry. It preserves the saved response revision
+and payload. A read-only [disposable evidence probe](../../tests/browser/inspect-lid-submission.py)
+checks the exact synthetic attempt's status, submission timestamp and audit IDs
+before and after an idempotent repeat; it does not read candidate response text
+or change database state. Existing queued-answer, account, ownership, lock,
+storage, expiry, known-generation and confidentiality regressions remain required.
+
 ## IndexedDB version 5
 
 The account/organisation database name and stores are retained. The version bump
@@ -65,7 +106,11 @@ migration or dependency update is part of this correction.
   account changes, storage failures, queued and unrelated attempt data.
 - Real browser legacy chain: true fence, failed retry, explicit generation-2
   takeover, generation-3 takeover, authenticated IN_PROGRESS and empty queue.
-  Unknown lineage and the edit barrier must survive reload; no implicit edits.
+  Unknown lineage and the edit/navigation barrier survive reload. Cancellation
+  and verification failure send no submission. An explicit authenticated retry
+  may submit; an idempotent repeat keeps one persisted submission audit event.
+  Rejected retries retain unknown lineage, and terminal reload remains read-only
+  with the result withheld pending institution review and release.
 - Known-generation browser recovery remains exercised after API restart and a
   denied old in-flight submission, followed by exactly one final submission.
 - Version-3 and version-4 browser fixtures preserve the original queued operation,

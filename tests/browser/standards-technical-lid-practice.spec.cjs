@@ -3699,7 +3699,7 @@ for (const legacyVersion of [3, 4]) {
   });
 }
 
-test("Berlin legacy fence stays unknown after a failed retry and generations two and three", async ({
+test("Berlin legacy fence stays unknown through takeovers and permits only an explicit authenticated submission retry", async ({
   page,
   browser,
 }) => {
@@ -3707,6 +3707,23 @@ test("Berlin legacy fence stays unknown after a failed retry and generations two
   const owner = await keyboardCandidateLogin(page);
   const state = await startFromKeyboard(page, id);
   const root = `${candidate}/exam-attempts/${state.attempt_id}`;
+  await practiceConfirmed(page);
+  const item = state.runtime_plan.modules[0].sections[0].tasks[0].items[0];
+  const saved = apiResponse(
+    page,
+    root + "/responses/" + item.binding_id,
+    "PUT",
+  );
+  await page.getByRole("radio").first().check();
+  const answer = await saved;
+  expect(answer.status()).toBe(200);
+  const operation = answer.request().postDataJSON();
+  expect(operation).toMatchObject({
+    client_operation_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
+    expected_revision: 0,
+    payload: { option_id: item.content.options[0].option_id },
+  });
+  expect((await answer.json()).revision).toBe(1);
   await practiceConfirmed(page);
   await submissionFence(page, state.attempt_id, true);
   await page.reload();
@@ -3751,6 +3768,9 @@ test("Berlin legacy fence stays unknown after a failed retry and generations two
     const current = await runtime.json();
     expect(current.status).toBe("IN_PROGRESS");
     expect(current.writer.generation).toBe(3);
+    expect(current.responses).toEqual([
+      { binding_id: item.binding_id, revision: 1, payload: operation.payload },
+    ]);
     const queuedCount = await page.evaluate(async (attempt) => {
       const info = (await indexedDB.databases()).find((d) =>
         d.name.startsWith("prufai-candidate-runtime-v2:"),
@@ -3795,9 +3815,147 @@ test("Berlin legacy fence stays unknown after a failed retry and generations two
     });
     await page
       .getByRole("radio")
-      .first()
+      .nth(1)
       .evaluate((r) => r.click());
+    const next = page.getByRole("button", {
+      name: "Nächste Frage",
+      exact: true,
+    });
+    await expect(next).toBeDisabled();
+    await next.evaluate((button) => button.click());
     expect(writes).toEqual([]);
+    const retry = page.getByRole("button", { name: "Abgabe erneut versuchen" });
+    await retry.click();
+    await page.getByRole("button", { name: "Weiter bearbeiten" }).click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    expect(await submissionFence(page, state.attempt_id)).toEqual(unknown);
+    expect(writes).toEqual([]);
+
+    // A retry must verify authenticated state before rewriting the fence or
+    // posting a submission. A failed verification must not permit either.
+    await page.route(`**${root}/runtime`, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "SERVICE_UNAVAILABLE" }),
+      }),
+    );
+    const unavailable = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === root + "/runtime" && r.status() === 503,
+    );
+    await retry.click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await unavailable;
+    await expect(retry).toBeEnabled();
+    expect(await submissionFence(page, state.attempt_id)).toEqual(unknown);
+    expect(writes).toEqual([]);
+    await page.unroute(`**${root}/runtime`);
+
+    // A definite rejection of a later retry does not prove the original
+    // unknown submission was rejected, so it cannot restore answer editing.
+    await page.route(`**${root}/submit`, (route) =>
+      route.continue({ method: "PATCH" }),
+    );
+    const rejected = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === root + "/submit" && r.status() === 405,
+    );
+    await retry.click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    await rejected;
+    await expect(retry).toBeEnabled();
+    const rejectedFence = await submissionFence(page, state.attempt_id);
+    expect(rejectedFence).toMatchObject({
+      provenance: "LEGACY_UNKNOWN",
+      recoverable: false,
+    });
+    expect(rejectedFence.generationCeiling).toBeUndefined();
+    expect(rejectedFence.submissionId).not.toBe(unknown.submissionId);
+    await expect(page.getByRole("radio").nth(1)).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(next).toBeDisabled();
+    await page.unroute(`**${root}/submit`);
+
+    const evidence = () =>
+      JSON.parse(
+        execFileSync(
+          "python3",
+          ["tests/browser/inspect-lid-submission.py", state.attempt_id],
+          { encoding: "utf8", timeout: 15_000 },
+        ),
+      );
+    expect(evidence()).toEqual({
+      status: "IN_PROGRESS",
+      submitted_at: null,
+      submission_events: [],
+    });
+    let successfulRequests = 0;
+    page.on("response", (r) => {
+      if (new URL(r.url()).pathname === root + "/submit" && r.status() === 200)
+        successfulRequests += 1;
+    });
+    const final = apiResponse(page, root + "/submit", "POST");
+    await retry.click();
+    await page.getByRole("button", { name: "Endgültig abgeben" }).click();
+    const confirmed = await final;
+    expect(confirmed.status()).toBe(200);
+    expect((await confirmed.json()).status).toBe("SUBMITTED");
+    expect(confirmed.request().headers()["x-prufai-writer-generation"]).toBe(
+      "3",
+    );
+    expect(confirmed.request().headers()["x-prufai-writer-id"]).toMatch(
+      /^[a-f0-9-]{36}$/,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Übung abgegeben" }),
+    ).toBeFocused();
+    expect(successfulRequests).toBe(1);
+    const finalFence = await submissionFence(page, state.attempt_id);
+    expect(finalFence).toMatchObject({
+      provenance: "LEGACY_UNKNOWN",
+      recoverable: false,
+    });
+    expect(finalFence.generationCeiling).toBeUndefined();
+    const persisted = evidence();
+    expect(persisted.status).toBe("SUBMITTED");
+    expect(persisted.submitted_at).toBeTruthy();
+    expect(persisted.submission_events).toHaveLength(1);
+    const repeated = await privateRequest(page, "POST", root + "/submit", {
+      headers: scoped(owner, org),
+    });
+    expect(repeated.status()).toBe(200);
+    expect((await repeated.json()).status).toBe("SUBMITTED");
+    expect(evidence()).toEqual(persisted);
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Übung abgegeben" }),
+    ).toBeVisible();
+    await expect(page.getByRole("radio").nth(1)).toBeDisabled();
+    await expect(next).toBeDisabled();
+    const ending = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(owner, org),
+    });
+    expect((await ending.json()).responses).toEqual(current.responses);
+    const result = await privateRequest(
+      page,
+      "GET",
+      root + "/lid-practice-result",
+      {
+        headers: scoped(owner, org),
+      },
+    );
+    expect(result.status()).toBe(404);
+    await expect(
+      page.getByRole("region", { name: "LiD practice result" }),
+    ).toContainText(
+      "The practice result will appear after your institution reviews and releases it.",
+    );
+    console.log(
+      "LEGACY_FENCE_RETRY_A9 = PASS (cancel and verification failure send no submission; rejected retry retains unknown lineage; explicit generation-3 retry submits; idempotent repeat retains one audit event; reload is read-only; result withheld)",
+    );
     console.log(
       "LEGACY_FENCE_PROVENANCE = PASS (legacy true -> failed retry -> generation 2 -> generation 3; unknown lineage and edit barrier retained)",
     );

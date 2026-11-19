@@ -2757,13 +2757,173 @@ test("Berlin localized routes announce German loading and recover from the initi
   ).toBeVisible();
 });
 
+async function practiceBarrierScope(page, identity) {
+  const response = await privateRequest(page, "GET", "/api/v1/auth/me", {
+    headers: headers(identity),
+  });
+  expect(response.status()).toBe(200);
+  const profile = await response.json();
+  return {
+    userId: profile.id,
+    organisationId: demoOrganisation({ profile }),
+    identity,
+  };
+}
+
+async function holdPracticeBarrier(page, scope, attemptId) {
+  return page.evaluate(
+    async ({ userId, organisationId, attemptId }) => {
+      if (!navigator.locks || window.practiceTestBarrier)
+        throw new Error("Synthetic attempt barrier is unavailable.");
+      const name = `prufai-candidate-runtime-v2:${encodeURIComponent(userId)}:${encodeURIComponent(organisationId)}`;
+      const state = { release: null, completion: null };
+      window.practiceTestBarrier = state;
+      let ready, failed;
+      const acquired = new Promise((resolve, reject) => {
+        ready = resolve;
+        failed = reject;
+      });
+      state.completion = navigator.locks.request(
+        `${name}:attempt:${encodeURIComponent(attemptId)}`,
+        { signal: AbortSignal.timeout(10_000) },
+        async () => {
+          // Queue behind real reconciliation, then inspect only this account's
+          // existing v5 database. Never create, upgrade or rewrite test data.
+          const existing = (await indexedDB.databases()).find(
+            (database) => database.name === name,
+          );
+          if (existing?.version !== 5)
+            throw new Error("Synthetic scoped outbox was not initialized.");
+          const database = await new Promise((resolve, reject) => {
+            const request = indexedDB.open(name, 5);
+            request.onupgradeneeded = () => request.transaction.abort();
+            request.onerror = () =>
+              reject(new Error("Synthetic outbox read failed."));
+            request.onsuccess = () => resolve(request.result);
+          });
+          let observation;
+          try {
+            const transaction = database.transaction(
+              ["response-outbox", "submission-fences", "writer-identities"],
+              "readonly",
+            );
+            const read = (store, method, key) =>
+              new Promise((resolve, reject) => {
+                const request =
+                  key === undefined
+                    ? transaction.objectStore(store)[method]()
+                    : transaction.objectStore(store)[method](key);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () =>
+                  reject(new Error("Synthetic barrier read failed."));
+              });
+            const [operations, fenceKey, writerId] = await Promise.all([
+              read("response-outbox", "getAll"),
+              read("submission-fences", "getKey", attemptId),
+              read("writer-identities", "get", attemptId),
+            ]);
+            observation = {
+              outboxCount: operations.filter(
+                (operation) => operation.attemptId === attemptId,
+              ).length,
+              fencePresent: fenceKey !== undefined,
+              writerId,
+            };
+          } finally {
+            database.close();
+          }
+          await new Promise((release) => {
+            state.release = release;
+            ready(observation);
+          });
+        },
+      );
+      // Keep transport/storage exceptions out of the test's diagnostics.
+      state.completion.catch(() =>
+        failed(new Error("Synthetic attempt barrier did not become ready.")),
+      );
+      return acquired;
+    },
+    { userId: scope.userId, organisationId: scope.organisationId, attemptId },
+  );
+}
+
+async function releasePracticeBarrier(page) {
+  if (page.isClosed()) return;
+  await page.evaluate(async () => {
+    const state = window.practiceTestBarrier;
+    if (!state) return;
+    state.release?.();
+    try {
+      await state.completion;
+    } finally {
+      if (window.practiceTestBarrier === state)
+        delete window.practiceTestBarrier;
+    }
+  });
+}
+
+async function practiceAuthoritativeReady(page, scope, runtime) {
+  await practiceConfirmed(page);
+  await expect(
+    page.getByRole("status").filter({
+      hasText: "Die Bearbeitung ist für diesen Browser freigegeben.",
+    }),
+  ).toBeVisible();
+  const barrier = await holdPracticeBarrier(page, scope, runtime.attempt_id);
+  try {
+    expect(barrier.outboxCount).toBe(0);
+    expect(barrier.fencePresent).toBe(false);
+    expect(
+      typeof barrier.writerId === "string" && Boolean(barrier.writerId),
+    ).toBe(true);
+    const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
+    const writer = await privateRequest(page, "GET", root + "/writer", {
+      headers: {
+        ...scoped(scope.identity, scope.organisationId),
+        "X-PrufAI-Writer-ID": barrier.writerId,
+      },
+    });
+    expect(writer.status()).toBe(200);
+    const authority = await writer.json();
+    expect({
+      owned: authority.owned,
+      status: authority.status,
+      generation: authority.generation,
+    }).toEqual({
+      owned: true,
+      status: "IN_PROGRESS",
+      generation: runtime.writer.generation,
+    });
+    const response = await privateRequest(page, "GET", root + "/runtime", {
+      headers: scoped(scope.identity, scope.organisationId),
+    });
+    expect(response.status()).toBe(200);
+    const verified = await response.json();
+    expect(verified.attempt_id).toBe(runtime.attempt_id);
+    expect(verified.status).toBe("IN_PROGRESS");
+    expect(verified.writer.generation).toBe(authority.generation);
+    expect(verified.runtime_plan_checksum).toBe(runtime.runtime_plan_checksum);
+  } finally {
+    await releasePracticeBarrier(page);
+  }
+  await practiceConfirmed(page);
+}
+
 test("Berlin transition barriers fail closed on shared-storage reads and unavailable locks", async ({
   page,
   context,
 }) => {
   const { id } = await createPracticeAssignment(page);
-  await keyboardCandidateLogin(page);
+  const identity = await keyboardCandidateLogin(page);
   const runtime = await startFromKeyboard(page, id);
+  const scope = await practiceBarrierScope(page, identity);
+  // The setup runtime is unnecessary after preparation. Question focus alone
+  // does not imply that its locked outbox reconciliation has finished.
+  // The original 15-second confirmed-state timeout remains unexplained;
+  // isolating this fixture does not retrospectively establish its cause.
+  await practiceAuthoritativeReady(page, scope, runtime);
+  await page.close();
   const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
   const blocked = [];
   const tab = await context.newPage();
@@ -2789,6 +2949,7 @@ test("Berlin transition barriers fail closed on shared-storage reads and unavail
   });
   try {
     await tab.goto(`/candidate/exams/de-${runtime.attempt_id}`);
+    await practiceAuthoritativeReady(tab, scope, runtime);
     await expect(
       tab
         .getByRole("status")
@@ -2868,6 +3029,107 @@ test("Berlin transition barriers fail closed on shared-storage reads and unavail
     ).toHaveCount(0);
   } finally {
     await unsupported.close();
+  }
+});
+
+test("Berlin held attempt lock keeps startup read-only until explicit recovery", async ({
+  page,
+  context,
+}) => {
+  const { id } = await createPracticeAssignment(page);
+  const identity = await keyboardCandidateLogin(page);
+  const runtime = await startFromKeyboard(page, id);
+  const scope = await practiceBarrierScope(page, identity);
+  await practiceAuthoritativeReady(page, scope, runtime);
+  const root = `${candidate}/exam-attempts/${runtime.attempt_id}`;
+  const held = await holdPracticeBarrier(page, scope, runtime.attempt_id);
+  expect(held.outboxCount).toBe(0);
+  expect(held.fencePresent).toBe(false);
+  const tab = await context.newPage();
+  const transitions = [];
+  const claims = [];
+  tab.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (
+      request.method() === "POST" &&
+      [root + "/navigate", root + "/submit"].includes(path)
+    )
+      transitions.push(path);
+    if (request.method() === "POST" && path === root + "/writer")
+      claims.push(path);
+  });
+  try {
+    const loading = apiResponse(tab, root + "/runtime");
+    await tab.goto(`/candidate/exams/de-${runtime.attempt_id}`);
+    const response = await loading;
+    expect(response.status()).toBe(200);
+    const loaded = await response.json();
+    expect(loaded.status).toBe("IN_PROGRESS");
+    expect(loaded.writer.generation).toBe(runtime.writer.generation);
+    const retry = tab.getByRole("button", {
+      name: "Bearbeitungsstatus erneut prüfen",
+    });
+    await expect(retry).toBeVisible();
+    await expect(
+      tab.getByRole("button", { name: "Übung abgeben", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      tab.getByRole("button", { name: "Nächste Frage" }),
+    ).toBeDisabled();
+    await expect(tab.getByRole("radio").first()).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(
+      tab
+        .getByRole("status")
+        .filter({ hasText: "Alle Änderungen sind vom Server bestätigt." }),
+    ).toHaveCount(0);
+    expect(transitions).toEqual([]);
+    expect(claims).toEqual([]);
+
+    // Verify the lock is actually held, not merely inferred from the UI.
+    expect(
+      await tab.evaluate(
+        async ({ userId, organisationId, attemptId }) => {
+          const name = `prufai-candidate-runtime-v2:${encodeURIComponent(userId)}:${encodeURIComponent(organisationId)}:attempt:${encodeURIComponent(attemptId)}`;
+          return navigator.locks.request(name, { ifAvailable: true }, (lock) =>
+            Boolean(lock),
+          );
+        },
+        {
+          userId: scope.userId,
+          organisationId: scope.organisationId,
+          attemptId: runtime.attempt_id,
+        },
+      ),
+    ).toBe(false);
+
+    await releasePracticeBarrier(page);
+    const claimed = apiResponse(tab, root + "/writer", "POST");
+    await retry.click();
+    const recovered = await claimed;
+    expect(recovered.status()).toBe(200);
+    expect((await recovered.json()).generation).toBe(runtime.writer.generation);
+    expect(recovered.request().postDataJSON().acknowledge_takeover).toBe(false);
+    expect(recovered.request().postDataJSON().expected_generation).toBe(
+      runtime.writer.generation,
+    );
+    expect(recovered.request().postDataJSON().client_id === held.writerId).toBe(
+      true,
+    );
+    await practiceAuthoritativeReady(tab, scope, runtime);
+    await expect(
+      tab.getByRole("button", { name: "Übung abgeben", exact: true }),
+    ).toBeEnabled();
+    expect(transitions).toEqual([]);
+    expect(claims).toHaveLength(1);
+    console.log(
+      "BARRIER_LOCK_STARTUP = PASS (authenticated runtime; held lock prevents claims and transitions; explicit same-generation recovery; empty unfenced outbox)",
+    );
+  } finally {
+    await releasePracticeBarrier(page);
+    await tab.close();
   }
 });
 

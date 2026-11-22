@@ -1,4 +1,4 @@
-"""Safe database failures at the runtime and scoring HTTP boundaries."""
+"""Safe database failures at assessment HTTP boundaries."""
 
 import json
 import logging
@@ -14,7 +14,7 @@ logger = logging.getLogger("prufai.operations")
 
 
 def database_http_error(
-    error: Exception, *, namespace: Literal["RUNTIME", "SCORING"]
+    error: Exception, *, namespace: Literal["RUNTIME", "SCORING", "RESULT_RELEASE"]
 ) -> HTTPException | None:
     if not isinstance(error, SQLAlchemyError):
         return None

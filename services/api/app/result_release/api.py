@@ -7,6 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import pilot
@@ -23,6 +24,7 @@ from app.models import (
     StandardPackVersion,
     StatementOfResults,
 )
+from app.operations.database_errors import database_http_error
 from app.result_release.service import ResultReleaseError, ResultReleaseService
 from app.scoring.service import ScoringService
 
@@ -56,9 +58,18 @@ def _context(principal: Principal) -> TenantContext:
 
 
 def _handle(exc: Exception) -> HTTPException:
+    database_error = database_http_error(exc, namespace="RESULT_RELEASE")
+    if database_error is not None:
+        return database_error
     if isinstance(exc, (AuthorizationError, pilot.PilotDenied)):
         return HTTPException(status_code=403, detail=str(exc))
-    return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(
+        status_code=500,
+        detail="RESULT_RELEASE.INTERNAL_ERROR",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _artifact(session: Session, release: ResultRelease, artifact: Any) -> dict[str, Any]:
@@ -174,6 +185,9 @@ def list_releases(
         ]
     except AuthorizationError as exc:
         raise _handle(exc) from exc
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise _handle(exc) from None
 
 
 @router.get("/{organisation_id}/releases/{release_id}")
@@ -195,6 +209,9 @@ def release_detail(
         raise _handle(exc) from exc
     except (ResultReleaseError, pilot.PilotDenied) as exc:
         raise HTTPException(status_code=404, detail="release not found") from exc
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise _handle(exc) from None
 
 
 @router.post("/{organisation_id}/releases/{release_id}/statement")
@@ -330,11 +347,15 @@ def candidate_releases(
     session: Session = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     response.headers["Cache-Control"] = "no-store"
-    return [
-        _payload(session, release)
-        for release in ResultReleaseService.candidate_releases(session, _context(principal))
-        if _pilot_release_visible(session, release)
-    ]
+    try:
+        return [
+            _payload(session, release)
+            for release in ResultReleaseService.candidate_releases(session, _context(principal))
+            if _pilot_release_visible(session, release)
+        ]
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise _handle(exc) from None
 
 
 def _candidate_release(
@@ -347,12 +368,24 @@ def _candidate_release(
             ResultRelease.candidate_user_id == context.user_id,
         )
     )
-    if release is None or not _pilot_release_visible(session, release):
-        raise HTTPException(status_code=404, detail="release not found")
+    if release is None:
+        raise HTTPException(
+            status_code=404, detail="release not found", headers={"Cache-Control": "no-store"}
+        )
     try:
-        return ResultReleaseService._owned_release(session, context, release.id)
+        # Pilot eligibility validates and locks source versions. Match writer,
+        # review, release and revoke by locking the attempt/result/version first.
+        # Keep both ownership/provenance and pilot checks in the same transaction.
+        release = ResultReleaseService._owned_release(session, context, release.id)
+        if not _pilot_release_visible(session, release):
+            raise HTTPException(
+                status_code=404, detail="release not found", headers={"Cache-Control": "no-store"}
+            )
+        return release
     except (ResultReleaseError, pilot.PilotDenied) as exc:
-        raise HTTPException(status_code=404, detail="release not found") from exc
+        raise HTTPException(
+            status_code=404, detail="release not found", headers={"Cache-Control": "no-store"}
+        ) from exc
 
 
 def _candidate_outcome_visible(session: Session, release: ResultRelease) -> bool:
@@ -370,9 +403,13 @@ def candidate_release_detail(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    release = _candidate_release(session, _context(principal), release_id)
-    response.headers["Cache-Control"] = "no-store"
-    return _payload(session, release, detail=_candidate_outcome_visible(session, release))
+    try:
+        release = _candidate_release(session, _context(principal), release_id)
+        response.headers["Cache-Control"] = "no-store"
+        return _payload(session, release, detail=_candidate_outcome_visible(session, release))
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise _handle(exc) from None
 
 
 @candidate_router.get("/releases/{release_id}/statement")
@@ -382,16 +419,24 @@ def candidate_statement(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db_session),
 ) -> dict[str, Any]:
-    context = _context(principal)
-    release = _candidate_release(session, context, release_id)
-    if not _candidate_outcome_visible(session, release):
-        raise HTTPException(
-            status_code=404, detail="statement not available", headers={"Cache-Control": "no-store"}
+    try:
+        context = _context(principal)
+        release = _candidate_release(session, context, release_id)
+        if not _candidate_outcome_visible(session, release):
+            raise HTTPException(
+                status_code=404,
+                detail="statement not available",
+                headers={"Cache-Control": "no-store"},
+            )
+        statement = session.scalar(
+            select(StatementOfResults).where(StatementOfResults.release_id == release.id)
         )
-    statement = session.scalar(
-        select(StatementOfResults).where(StatementOfResults.release_id == release.id)
-    )
-    if statement is None:
-        raise HTTPException(status_code=404, detail="statement not found")
-    response.headers["Cache-Control"] = "no-store"
-    return _artifact(session, release, statement)
+        if statement is None:
+            raise HTTPException(
+                status_code=404, detail="statement not found", headers={"Cache-Control": "no-store"}
+            )
+        response.headers["Cache-Control"] = "no-store"
+        return _artifact(session, release, statement)
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise _handle(exc) from None

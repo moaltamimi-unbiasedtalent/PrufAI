@@ -1,5 +1,6 @@
 """Owned development prerequisites; no fabricated AI execution or outcome."""
 
+import secrets
 import uuid
 
 import pytest
@@ -154,7 +155,13 @@ def test_ai_speaking_seed_rejects_production_before_creating_data(session):
     with pytest.raises(RuntimeError, match="development"):
         reconcile_ai_speaking_demo(
             session,
-            Settings(_env_file=None, environment="production", auth_rate_limit_backend="redis"),
+            Settings(
+                _env_file=None,
+                environment="production",
+                auth_rate_limit_backend="redis",
+                auth_jwt_secret=secrets.token_urlsafe(48),
+                auth_cookie_secure=True,
+            ),
             enabled=True,
             organisation=None,
             administrator=None,

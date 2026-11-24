@@ -1,7 +1,14 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal, cast
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import (
+    Field,
+    ModelWrapValidatorHandler,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import InitErrorDetails
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,7 +62,11 @@ class Settings(BaseSettings):
     privacy_test_discovery_enabled: bool = False
     v1_pilot_profile: Literal["DISABLED", "BERLIN_LID_LOCKED", "BERLIN_LID_SYNTHETIC"] = "DISABLED"
     certification_issuance_enabled: bool = False
-    auth_jwt_secret: str = "prufai-local-development-secret-change-before-production-0123456789"
+    auth_jwt_secret: str = Field(
+        default="prufai-local-development-secret-change-before-production-0123456789",
+        repr=False,
+        exclude=True,
+    )
     auth_jwt_issuer: str = "prufai-api"
     auth_jwt_audience: str = "prufai-web"
     auth_access_token_ttl_minutes: int = 15
@@ -73,7 +84,9 @@ class Settings(BaseSettings):
     auth_enrollment_delivery_mode: Literal["DISABLED", "TEST_ONLY", "APPROVED_ADAPTER"] = "DISABLED"
     auth_enrollment_support_contact: str = Field(default="", max_length=200)
     auth_rate_limit_refresh_attempts: int = 30
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="", extra="ignore", hide_input_in_errors=True
+    )
 
     @model_validator(mode="after")
     def transcription_deployment_boundary(self) -> "Settings":
@@ -115,13 +128,36 @@ class Settings(BaseSettings):
             raise ValueError("access token TTL must be between 1 and 60 minutes")
         return value
 
-    @field_validator("auth_jwt_secret")
-    @classmethod
-    def production_secret_is_strong(cls, value: str, info: object) -> str:
-        data = getattr(info, "data", {})
-        if data.get("environment") == "production" and len(value) < 32:
-            raise ValueError("production AUTH_JWT_SECRET must be at least 32 characters")
-        return value
+    @model_validator(mode="after")
+    def production_authentication_boundary(self) -> "Settings":
+        if self.environment != "production":
+            return self
+        key = self.auth_jwt_secret
+        placeholder = key.casefold().replace("_", "-")
+        if (
+            "auth_jwt_secret" not in self.model_fields_set
+            or len(key) < 32
+            or len(set(key)) < 2
+            or key != key.strip()
+            or placeholder.startswith(
+                (
+                    "prufai-local-development-",
+                    "replace-",
+                    "change-",
+                    "changeme",
+                    "your-",
+                    "example-",
+                    "placeholder",
+                )
+            )
+        ):
+            raise ValueError(
+                "production AUTH_JWT_SECRET requires independently provisioned, "
+                "non-placeholder signing material of at least 32 characters"
+            )
+        if not self.auth_cookie_secure:
+            raise ValueError("production requires AUTH_COOKIE_SECURE=true")
+        return self
 
     @field_validator("auth_rate_limit_backend")
     @classmethod
@@ -161,6 +197,21 @@ class Settings(BaseSettings):
         if data.get("environment") == "production" and value == "deterministic":
             raise ValueError("production reranking cannot use the deterministic test backend")
         return value
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def redact_configuration_errors(
+        cls, value: Any, handler: ModelWrapValidatorHandler["Settings"]
+    ) -> "Settings":
+        # Wrap all field/model validation, including defaults and later guards.
+        # hide_input_in_errors alone does not redact errors() or json().
+        try:
+            return handler(value)
+        except ValidationError as exc:
+            safe = [{**error, "input": "[redacted]"} for error in exc.errors(include_url=False)]
+            raise ValidationError.from_exception_data(
+                cls.__name__, cast(list[InitErrorDetails], safe), hide_input=True
+            ) from None
 
 
 @lru_cache

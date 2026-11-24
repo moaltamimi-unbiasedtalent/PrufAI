@@ -1,5 +1,6 @@
 """Unit checks for the explicitly invoked development platform identity."""
 
+import secrets
 import uuid
 
 import pytest
@@ -156,7 +157,13 @@ def test_platform_demo_gate_blocks_writes_before_account_creation(session) -> No
         (_settings(), False),
         (Settings(_env_file=None, environment="test"), True),
         (
-            Settings(_env_file=None, environment="production", auth_rate_limit_backend="redis"),
+            Settings(
+                _env_file=None,
+                environment="production",
+                auth_rate_limit_backend="redis",
+                auth_jwt_secret=secrets.token_urlsafe(48),
+                auth_cookie_secure=True,
+            ),
             True,
         ),
     ):

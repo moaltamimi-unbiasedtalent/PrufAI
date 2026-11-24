@@ -198,6 +198,33 @@ class Settings(BaseSettings):
             raise ValueError("production reranking cannot use the deterministic test backend")
         return value
 
+    @classmethod
+    def model_validate_json(cls, json_data: str | bytes | bytearray, **kwargs: Any) -> "Settings":
+        # JSON decoding can fail before model validators run. Keep valid JSON in
+        # Pydantic's native JSON mode and forward its validation options unchanged.
+        __tracebackhide__ = True
+        try:
+            return super().model_validate_json(json_data, **kwargs)
+        except ValidationError as exc:
+            kinds = {
+                error["type"] for error in exc.errors(include_input=False, include_context=False)
+            }
+            if "json_invalid" in kinds:
+                safe: InitErrorDetails = {
+                    "type": "json_invalid",
+                    "loc": (),
+                    "input": "[redacted]",
+                    "ctx": {"error": "Malformed configuration JSON"},
+                }
+            elif "json_type" in kinds:
+                safe = {"type": "json_type", "loc": (), "input": "[redacted]"}
+            else:
+                # Field/model failures have already passed through the redactor.
+                raise
+        # Raise outside the handler so the raw parser exception is not retained
+        # as __context__ (raising 'from None' alone only hides its presentation).
+        raise ValidationError.from_exception_data(cls.__name__, [safe], hide_input=True)
+
     @model_validator(mode="wrap")
     @classmethod
     def redact_configuration_errors(

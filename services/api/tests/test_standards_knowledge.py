@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -97,6 +98,8 @@ def test_storage_key_and_s3_round_trip_with_fake_client() -> None:
 def test_production_storage_cannot_fall_back_to_memory() -> None:
     settings = Settings(
         environment="production",
+        auth_jwt_secret=secrets.token_urlsafe(48),
+        auth_cookie_secure=True,
         auth_rate_limit_backend="redis",
         object_storage_backend="memory",
     )

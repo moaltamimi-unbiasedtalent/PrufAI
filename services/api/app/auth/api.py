@@ -147,8 +147,20 @@ def _set_auth_cookies(response: Response, settings: Settings, refresh_token: str
 
 
 def _clear_auth_cookies(response: Response, settings: Settings) -> None:
-    response.delete_cookie(settings.auth_refresh_cookie_name, path=settings.auth_cookie_path)
-    response.delete_cookie(settings.auth_csrf_cookie_name, path=settings.auth_cookie_path)
+    response.delete_cookie(
+        settings.auth_refresh_cookie_name,
+        path=settings.auth_cookie_path,
+        secure=settings.auth_cookie_secure,
+        httponly=True,
+        samesite=settings.auth_cookie_samesite,
+    )
+    response.delete_cookie(
+        settings.auth_csrf_cookie_name,
+        path=settings.auth_cookie_path,
+        secure=settings.auth_cookie_secure,
+        httponly=False,
+        samesite=settings.auth_cookie_samesite,
+    )
 
 
 def _require_csrf(request: Request, settings: Settings) -> None:

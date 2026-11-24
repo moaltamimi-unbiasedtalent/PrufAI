@@ -1,5 +1,7 @@
+import secrets
 from collections.abc import Iterator
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,7 +26,8 @@ from app.models.enums import MembershipStatus, OrganisationType
 from app.services.identity import IdentityService
 
 
-def test_http_login_refresh_logout_and_csrf() -> None:
+@pytest.mark.parametrize("environment", ["test", "production"])
+def test_http_login_refresh_logout_and_csrf(environment, monkeypatch) -> None:
     engine = create_engine(
         "sqlite+pysqlite://",
         connect_args={"check_same_thread": False},
@@ -34,7 +37,22 @@ def test_http_login_refresh_logout_and_csrf() -> None:
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     setup = factory()
     user = IdentityService.create_user(setup, email="http@example.test")
-    settings = Settings(environment="test", auth_jwt_secret="http-test-secret-" + "x" * 40)
+    from app.auth.security import RedisRateLimiter
+    from tests.test_authentication_security import FakeRedis
+
+    settings = Settings(
+        _env_file=None,
+        environment=environment,
+        auth_jwt_secret=secrets.token_urlsafe(48),
+        auth_cookie_secure=environment == "production",
+        auth_rate_limit_backend="redis",
+        object_storage_backend="s3",
+        knowledge_embedding_backend="openai",
+        knowledge_reranker_backend="openai",
+    )
+    # HTTP unit fixture only: no production network or datastore is contacted.
+    limiter = RedisRateLimiter("redis://unit.invalid", client=FakeRedis())
+    monkeypatch.setattr("app.auth.api._rate_limiter", lambda _settings: limiter)
     AuthenticationService(settings).set_password(setup, user, "correct horse battery staple")
     setup.commit()
 
@@ -49,13 +67,24 @@ def test_http_login_refresh_logout_and_csrf() -> None:
     app.dependency_overrides[auth_settings_dependency] = lambda: settings
     app.dependency_overrides[get_settings] = lambda: settings
     try:
-        client = TestClient(app)
+        client = TestClient(app, base_url="https://testserver")
         assert client.get("/api/v1/auth/csrf").status_code == 401
         login = client.post(
             "/api/v1/auth/login",
             json={"email": "http@example.test", "password": "correct horse battery staple"},
         )
         assert login.status_code == 200
+        from http.cookies import SimpleCookie
+
+        for raw in login.headers.get_list("set-cookie"):
+            jar = SimpleCookie()
+            jar.load(raw)
+            for name, cookie in jar.items():
+                assert bool(cookie["secure"]) == (environment == "production")
+                assert bool(cookie["httponly"]) == (name == settings.auth_refresh_cookie_name)
+                assert cookie["samesite"] == settings.auth_cookie_samesite
+                assert cookie["path"] == settings.auth_cookie_path
+        old_refresh = client.cookies.get(settings.auth_refresh_cookie_name)
         access_token = login.json()["access_token"]
         assert (
             client.get(
@@ -75,6 +104,8 @@ def test_http_login_refresh_logout_and_csrf() -> None:
         )
         refresh = client.post("/api/v1/auth/refresh", headers={"X-PrufAI-CSRF": csrf})
         assert refresh.status_code == 200
+        if old_refresh == client.cookies.get(settings.auth_refresh_cookie_name):
+            raise AssertionError("refresh credential did not rotate")
         assert (
             client.post(
                 "/api/v1/auth/logout",
@@ -90,6 +121,12 @@ def test_http_login_refresh_logout_and_csrf() -> None:
             },
         )
         assert logout.status_code == 204
+        for raw in logout.headers.get_list("set-cookie"):
+            jar = SimpleCookie()
+            jar.load(raw)
+            for name, cookie in jar.items():
+                assert bool(cookie["secure"]) == (environment == "production")
+                assert bool(cookie["httponly"]) == (name == settings.auth_refresh_cookie_name)
         assert client.get("/api/v1/auth/csrf").status_code == 401
         assert (
             client.get(

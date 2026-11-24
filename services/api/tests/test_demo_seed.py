@@ -1,5 +1,6 @@
 """Unit/service checks for the explicit synthetic demo bootstrap."""
 
+import secrets
 import uuid
 
 import pytest
@@ -35,7 +36,13 @@ def test_demo_seed_requires_explicit_development_environment() -> None:
         require_demo_environment(_settings(), enabled=False)
     with pytest.raises(RuntimeError, match="ENVIRONMENT=development"):
         require_demo_environment(
-            Settings(_env_file=None, environment="production", auth_rate_limit_backend="redis"),
+            Settings(
+                _env_file=None,
+                environment="production",
+                auth_rate_limit_backend="redis",
+                auth_jwt_secret=secrets.token_urlsafe(48),
+                auth_cookie_secure=True,
+            ),
             enabled=True,
         )
 

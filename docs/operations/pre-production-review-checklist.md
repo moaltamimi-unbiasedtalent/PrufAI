@@ -8,6 +8,17 @@ Preserve the historical GitHub review records. PR #60 has an earlier
 checkpoint: E03A stays blocked until its independent review and formal P2
 closure are recorded, even if the other launch reviews are still open.
 
+The [D-01 redacted evidence index](../releases/v1-evidence-index/README.md) supplies
+navigation and local integrity checks only. Reviewer appointment and disposition
+paperwork remains deferred before production readiness. R81-01 authorized
+closure, production backend-guard P2 formal closure, legacy-fence P2 formal
+closure, P1 acceptance, H10, PR #60 P2, E02A-S1 and historical merge-review
+exceptions remain **OPEN** pending their applicable authorized decisions.
+The [production configuration corrections](../security/production-auth-configuration.md)
+provide technical controls; they do not themselves close the historical rows
+below. E05 historical startup timeout **ROOT CAUSE UNRESOLVED**. E03A **BLOCKED**;
+production readiness **NO**; pilot launch **NOT AUTHORIZED**.
+
 | Item | Current evidence | What closes it |
 | --- | --- | --- |
 | P1 cross-partition submission integrity | **OPEN, RELEASE-BLOCKING pending independent acceptance.** This draft implements the [durable single-writer policy](../releases/v1-lid-single-writer.md); implementation and automated evidence do not close this finding. The PR #73 review reproduced the same synthetic candidate submitting from a separate browser storage partition while a replacement remained queued in the first. The server finalized revision 1 and rejected the queued replacement with HTTP 409. Browser-local locks cover cooperating contexts in one storage partition. | Deliver a separately reviewed server-visible coordination mechanism or an enforceable single-writer policy before permitting concurrent partitions/devices in a pilot. Prove safe behavior across independent authenticated sessions, unsent/offline edits, timeout, takeover, expiry and recovery. Preserve immutable response revisions and explicit candidate confirmation. See the separate milestone below. |

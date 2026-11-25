@@ -71,6 +71,9 @@ make ai-dev    # http://localhost:8001/health
 
 Run each development service in its own terminal. The API exposes process liveness at `/health` and dependency readiness at `/ready`. See [local demo setup](docs/local-demo.md) for disposable product journeys.
 
+Independent reviewers can use the offline [redacted V1 evidence index](docs/releases/v1-evidence-index/README.md)
+to navigate pinned source, CI and artifact receipts. It grants no human approval or launch authority.
+
 ## Validation commands
 
 ```bash

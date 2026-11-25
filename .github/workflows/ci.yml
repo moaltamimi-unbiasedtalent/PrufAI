@@ -201,6 +201,10 @@ jobs:
         run: bash scripts/setup-media-runtime.sh
       - run: python -m ruff check services/api services/ai
       - run: python -m ruff format --check services/api services/ai
+      - name: Check offline release-evidence index tooling
+        run: |
+          python -m ruff check --config services/api/pyproject.toml scripts/release-evidence-index
+          python -m ruff format --check --config services/api/pyproject.toml scripts/release-evidence-index
       - run: python -m mypy services/api/app
       - run: python -m mypy services/ai/app
       - name: Initial scoped review authority (required PostgreSQL)

@@ -159,6 +159,19 @@ class Settings(BaseSettings):
             raise ValueError("production requires AUTH_COOKIE_SECURE=true")
         return self
 
+    @model_validator(mode="after")
+    def production_backend_boundary(self) -> "Settings":
+        # These fields precede environment, so field validators cannot use
+        # info.data to enforce their cross-field production policy.
+        if self.environment == "production":
+            if self.object_storage_backend != "s3":
+                raise ValueError("production object storage requires object_storage_backend=s3")
+            if self.knowledge_embedding_backend == "deterministic":
+                raise ValueError("production embeddings cannot use the deterministic test backend")
+            if self.knowledge_reranker_backend == "deterministic":
+                raise ValueError("production reranking cannot use the deterministic test backend")
+        return self
+
     @field_validator("auth_rate_limit_backend")
     @classmethod
     def production_requires_redis(cls, value: str, info: object) -> str:
@@ -167,35 +180,11 @@ class Settings(BaseSettings):
             raise ValueError("production authentication rate limiting must use Redis")
         return value
 
-    @field_validator("object_storage_backend")
-    @classmethod
-    def production_requires_object_storage(cls, value: str, info: object) -> str:
-        data = getattr(info, "data", {})
-        if data.get("environment") == "production" and value != "s3":
-            raise ValueError("production object storage must use an S3-compatible backend")
-        return value
-
-    @field_validator("knowledge_embedding_backend")
-    @classmethod
-    def production_requires_real_embeddings(cls, value: str, info: object) -> str:
-        data = getattr(info, "data", {})
-        if data.get("environment") == "production" and value == "deterministic":
-            raise ValueError("production embeddings cannot use the deterministic test backend")
-        return value
-
     @field_validator("knowledge_embedding_dimension")
     @classmethod
     def embedding_dimension_is_supported(cls, value: int) -> int:
         if value != 384:
             raise ValueError("the MVP pgvector dimension is fixed at 384")
-        return value
-
-    @field_validator("knowledge_reranker_backend")
-    @classmethod
-    def production_requires_real_reranking(cls, value: str, info: object) -> str:
-        data = getattr(info, "data", {})
-        if data.get("environment") == "production" and value == "deterministic":
-            raise ValueError("production reranking cannot use the deterministic test backend")
         return value
 
     @classmethod

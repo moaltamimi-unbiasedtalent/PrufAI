@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -96,13 +97,22 @@ def test_storage_key_and_s3_round_trip_with_fake_client() -> None:
 
 
 def test_production_storage_cannot_fall_back_to_memory() -> None:
-    settings = Settings(
-        environment="production",
-        auth_jwt_secret=secrets.token_urlsafe(48),
-        auth_cookie_secure=True,
-        auth_rate_limit_backend="redis",
-        object_storage_backend="memory",
-    )
+    with pytest.raises(ValidationError, match="object_storage_backend=s3"):
+        Settings(
+            _env_file=None,
+            environment="production",
+            auth_jwt_secret=secrets.token_urlsafe(48),
+            auth_cookie_secure=True,
+            auth_rate_limit_backend="redis",
+            object_storage_backend="memory",
+            knowledge_embedding_backend="openai",
+            knowledge_reranker_backend="openai",
+        )
+
+
+def test_storage_factory_still_rejects_legacy_unsafe_production_settings() -> None:
+    # Defense in depth for objects created without normal Settings validation.
+    settings = Settings.model_construct(environment="production", object_storage_backend="memory")
     with pytest.raises(StorageError, match="cannot use in-memory"):
         build_object_storage(settings)
 

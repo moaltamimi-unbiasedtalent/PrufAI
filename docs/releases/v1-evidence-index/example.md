@@ -35,7 +35,7 @@ Applied migration head: `0001_fixture`. General-suite skips are outside these re
 
 | Artifact | Availability / verification | SHA-256 |
 | --- | --- | --- |
-| containers | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `ed1bd7545a7592d824b001b06d13406a5510c70276c55f2520b3125af53e0277` |
+| containers | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `8c65b7e999c5e4a76178a57a6a651469853e08827b64ae5467779e746d304878` |
 | language | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `ea698ce4cbfd5d4c278dcb7d4e1531b206d70a7e5e9f3f98c6a3129ceeeccf32` |
 
 containers recorded expiry: `2026-12-24T00:00:00Z`.
@@ -44,8 +44,8 @@ language recorded expiry: `2026-12-24T00:00:00Z`.
 
 E06A manifest/rehearsal verification: **LOCAL_CHECKSUMS_MATCHED**.
 
-- `v1-e06a-release-manifest.json` SHA-256: `c1b414cea34b14bf179128fb6aa32320eabde948c1b926f6a2c65eaa7f5747f5`
-- `v1-e06a-rehearsal.json` SHA-256: `774d94c659155f8f473843bb4441cce802a1b010533e34b169a933e7f21e663d`
+- `v1-e06a-release-manifest.json` SHA-256: `9be5918cce5216d375b966b3022879b75d1ffd3b0cf5a43a67ca48d6daf90c77`
+- `v1-e06a-rehearsal.json` SHA-256: `b1b2edad06cb0d1f8314b2061f61d02c032e57834f781458a8c05637a14c1135`
 
 ## POST_MERGE
 
@@ -72,7 +72,7 @@ Applied migration head: `0001_fixture`. General-suite skips are outside these re
 
 | Artifact | Availability / verification | SHA-256 |
 | --- | --- | --- |
-| containers | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `df34bcf6b2bc65eb4107938ecab36de1f73745d7eb107842a328a266cf0589a0` |
+| containers | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `24b00c528e79750bab81ada0256a6aee9d792ca6f5a53c35eb6795c729cda427` |
 | language | LOCAL_AVAILABLE / LOCAL_CHECKSUM_MATCHED | `fce9d96c308d2c36e032fb935da64348aebed5c2f302c14f1f13400526f7f5f4` |
 
 containers recorded expiry: `2026-12-24T00:00:00Z`.
@@ -81,8 +81,8 @@ language recorded expiry: `2026-12-24T00:00:00Z`.
 
 E06A manifest/rehearsal verification: **LOCAL_CHECKSUMS_MATCHED**.
 
-- `v1-e06a-release-manifest.json` SHA-256: `f43f560ffa3816810db2f236cb7850b726bf7d0710c1da1a1974db4a37b69d3e`
-- `v1-e06a-rehearsal.json` SHA-256: `c12606a6f224919b0534415367fe667dbb4b57d77ee35219e7c054c82ebb1c39`
+- `v1-e06a-release-manifest.json` SHA-256: `ba97ca7ba80e45f5836b4a011b05ec79f76c1190d930176c96884027d4f36d07`
+- `v1-e06a-rehearsal.json` SHA-256: `d99a196bb3b042995256e9e3f7cb9a4737139ceb88838ef9001a53b06a8933c3`
 
 ## Open decisions
 

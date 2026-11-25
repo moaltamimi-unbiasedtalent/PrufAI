@@ -109,6 +109,9 @@ sets unverified, and keeps general API sweep skips outside required totals.
 Nonzero required skips cannot accompany a reported successful application run.
 An applied head is shown only when the log contains one matching observation;
 E06A's rehearsal head is independently checked against the same source graph.
+Both E06A source-repository declarations and the declared rehearsal filename
+must match the fixed contract. A contradictory name or repository is rejected,
+even if all surrounding hashes have been recomputed; no declared path is followed.
 
 ## Generate and verify locally
 
@@ -169,3 +172,5 @@ R81-01, backend-guard P2, legacy-fence P2, P1 acceptance, H10, PR #60 P2,
 E02A-S1 and merge-review exceptions remain OPEN pending authorized decisions.
 E05 historical startup timeout ROOT CAUSE UNRESOLVED. E03A BLOCKED.
 No production, pilot, official-content or certificate authority is granted.
+
+Captured jobs must match the declared workflow attempt. Duplicate report fields, including nested module counts, are rejected before parsing a required-skip total.

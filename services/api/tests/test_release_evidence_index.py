@@ -155,6 +155,7 @@ def evidence(tmp_path, monkeypatch):
                 {
                     "id": run_id * 10 + i,
                     "run_id": run_id,
+                    "run_attempt": 1,
                     "head_sha": identity["sha"],
                     "name": name,
                     "status": "completed",
@@ -172,7 +173,7 @@ def evidence(tmp_path, monkeypatch):
         put(bundle, slot + "-python.log", log)
         run_id = request["runs"][slot]["supply-chain"]
         proof = {
-            "source": {"commit": identity["sha"], "tree": tree},
+            "source": {"repository": index.REPOSITORY, "commit": identity["sha"], "tree": tree},
             "alembic_head": "0001_fixture",
             "profile": "SYNTHETIC_TEST",
             "status": "PASS",
@@ -191,6 +192,7 @@ def evidence(tmp_path, monkeypatch):
                 "supply_chain_run": str(run_id),
                 "supply_chain_attempt": "1",
                 "classification": "technical execution evidence",
+                "evidence_file": "v1-e06a-rehearsal.json",
             },
             "CONTENT_APPROVAL": {
                 "BERLIN_FORM_APPROVAL": "NOT VERIFIED",
@@ -369,7 +371,7 @@ def test_conflicting_ci_rejected(evidence, case):
 
 
 @pytest.mark.parametrize(
-    "case", ["duplicate", "wrong_run", "wrong_sha", "unknown", "false_success"]
+    "case", ["duplicate", "wrong_run", "wrong_attempt", "wrong_sha", "unknown", "false_success"]
 )
 def test_job_identity_and_success_consistency(evidence, case):
     def change(d):
@@ -380,6 +382,7 @@ def test_job_identity_and_success_consistency(evidence, case):
             d["jobs"][0].update(
                 {
                     "wrong_run": {"run_id": 999},
+                    "wrong_attempt": {"run_attempt": 2},
                     "wrong_sha": {"head_sha": "b" * 40},
                     "unknown": {"name": "unknown-job"},
                     "false_success": {"conclusion": "failure"},
@@ -451,6 +454,9 @@ def test_artifact_binding_rejections(evidence, case):
         "human_approval",
         "official_content",
         "manifest_hash",
+        "source_repository",
+        "rehearsal_reference",
+        "unsafe_rehearsal_reference",
     ],
 )
 def test_nested_e06a_integrity_rejections(evidence, case):
@@ -459,6 +465,12 @@ def test_nested_e06a_integrity_rejections(evidence, case):
             d["schema"] = "unsupported/2"
         if case == "source":
             d["SOURCE_IDENTITY"]["commit"] = "a" * 40
+        if case == "source_repository":
+            d["SOURCE_IDENTITY"]["repository"] = "different/repository"
+        if case == "rehearsal_reference":
+            d["TEST_EVIDENCE"]["evidence_file"] = "wrong-rehearsal.json"
+        if case == "unsafe_rehearsal_reference":
+            d["TEST_EVIDENCE"]["evidence_file"] = "../secret.json"
         if case == "tree":
             d["SOURCE_IDENTITY"]["tree"] = "a" * 40
         if case == "run":
@@ -505,7 +517,17 @@ def test_archive_summary_source_must_match(evidence, kind):
 
 @pytest.mark.parametrize(
     "case",
-    ["duplicate", "conflict", "unknown", "missing", "wrong_source", "multiple_heads", "malformed"],
+    [
+        "duplicate",
+        "conflict",
+        "unknown",
+        "missing",
+        "wrong_source",
+        "multiple_heads",
+        "malformed",
+        "duplicate_skip_key",
+        "duplicate_module_key",
+    ],
 )
 def test_required_report_integrity_and_partial_status(evidence, case):
     root, _ = evidence
@@ -517,6 +539,13 @@ def test_required_report_integrity_and_partial_status(evidence, case):
         "multiple_heads": b"{'alembic_head': [('0001_fixture',)]}\n",
         "malformed": b'{"required_skips": 0\n',
     }
+    if case == "duplicate_skip_key":
+        data = data.replace(b'"required_skips": 0', b'"required_skips": 1, "required_skips": 0', 1)
+    elif case == "duplicate_module_key":
+        data = data.replace(
+            b'"test_fixture_postgresql_integration": 2',
+            b'"test_fixture_postgresql_integration": 0, "test_fixture_postgresql_integration": 2',
+        )
     if case == "missing":
         put(root, "head-python.log", b"\n".join(data.splitlines()[:2]))
         proof = generate(evidence)["revisions"][0]["required_integrations"]
@@ -526,7 +555,7 @@ def test_required_report_integrity_and_partial_status(evidence, case):
         data = data.replace(
             get(root, "index-input.json")["sources"]["head"]["sha"].encode(), b"b" * 40
         )
-    else:
+    elif case not in {"duplicate_skip_key", "duplicate_module_key"}:
         data += extra[case]
     put(root, "head-python.log", data)
     with pytest.raises(index.EvidenceError):

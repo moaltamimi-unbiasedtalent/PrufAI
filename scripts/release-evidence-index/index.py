@@ -385,7 +385,13 @@ def integration(log, source, revision):
         need(line.endswith("}"), "INVALID_LOG")
         need(len(line) <= 8192, "INVALID_LOG")
         try:
-            data = ast.literal_eval(line)
+            tree = ast.parse(line, mode="eval")
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Dict):
+                    keys = [ast.literal_eval(key) for key in node.keys]
+                    need(all(isinstance(key, str) for key in keys), "INVALID_LOG")
+                    need(len(keys) == len(set(keys)), "DUPLICATE_REPORT_FIELD")
+            data = ast.literal_eval(tree)
         except (ValueError, SyntaxError, RecursionError):
             raise EvidenceError("INVALID_LOG") from None
         need(isinstance(data, dict), "INVALID_LOG")
@@ -488,6 +494,8 @@ def workflow(bundle, slot, kind, revision, run_id):
         seen.add(name)
         job_id = number(job.get("id"))
         number(job.get("run_id"))
+        number(job.get("run_attempt"))
+        need(job["run_attempt"] == run["run_attempt"], "JOB_ATTEMPT_MISMATCH")
         need(job_id not in job_ids, "DUPLICATE_JOB")
         job_ids.add(job_id)
         need(
@@ -570,10 +578,13 @@ def release_files(archive, identity, run_id, attempt, migration):
     need(manifest.get("schema") == MANIFEST_SCHEMA, "UNSUPPORTED_MANIFEST_SCHEMA")
     for data in [manifest.get("SOURCE_IDENTITY", {}), proof.get("source", {})]:
         need(
-            data.get("commit") == identity["sha"] and data.get("tree") == identity["tree"],
+            data.get("repository") == REPOSITORY
+            and data.get("commit") == identity["sha"]
+            and data.get("tree") == identity["tree"],
             "MANIFEST_SOURCE_MISMATCH",
         )
     test = manifest.get("TEST_EVIDENCE", {})
+    need(test.get("evidence_file") == "v1-e06a-rehearsal.json", "REHEARSAL_REFERENCE_MISMATCH")
     need(test.get("classification") == "technical execution evidence", "UNSUPPORTED_REHEARSAL")
     need(test.get("evidence_sha256") == sha(proof_bytes), "REHEARSAL_CHECKSUM_MISMATCH")
     need(

@@ -683,11 +683,31 @@ def test_private_canary_negative_control_and_strict_output_projection(evidence):
     assert value["decisions"]["E03A"] == "BLOCKED"
 
 
+def private_process(arguments, environment):
+    __tracebackhide__ = True
+    try:
+        return subprocess.run(
+            arguments, env=environment, capture_output=True, check=False, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise AssertionError("private diagnostic subprocess did not complete") from None
+
+
+def require_safe_cli_failure(result, canary):
+    __tracebackhide__ = True
+    if canary.encode() in result.stdout + result.stderr:
+        raise AssertionError("diagnostic exposed input")
+    if result.returncode != 2:
+        raise AssertionError("expected controlled CLI rejection")
+    if result.stderr != b"EVIDENCE_INDEX_REJECTED: invalid or inconsistent local evidence\n":
+        raise AssertionError("unexpected CLI diagnostic category")
+
+
 def test_cli_failure_diagnostics_never_echo_secret_or_path(evidence, tmp_path):
     root, source = evidence
     canary = secrets.token_urlsafe(32)
     put(root, "index-input.json", ('{"token":"' + canary).encode())
-    result = subprocess.run(
+    result = private_process(
         [
             sys.executable,
             str(SCRIPT),
@@ -698,15 +718,11 @@ def test_cli_failure_diagnostics_never_echo_secret_or_path(evidence, tmp_path):
             "--output",
             str(tmp_path / canary),
         ],
-        env={"PATH": os.defpath},
-        capture_output=True,
-        check=False,
+        {"PATH": os.defpath},
     )
-    assert result.returncode == 2
-    if canary.encode() in result.stdout + result.stderr:
-        raise AssertionError("diagnostic exposed input")
-    assert result.stderr == b"EVIDENCE_INDEX_REJECTED: invalid or inconsistent local evidence\n"
-    assert not (tmp_path / canary).exists()
+    require_safe_cli_failure(result, canary)
+    if (tmp_path / canary).exists():
+        raise AssertionError("rejected invocation created output")
 
 
 def test_ordering_and_canonical_revision_links(evidence):
@@ -862,44 +878,88 @@ def test_truncated_artifact_listing_is_not_verified(evidence):
 
 
 @pytest.mark.parametrize("arguments", [["--unknown"], ["--output"]])
-def test_argument_parser_does_not_echo_unknown_credentials(arguments, capsys, monkeypatch):
+def test_argument_parser_does_not_echo_unknown_credentials(arguments):
     canary = secrets.token_urlsafe(32)
-    monkeypatch.setattr(sys, "argv", ["private-" + canary, *arguments, canary])
-    assert index.main() == 2
-    captured = capsys.readouterr()
-    if canary in captured.out + captured.err:
-        raise AssertionError("argument diagnostic exposed input")
-    assert captured.err == "EVIDENCE_INDEX_REJECTED: invalid or inconsistent local evidence\n"
+    code = """
+import importlib.util,os,sys
+spec=importlib.util.spec_from_file_location('private_index',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+sys.argv=['private-'+os.environ['CANARY'],*sys.argv[2:],os.environ['CANARY']]
+raise SystemExit(m.main())
+"""
+    result = private_process(
+        [sys.executable, "-c", code, str(SCRIPT), *arguments],
+        {"PATH": os.defpath, "CANARY": canary},
+    )
+    require_safe_cli_failure(result, canary)
 
 
-def test_git_timeout_diagnostic_does_not_echo_command_paths(
-    evidence, tmp_path, capsys, monkeypatch
-):
+def test_git_timeout_diagnostic_does_not_echo_command_paths(evidence, tmp_path):
     root, source = evidence
     canary = secrets.token_urlsafe(32)
     unsafe = subprocess.TimeoutExpired(["git", canary], 15)
     if canary not in str(unsafe):
         raise AssertionError("unsafe diagnostic control did not execute")
-
-    def timeout(*_args, **_kwargs):
-        raise unsafe
-
-    monkeypatch.setattr(index.Source, "git", timeout)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "tool",
-            "--bundle",
-            str(root),
-            "--repository",
-            str(source),
-            "--output",
-            str(tmp_path / canary),
-        ],
+    code = """
+import importlib.util,os,subprocess,sys
+script,bundle,source,output=sys.argv[1:]
+spec=importlib.util.spec_from_file_location('private_index',script)
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+def timeout(*_a,**_k): raise subprocess.TimeoutExpired(['git',os.environ['CANARY']],15)
+m.Source.git=timeout
+sys.argv=['tool','--bundle',bundle,'--repository',source,'--output',output]
+raise SystemExit(m.main())
+"""
+    result = private_process(
+        [sys.executable, "-c", code, str(SCRIPT), str(root), str(source), str(tmp_path / canary)],
+        {"PATH": os.defpath, "CANARY": canary},
     )
-    assert index.main() == 2
-    captured = capsys.readouterr()
-    if canary in captured.out + captured.err:
-        raise AssertionError("timeout diagnostic exposed input")
-    assert not (tmp_path / canary).exists()
+    require_safe_cli_failure(result, canary)
+    if (tmp_path / canary).exists():
+        raise AssertionError("rejected invocation created output")
+
+
+def test_forced_parser_regression_fails_without_public_canary(tmp_path):
+    __tracebackhide__ = True
+    canary = secrets.token_urlsafe(32)
+    plugin = """
+def pytest_runtest_call(item):
+ if "test_argument_parser_does_not_echo_unknown_credentials" in item.name:
+  item.module.secrets.token_urlsafe=lambda *_a: CANARY
+  original=item.module.private_process
+  def unsafe(arguments,environment):
+   args=list(arguments)
+   args[2]=args[2].replace("raise SystemExit(m.main())",
+       "import argparse; m.SafeParser=argparse.ArgumentParser; raise SystemExit(m.main())")
+   return original(args,environment)
+  item.module.private_process=unsafe
+""".replace("CANARY", repr(canary))
+    control = tmp_path / "private_d01_control.py"
+    control.write_text(plugin)
+    control.chmod(0o600)
+    result = private_process(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(Path(__file__).resolve()),
+            "-k",
+            "test_argument_parser_does_not_echo_unknown_credentials",
+            "-p",
+            "private_d01_control",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            "--basetemp=" + str(tmp_path / "child-pytest"),
+        ],
+        {
+            "PATH": os.defpath,
+            "PYTHONPATH": str(tmp_path) + os.pathsep + str(ROOT / "services/api"),
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
+    )
+    if result.returncode == 0 or b"2 failed" not in result.stdout:
+        raise AssertionError("unsafe parser control was not rejected by both probes")
+    if canary.encode() in result.stdout + result.stderr:
+        raise AssertionError("forced-regression diagnostic escaped private capture")

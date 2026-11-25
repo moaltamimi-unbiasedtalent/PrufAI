@@ -135,6 +135,9 @@ refused. Generation reads all evidence before publishing three owner-only files:
 The same inputs, source objects and `as_of` produce the same bytes. Input files,
 E06A manifests, archives, source trees and operational state are not rewritten.
 The CLI emits fixed success/failure messages without input paths or raw errors.
+Diagnostic probes run in privately captured child processes. A deliberately
+unsafe parser control must cause two expected test failures while leaving zero
+canary occurrences in the outer pytest report; failure output is never relayed.
 
 ## Example and regression commands
 

@@ -42,6 +42,9 @@ def test_demo_seed_requires_explicit_development_environment() -> None:
                 auth_rate_limit_backend="redis",
                 auth_jwt_secret=secrets.token_urlsafe(48),
                 auth_cookie_secure=True,
+                object_storage_backend="s3",
+                knowledge_embedding_backend="openai",
+                knowledge_reranker_backend="openai",
             ),
             enabled=True,
         )

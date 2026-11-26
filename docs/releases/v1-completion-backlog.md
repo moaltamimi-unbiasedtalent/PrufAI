@@ -38,5 +38,5 @@ Use the [scope proposal](v1-scope-proposal.md) and [readiness register](v1-readi
 
 | Ticket | Work | Acceptance and retained evidence |
 | --- | --- | --- |
-| D-01 | Provide a redacted release evidence index with direct links. | A reviewer can locate the exact revision, runs, artifact digests and open decisions without needing participant data. |
+| D-01 | [Offline redacted release-evidence index](v1-evidence-index/README.md): deterministic generator and reviewer page; technical acceptance requires exact-SHA tests and independent review. | A reviewer can locate exact PR-head/post-merge revisions, runs/jobs, locally checked artifact and E06A digests, unavailable evidence and open decisions without participant data. GitHub authentication, human decisions and launch authority remain separate. |
 | D-02 | Improve operator and support handoff copy after dry runs. | A scenario observer can identify the next authorized action and escalation path from the interface or runbook. |

@@ -38,6 +38,9 @@ replacement objects, signature helpers, optional locks or lazy fetching;
 network transports are disabled. It checks the exact trees, second merge parent
 and reviewed-head/merge tree equality. Squash/rebase or unequal-tree merges are
 unsupported and rejected instead of being silently treated as equivalent.
+Both POST_MERGE workflow records must identify `push` on `main`; `phase/**`,
+other branches, missing names and malformed branch values are rejected.
+PR-head records retain their separate `pull_request` contract.
 A draft may specify no merge and no post-merge run; the index then states
 **NOT VERIFIED** and asserts no merge.
 
@@ -92,7 +95,8 @@ For each available `head` or `merge` slot:
 | `<slot>-application-run.json` | Complete API response for the exact application run. Repository, workflow path, event, SHA, ID, attempt and status must agree. |
 | `<slot>-application-jobs.json` | Complete, untruncated jobs response for that run; job IDs, source SHAs and run IDs must match. |
 | `<slot>-supply-chain-run.json`, `<slot>-supply-chain-jobs.json` | Equivalent exact-source Supply-chain captures. |
-| `<slot>-python.log` | Downloaded Python job log, including its exact checkout SHA, required-checker summaries and applied-head observation. Do not provide a manually asserted count. |
+| `<slot>-python.log` | Original downloaded Python job log, including its exact checkout SHA, required-checker summaries and applied-head observation. Do not provide a manually asserted count. |
+| `<slot>-python-log-capture.json` | Fixed capture receipt binding the original log digest to the selected repository, source SHA, Application run, attempt and Python job ID. Required before attributing parsed integration totals. |
 | `<slot>-artifacts.json` | Complete API artifact-list response for that slot's Supply-chain run. Names, IDs, digest, run identity and expiry are validated. |
 | `<slot>-containers.zip`, `<slot>-language.zip` | Original, unmodified downloaded ZIP bytes corresponding to that metadata. Both archive summaries must match the source and scope. The container archive also contains the unchanged E06A files. |
 
@@ -112,6 +116,44 @@ E06A's rehearsal head is independently checked against the same source graph.
 Both E06A source-repository declarations and the declared rehearsal filename
 must match the fixed contract. A contradictory name or repository is rejected,
 even if all surrounding hashes have been recomputed; no declared path is followed.
+
+## Python-log capture receipt
+
+The allowlisted receipt has exactly these fields. This illustration uses
+placeholders and fictitious identifiers; it is not execution evidence:
+
+```json
+{
+  "schema": "prufai-python-log-capture/1",
+  "repository": "moaltamimi-unbiasedtalent/PrufAI",
+  "source_sha": "<40 lowercase hex>",
+  "run_id": 101,
+  "run_attempt": 1,
+  "job_id": 1010,
+  "sha256": "<64 lowercase hex>"
+}
+```
+
+The approved acquirer creates this receipt with the original log download from
+the selected Python job endpoint. Compute SHA-256 over the downloaded bytes,
+before decoding, normalization or newline changes. Preserve the authenticated
+acquisition/custody record separately; do not retrofit a receipt to an unrelated
+cached log. The generator compares every identity against the selected workflow
+and jobs metadata and compares the digest with the actual staged log. A job ID
+for Web or Browser cannot stand in for Python. IDs must be positive integers;
+unknown fields, supplied paths/URLs and unsupported receipt schemas are refused.
+The fixed receipt filename uses the same guarded reader as every other input.
+
+A missing receipt leaves required-report count, skip total and applied log head
+**NOT VERIFIED** (null), even if a log is present. A mismatched receipt or a
+receipt without its log is rejected safely. Correct complete captures retain
+the existing deterministic index output schema and bytes; E06A is unchanged.
+This is local binding, not a signature, proof of GitHub origin or human approval.
+The generator does not fetch logs, create receipts or modify staged evidence.
+
+Malformed supported compressed-member data is mapped to the same fixed CLI
+rejection as other invalid archives: exit 2, no traceback, no raw content and no
+output directory. Existing size, filename, symlink and checksum limits remain.
 
 ## Generate and verify locally
 
@@ -174,3 +216,9 @@ E05 historical startup timeout ROOT CAUSE UNRESOLVED. E03A BLOCKED.
 No production, pilot, official-content or certificate authority is granted.
 
 Captured jobs must match the declared workflow attempt. Duplicate report fields, including nested module counts, are rejected before parsing a required-skip total.
+
+Corrective baseline: PR #84 merge `84ae95bd834f6fdcbc7380bbbc21f8bd99ddfbba`.
+D84-01/02/03 corrections require a fresh independent read-only acceptance review;
+implementation and green CI alone do not declare D-01 technically complete.
+D-02 is the following candidate only after D-01 acceptance. All formal findings,
+review exceptions and launch restrictions above remain unchanged.

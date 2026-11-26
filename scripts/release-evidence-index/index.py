@@ -8,12 +8,14 @@ import ast
 import hashlib
 import io
 import json
+import lzma
 import os
 import re
 import stat
 import subprocess
 import sys
 import zipfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +24,7 @@ WEB = "https://github.com/" + REPOSITORY
 INPUT_SCHEMA = "prufai-release-evidence-input/1"
 SCHEMA = "prufai-release-evidence-index/1"
 MANIFEST_SCHEMA = "prufai-v1-e06a/1"
+PYTHON_CAPTURE_SCHEMA = "prufai-python-log-capture/1"
 LIMIT = 32 * 1024 * 1024
 SLOTS = ("head", "merge")
 WORKFLOWS = {
@@ -78,7 +81,9 @@ KNOWN_FILES = {"index-input.json"}
 DEFERRED_GATES = ("H08", "H11", "A03")
 OPEN_GATES = tuple(gate for gate in OPEN_GATES if gate not in DEFERRED_GATES)
 for _slot in SLOTS:
-    KNOWN_FILES.update({_slot + "-python.log", _slot + "-artifacts.json"})
+    KNOWN_FILES.update(
+        {_slot + "-python.log", _slot + "-python-log-capture.json", _slot + "-artifacts.json"}
+    )
     KNOWN_FILES.update(
         _slot + "-" + kind + suffix for kind in WORKFLOWS for suffix in ("-run.json", "-jobs.json")
     )
@@ -435,6 +440,31 @@ def integration(log, source, revision):
     return result
 
 
+def captured_integration(bundle, slot, source, revision, app):
+    log = bundle.read(slot + "-python.log", optional=True)
+    raw = bundle.read(slot + "-python-log-capture.json", optional=True)
+    need(log is None or app.get("attempt") is not None, "INCONSISTENT_RUN")
+    need(raw is None or log is not None, "CAPTURE_LOG_MISSING")
+    if log is None or raw is None:
+        return integration(None, source, revision)
+    capture = decode(raw)
+    need(
+        set(capture)
+        == {"schema", "repository", "source_sha", "run_id", "run_attempt", "job_id", "sha256"}
+        and capture["schema"] == PYTHON_CAPTURE_SCHEMA,
+        "UNSUPPORTED_CAPTURE_SCHEMA",
+    )
+    need(capture["repository"] == REPOSITORY, "CAPTURE_REPOSITORY_MISMATCH")
+    need(hex_value(capture["source_sha"], 40) == revision, "CAPTURE_SOURCE_MISMATCH")
+    need(number(capture["run_id"]) == app["run_id"], "CAPTURE_RUN_MISMATCH")
+    need(number(capture["run_attempt"]) == app["attempt"], "CAPTURE_ATTEMPT_MISMATCH")
+    python_jobs = [job for job in app["jobs"] if job["name"] == "Python"]
+    need(len(python_jobs) == 1, "CAPTURE_PYTHON_JOB_MISSING")
+    need(number(capture["job_id"]) == python_jobs[0]["id"], "CAPTURE_JOB_MISMATCH")
+    need(hex_value(capture["sha256"], 64) == sha(log), "CAPTURE_CHECKSUM_MISMATCH")
+    return integration(log, source, revision)
+
+
 def workflow(bundle, slot, kind, revision, run_id):
     files = {
         suffix: bundle.read(f"{slot}-{kind}-{suffix}.json", optional=True)
@@ -470,6 +500,7 @@ def workflow(bundle, slot, kind, revision, run_id):
         run.get("event") == ("pull_request" if slot == "head" else "push"),
         "RUN_EVENT_MISMATCH",
     )
+    need(slot != "merge" or run.get("head_branch") == "main", "RUN_BRANCH_MISMATCH")
     need(
         run.get("status") in STATUSES and run.get("conclusion") in CONCLUSIONS,
         "INVALID_RUN_STATUS",
@@ -552,7 +583,16 @@ def zip_members(archive, selected):
                 need(z.getinfo(name).file_size <= LIMIT, "INPUT_TOO_LARGE")
                 result[name] = z.read(name)
             return result
-    except (zipfile.BadZipFile, KeyError, UnicodeError, RuntimeError):
+    except (
+        zipfile.BadZipFile,
+        KeyError,
+        UnicodeError,
+        RuntimeError,
+        zlib.error,
+        lzma.LZMAError,
+        OSError,
+        EOFError,
+    ):
         raise EvidenceError("INVALID_RELEASE_ARCHIVE") from None
 
 
@@ -831,9 +871,7 @@ def generate(bundle, source):
             identity["sha"],
             request["runs"][slot]["supply-chain"],
         )
-        log = bundle.read(slot + "-python.log", optional=True)
-        need(log is None or app.get("attempt") is not None, "INCONSISTENT_RUN")
-        parsed = integration(log, source, identity["sha"])
+        parsed = captured_integration(bundle, slot, source, identity["sha"], app)
         need(
             app["reported_conclusion"] != "success" or parsed["required_skips"] in {None, 0},
             "INCONSISTENT_RUN",

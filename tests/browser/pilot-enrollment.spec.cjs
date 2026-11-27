@@ -337,7 +337,9 @@ test("institution invitation and candidate recovery use real disposable authenti
       400,
     );
     await germanSignIn(page, email, originalPassword, 401);
-    await expect(alert).toContainText("Anmeldung ist fehlgeschlagen");
+    await expect(alert).toHaveText(
+      "E-Mail-Adresse oder Passwort ist falsch, oder die Anmeldung ist vorübergehend begrenzt. Prüfen Sie Ihre Eingaben und versuchen Sie es später erneut.",
+    );
     await germanSignIn(page, email, newPassword, 200);
   } finally {
     await other.close();

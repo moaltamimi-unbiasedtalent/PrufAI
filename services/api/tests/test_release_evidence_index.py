@@ -79,6 +79,25 @@ def unpacked(path):
         return {name: archive.read(name) for name in archive.namelist()}
 
 
+def capture_python_log(root, slot):
+    run = get(root, f"{slot}-application-run.json")
+    jobs = get(root, f"{slot}-application-jobs.json")["jobs"]
+    job = next(item for item in jobs if item["name"] == "python")
+    put_json(
+        root,
+        f"{slot}-python-log-capture.json",
+        {
+            "schema": index.PYTHON_CAPTURE_SCHEMA,
+            "repository": index.REPOSITORY,
+            "source_sha": run["head_sha"],
+            "run_id": run["id"],
+            "run_attempt": run["run_attempt"],
+            "job_id": job["id"],
+            "sha256": index.sha((root / f"{slot}-python.log").read_bytes()),
+        },
+    )
+
+
 @pytest.fixture
 def evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -146,6 +165,7 @@ def evidence(tmp_path, monkeypatch):
                     "repository": {"full_name": index.REPOSITORY},
                     "path": index.WORKFLOWS[kind],
                     "event": "pull_request" if slot == "head" else "push",
+                    "head_branch": "codex/reviewed-head" if slot == "head" else "main",
                     "status": "completed",
                     "conclusion": "success",
                     "run_attempt": 1,
@@ -171,6 +191,7 @@ def evidence(tmp_path, monkeypatch):
             "{'alembic_head': [('0001_fixture',)]}\n"
         ).encode()
         put(bundle, slot + "-python.log", log)
+        capture_python_log(bundle, slot)
         run_id = request["runs"][slot]["supply-chain"]
         proof = {
             "source": {"repository": index.REPOSITORY, "commit": identity["sha"], "tree": tree},
@@ -548,6 +569,7 @@ def test_required_report_integrity_and_partial_status(evidence, case):
         )
     if case == "missing":
         put(root, "head-python.log", b"\n".join(data.splitlines()[:2]))
+        capture_python_log(root, "head")
         proof = generate(evidence)["revisions"][0]["required_integrations"]
         assert proof["verification"] == "NOT VERIFIED" and proof["required_skips"] is None
         return
@@ -558,6 +580,7 @@ def test_required_report_integrity_and_partial_status(evidence, case):
     elif case not in {"duplicate_skip_key", "duplicate_module_key"}:
         data += extra[case]
     put(root, "head-python.log", data)
+    capture_python_log(root, "head")
     with pytest.raises(index.EvidenceError):
         generate(evidence)
 
@@ -570,6 +593,7 @@ def test_required_skips_cannot_be_combined_with_successful_run(evidence):
         .replace(b'"required_skips": 0', b'"required_skips": 1', 1)
     )
     put(root, "head-python.log", data)
+    capture_python_log(root, "head")
     with pytest.raises(index.EvidenceError):
         generate(evidence)
     mutate(evidence, "head-application-run.json", lambda d: d.update(conclusion="failure"))
@@ -602,6 +626,7 @@ def test_missing_workflow_never_becomes_verified(evidence):
     for suffix in ["run", "jobs"]:
         (root / f"head-application-{suffix}.json").unlink()
     (root / "head-python.log").unlink()
+    (root / "head-python-log-capture.json").unlink()
     run = generate(evidence)["revisions"][0]["workflows"][0]
     assert run["verification"] == "NOT VERIFIED" and run["reported_conclusion"] is None
 
@@ -992,3 +1017,206 @@ def pytest_runtest_call(item):
         raise AssertionError("unsafe parser control was not rejected by both probes")
     if canary.encode() in result.stdout + result.stderr:
         raise AssertionError("forced-regression diagnostic escaped private capture")
+
+
+@pytest.mark.parametrize("kind", ["application", "supply-chain"])
+@pytest.mark.parametrize(
+    "branch",
+    [
+        "phase/example",
+        "feature/other",
+        None,
+        "",
+        "Main",
+        "main ",
+        1,
+        True,
+        ["main"],
+        {"name": "main"},
+    ],
+)
+def test_post_merge_requires_main_for_each_workflow(evidence, kind, branch):
+    mutate(evidence, f"merge-{kind}-run.json", lambda d: d.update(head_branch=branch))
+    with pytest.raises(index.EvidenceError):
+        generate(evidence)
+
+
+def test_main_push_and_pr_head_branch_scopes_remain_distinct(evidence):
+    for kind in index.WORKFLOWS:
+        mutate(
+            evidence, f"head-{kind}-run.json", lambda d: d.update(head_branch="phase/reviewed-head")
+        )
+    value = generate(evidence)
+    assert all(
+        w["verification"] == "LOCAL_METADATA_CHECKED"
+        for r in value["revisions"]
+        for w in r["workflows"]
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "schema",
+        "repository",
+        "source",
+        "run",
+        "attempt",
+        "job",
+        "non_python_job",
+        "digest",
+        "malformed_digest",
+        "changed_bytes",
+        "extra",
+        "bool_identifier",
+        "missing_job",
+        "missing_log",
+    ],
+)
+def test_python_capture_receipt_refuses_inconsistent_binding(evidence, case):
+    root, _ = evidence
+
+    def change(d):
+        updates = {
+            "schema": {"schema": "unknown/2"},
+            "repository": {"repository": "other/repository"},
+            "source": {"source_sha": "b" * 40},
+            "run": {"run_id": 999},
+            "attempt": {"run_attempt": 2},
+            "job": {"job_id": 999},
+            "non_python_job": {
+                "job_id": next(
+                    j["id"]
+                    for j in get(root, "head-application-jobs.json")["jobs"]
+                    if j["name"] != "python"
+                )
+            },
+            "digest": {"sha256": "a" * 64},
+            "malformed_digest": {"sha256": "not-a-digest"},
+            "extra": {"credentials": "never emitted"},
+            "bool_identifier": {"run_id": True},
+        }
+        d.update(updates[case])
+
+    if case == "changed_bytes":
+        put(root, "head-python.log", (root / "head-python.log").read_bytes() + b"\n")
+    elif case == "missing_job":
+
+        def remove(d):
+            d["jobs"] = [j for j in d["jobs"] if j["name"] != "python"]
+            d["total_count"] = len(d["jobs"])
+
+        mutate(evidence, "head-application-jobs.json", remove)
+    elif case == "missing_log":
+        (root / "head-python.log").unlink()
+    else:
+        mutate(evidence, "head-python-log-capture.json", change)
+    with pytest.raises(index.EvidenceError):
+        generate(evidence)
+
+
+def test_missing_python_capture_never_attributes_totals(evidence):
+    root, _ = evidence
+    (root / "head-python-log-capture.json").unlink()
+    proof = generate(evidence)["revisions"][0]["required_integrations"]
+    assert proof == {
+        "verification": "NOT VERIFIED",
+        "report_count": None,
+        "required_skips": None,
+        "applied_migration_head": None,
+    }
+
+
+def test_stale_python_capture_cannot_follow_new_attempt_and_job_ids(evidence):
+    root, _ = evidence
+    before = (root / "head-python.log").read_bytes()
+    mutate(evidence, "head-application-run.json", lambda d: d.update(run_attempt=2))
+    mutate(
+        evidence,
+        "head-application-jobs.json",
+        lambda d: [j.update(run_attempt=2, id=j["id"] + 9000) for j in d["jobs"]],
+    )
+    with pytest.raises(index.EvidenceError):
+        generate(evidence)
+    assert (root / "head-python.log").read_bytes() == before
+
+
+def test_complete_capture_receipt_and_reordered_keys_are_deterministic(evidence):
+    root, _ = evidence
+    first = generate(evidence)
+    for slot in index.SLOTS:
+        path = root / f"{slot}-python-log-capture.json"
+        value = get(root, path.name)
+        put(root, path.name, json.dumps(dict(reversed(list(value.items())))).encode())
+    second = generate(evidence)
+    assert index.canonical(first) == index.canonical(second)
+    assert index.markdown(first) == index.markdown(second)
+    assert all(
+        r["required_integrations"]["verification"] == "LOCAL_PARSED" for r in second["revisions"]
+    )
+
+
+@pytest.mark.parametrize(
+    "method", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA]
+)
+def test_corrupt_compressed_member_has_only_fixed_private_diagnostic(evidence, tmp_path, method):
+    __tracebackhide__ = True
+    import struct
+
+    root, source = evidence
+    canary = secrets.token_urlsafe(32)
+    summary = json.loads(unpacked(root / "head-language.zip")["summary.json"])
+    summary["private_payload"] = canary
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=method) as archive:
+        archive.writestr("summary.json", index.canonical(summary))
+    data = bytearray(buffer.getvalue())
+    name_size, extra_size = struct.unpack_from("<HH", data, 26)
+    offset = 30 + name_size + extra_size
+    data[offset + (4 if method == zipfile.ZIP_LZMA else 0)] = (
+        255 if method in {zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA} else 7
+    )
+    put(root, "head-language.zip", bytes(data))
+    mutate(
+        evidence,
+        "head-artifacts.json",
+        lambda d: d["artifacts"][1].update(digest="sha256:" + index.sha(data)),
+    )
+    output = tmp_path / canary
+    result = private_process(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--bundle",
+            str(root),
+            "--repository",
+            str(source),
+            "--output",
+            str(output),
+        ],
+        {"PATH": os.defpath},
+    )
+    require_safe_cli_failure(result, canary)
+    if output.exists():
+        raise AssertionError("rejected archive created output")
+
+
+@pytest.mark.parametrize("kind", ["application", "supply-chain"])
+def test_post_merge_missing_branch_is_refused(evidence, kind):
+    mutate(evidence, f"merge-{kind}-run.json", lambda d: d.pop("head_branch"))
+    with pytest.raises(index.EvidenceError):
+        generate(evidence)
+
+
+def test_new_attempt_with_its_own_capture_remains_supported(evidence):
+    root, _ = evidence
+    mutate(evidence, "head-application-run.json", lambda d: d.update(run_attempt=2))
+    mutate(
+        evidence,
+        "head-application-jobs.json",
+        lambda d: [j.update(run_attempt=2, id=j["id"] + 9000) for j in d["jobs"]],
+    )
+    capture_python_log(root, "head")
+    value = generate(evidence)["revisions"][0]
+    assert value["workflows"][0]["attempt"] == 2
+    assert value["required_integrations"]["verification"] == "LOCAL_PARSED"

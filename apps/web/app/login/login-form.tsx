@@ -3,14 +3,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  accountCard,
-  accountPage,
-  signInUnavailable,
-  styles,
-  useAuth,
-} from "../../lib/auth";
+import { accountCard, accountPage, styles, useAuth } from "../../lib/auth";
 import { workspaceLanding } from "../../lib/access";
+import { signInFailureMessage } from "../../lib/sign-in-failure";
 
 export default function LoginForm({ german = false }: { german?: boolean }) {
   const router = useRouter();
@@ -40,15 +35,7 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
       setPassword("");
       router.replace(landing);
     } catch (cause) {
-      setError(
-        german
-          ? cause instanceof Error && cause.message === signInUnavailable
-            ? signInUnavailable
-            : "Die Anmeldung ist fehlgeschlagen. Prüfen Sie Ihre Eingaben oder versuchen Sie es später erneut."
-          : cause instanceof Error
-            ? cause.message
-            : "Sign in failed.",
-      );
+      setError(signInFailureMessage(cause, german));
     } finally {
       setBusy(false);
     }
@@ -56,7 +43,7 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
   return (
     <main
       style={{ ...styles.center, ...accountPage }}
-      lang={german ? "de" : undefined}
+      lang={german ? "de" : "en"}
     >
       <form onSubmit={submit} style={{ ...styles.card, ...accountCard }}>
         <p style={styles.kicker}>PrüfAI</p>
@@ -119,7 +106,7 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
             ref={alertRef}
             role="alert"
             tabIndex={-1}
-            lang={error === signInUnavailable ? "de" : undefined}
+            lang={error ? (german ? "de" : "en") : "en"}
             style={{ color: "#a42b2b" }}
           >
             {error || sessionError}

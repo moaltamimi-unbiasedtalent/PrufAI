@@ -46,9 +46,9 @@ test("real PostgreSQL outage keeps liveness and permits an explicit sign-in retr
     )).toEqual([]);
     const alert = page.locator("form").getByRole("alert");
     await expect(alert).toHaveText(
-      "Die Anmeldung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es erneut.",
+      "Sign-in is temporarily unavailable. Please try again later. If the problem persists, contact your institution.",
     );
-    await expect(alert).toHaveAttribute("lang", "de");
+    await expect(alert).toHaveAttribute("lang", "en");
     await expect(alert).toBeFocused();
     await expect(page.getByLabel("Email", { exact: true })).toHaveValue(email);
     await expect(page).toHaveURL(/\/login$/);

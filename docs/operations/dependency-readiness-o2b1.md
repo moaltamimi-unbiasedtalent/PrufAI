@@ -54,6 +54,36 @@ Persisted governance audit remains a separate source of evidence.
 See [fault recovery runbooks](deployment-reliability-o2a.md) and the
 [deferred pre-production review checklist](pre-production-review-checklist.md).
 
+### Sign-in support handoff (D-02A / U13)
+
+Candidate sign-in messages distinguish incorrect credentials (HTTP 401) from
+temporary service unavailability (HTTP 503, other 5xx, or a failed network
+request). Both `/anmelden` and `/login` advise an explicit later retry and,
+for a persistent outage, contact with the candidate's institution. This is a
+handoff instruction, not confirmation that a support channel is approved,
+staffed or able to respond. No automatic authentication retry is introduced.
+
+Before investigating a report, verify the exact environment and the operator's
+assigned authority. A candidate report alone authorizes no infrastructure access
+or restart. Keep the report private: retain only necessary time/timezone, route,
+fixed failure category and a safely redacted correlation reference, if available.
+Do not request passwords, cookies, tokens, response content, candidate records
+or unredacted screenshots/logs. Do not infer an account exists from a denial.
+
+| Report or observation                          | Next step for an authorized operator                                                                                                                                             | Boundary / escalation                                                                                                                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Incorrect-credentials guidance                 | Ask the user to check their own entries; use the existing invitation/recovery flow where appropriate.                                                                            | Never disclose account existence, request credentials, or bypass recovery controls.                                                                                        |
+| Temporary-unavailability guidance              | Verify the approved target and compare `/health` process liveness with `/ready` dependency readiness. A liveness 200 alone does not establish recovery.                          | A generic user message does not identify which dependency failed.                                                                                                          |
+| Readiness 503 or verified auth/database outage | Follow the existing **Database or auth dependency outage** runbook in [O2A](deployment-reliability-o2a.md#runbooks); inspect only dependencies within the assigned scope.        | Escalate through the proposed platform/identity operations role only after its actual appointment and within approved authority. No candidate-visible production commands. |
+| Healthy probes but persistent sign-in failure  | Preserve a minimal redacted report and use the same authorized platform/identity handoff. Confirm recovery through an approved synthetic sign-in, not a candidate's credentials. | Do not retry on the user's behalf, claim a session was created, or treat probes as user acceptance.                                                                        |
+
+Actual paging/routing, responder appointments, production operational acceptance
+and H10 human comprehension/accessibility evidence remain **OPEN**. The existing
+`ALERT_DELIVERY = NOT_CONFIGURED` baseline is not changed by this copy correction.
+E03A remains **BLOCKED**; production readiness **NO**; pilot launch
+**NOT AUTHORIZED**. This is a synthetic technical correction awaiting independent
+acceptance, not a human support or UAT disposition.
+
 ## Disposable acceptance
 
 The hosted browser job supplies pinned pgvector, Redis and guarded MinIO.

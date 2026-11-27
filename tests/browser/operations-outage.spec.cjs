@@ -28,8 +28,16 @@ test("frontend reports a real API outage and signs in after the owned API restar
     await page.getByRole("button", { name: "Sign in to workspace" }).click();
     expect((await failure).status()).toBeGreaterThanOrEqual(500);
     await expect(page.locator("form").getByRole("alert")).toHaveText(
-      "Sign in is unavailable. Check that the API and database are running.",
+      "Sign-in is temporarily unavailable. Please try again later. If the problem persists, contact your institution.",
     );
+    await expect(page.locator("form").getByRole("alert")).toBeFocused();
+    await expect(page.locator("form").getByRole("alert")).toHaveAttribute(
+      "lang",
+      "en",
+    );
+    expect(
+      (await page.getByLabel("Email", { exact: true }).inputValue()) === email,
+    ).toBe(true);
     await expect(page).toHaveURL(/\/login$/);
   } finally {
     if (existsSync(marker("paused"))) touch("resume");

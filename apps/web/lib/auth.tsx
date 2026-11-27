@@ -33,6 +33,7 @@ import {
   setSessionToken,
   withSessionLock,
 } from "./api";
+import { SignInFailure } from "./sign-in-failure";
 
 export type { DemoUser } from "./access";
 
@@ -66,9 +67,6 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => undefined,
   selectOrganisation: async () => undefined,
 });
-
-export const signInUnavailable =
-  "Die Anmeldung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es erneut.";
 
 export function AuthProvider({
   children,
@@ -229,19 +227,24 @@ export function AuthProvider({
 
   async function signIn(email: string, password: string, useGerman = false) {
     if (current.current.user) await signOut();
-    const response = await withSessionLock(() =>
-      authFetch("/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      }),
-    );
-    if (response.status === 503) throw new Error(signInUnavailable);
+    const response = await withSessionLock(async () => {
+      try {
+        return await authFetch("/api/v1/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+      } catch {
+        throw new SignInFailure("unavailable");
+      }
+    });
     if (!response.ok)
-      throw new Error(
+      throw new SignInFailure(
         response.status === 401
-          ? "Email or password is incorrect, or sign in is temporarily rate limited."
-          : "Sign in is unavailable. Check that the API and database are running.",
+          ? "credentials"
+          : response.status >= 500
+            ? "unavailable"
+            : "unconfirmed",
       );
     const data = (await response.json()) as { access_token: string };
     announce();

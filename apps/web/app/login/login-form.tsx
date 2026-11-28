@@ -6,6 +6,7 @@ import Link from "next/link";
 import { accountCard, accountPage, styles, useAuth } from "../../lib/auth";
 import { workspaceLanding } from "../../lib/access";
 import { signInFailureMessage } from "../../lib/sign-in-failure";
+import { signOutNoticeMessage } from "../../lib/sign-out-failure";
 
 export default function LoginForm({ german = false }: { german?: boolean }) {
   const router = useRouter();
@@ -17,15 +18,35 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
     loading,
     demoMode,
     error: sessionError,
+    signOutNotice,
+    signingOut,
   } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const switchPending = useRef(false);
   const alertRef = useRef<HTMLParagraphElement>(null);
+  const notice = signOutNotice
+    ? signOutNoticeMessage(signOutNotice, german)
+    : null;
+  const alert = error || notice || sessionError;
   useEffect(() => {
-    if (error) alertRef.current?.focus();
-  }, [error]);
+    if (alert) alertRef.current?.focus();
+  }, [alert]);
+  async function switchAccount() {
+    if (switchPending.current) return;
+    switchPending.current = true;
+    setError(null);
+    try {
+      await signOut();
+      setError(null);
+    } catch {
+      setError(signOutNoticeMessage("unconfirmed", german));
+    } finally {
+      switchPending.current = false;
+    }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -58,15 +79,15 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
             {german ? "Angemeldet als" : "Signed in as"} {user.email}.{" "}
             <button
               type="button"
+              disabled={signingOut}
               onClick={() => router.replace(workspaceLanding(user, membership))}
             >
               {german ? "Arbeitsbereich öffnen" : "Open workspace"}
             </button>{" "}
             <button
               type="button"
-              onClick={() =>
-                void signOut().catch((cause) => setError(String(cause)))
-              }
+              disabled={signingOut}
+              onClick={() => void switchAccount()}
             >
               {german ? "Abmelden" : "Sign out to switch account"}
             </button>
@@ -101,15 +122,15 @@ export default function LoginForm({ german = false }: { german?: boolean }) {
             style={inputStyle}
           />
         </label>
-        {(error || sessionError) && (
+        {alert && (
           <p
             ref={alertRef}
             role="alert"
             tabIndex={-1}
-            lang={error ? (german ? "de" : "en") : "en"}
+            lang={error || notice ? (german ? "de" : "en") : "en"}
             style={{ color: "#a42b2b" }}
           >
-            {error || sessionError}
+            {alert}
           </p>
         )}
         <button

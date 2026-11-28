@@ -34,6 +34,11 @@ import {
   withSessionLock,
 } from "./api";
 import { SignInFailure } from "./sign-in-failure";
+import {
+  SignOutFailure,
+  signOutNoticeMessage,
+  type SignOutNotice,
+} from "./sign-out-failure";
 
 export type { DemoUser } from "./access";
 
@@ -45,6 +50,8 @@ type AuthContextValue = {
   permissions: string[];
   demoMode: boolean;
   error: string | null;
+  signOutNotice: SignOutNotice | null;
+  signingOut: boolean;
   signIn: (
     email: string,
     password: string,
@@ -63,6 +70,8 @@ const AuthContext = createContext<AuthContextValue>({
   permissions: [],
   demoMode: false,
   error: null,
+  signOutNotice: null,
+  signingOut: false,
   signIn: async () => "/",
   signOut: async () => undefined,
   selectOrganisation: async () => undefined,
@@ -80,6 +89,11 @@ export function AuthProvider({
   const [loading, setLoading] = useState(true);
   const [german, setGerman] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signOutNotice, setSignOutNotice] = useState<SignOutNotice | null>(
+    null,
+  );
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutPending = useRef<Promise<void> | null>(null);
   const current = useRef<{
     user: DemoUser | null;
     organisationId: string | null;
@@ -102,6 +116,7 @@ export function AuthProvider({
       setUser(profile);
       setOrganisationId(id);
       setError(null);
+      setSignOutNotice(null);
     },
     [demoMode],
   );
@@ -175,43 +190,51 @@ export function AuthProvider({
     };
   }, [adopt, forget, purgeCurrent]);
 
-  async function signOut() {
+  function signOut(): Promise<void> {
+    // Coalesce even activations arriving before React renders the disabled button.
+    if (signOutPending.current) return signOutPending.current;
+    setSigningOut(true);
     setError(null);
-    lockActiveCandidateAccount(null);
-    try {
-      const csrf = await csrfToken();
-      if (!csrf)
-        throw new Error(
-          "The server session could not be revoked. Retry sign out.",
-        );
-      const response = await authenticatedFetch("/api/v1/auth/logout", {
-        method: "POST",
-        headers: { "X-PrufAI-CSRF": csrf },
-      });
-      if (response.status !== 204)
-        throw new Error(
-          "The server session could not be confirmed revoked. Retry sign out when the service is available.",
-        );
+    setSignOutNotice(null);
+    const pending = (async () => {
+      lockActiveCandidateAccount(null);
       try {
-        await purgeCurrent();
-      } catch {
-        setError(
-          "Signed out on the server. Offline storage could not be cleared; close this tab before using a shared device.",
-        );
-      } finally {
-        forget();
-        announce();
-      }
-    } catch (cause) {
-      const previous = current.current;
-      if (previous.user && previous.organisationId)
-        lockActiveCandidateAccount({
-          userId: previous.user.id,
-          organisationId: previous.organisationId,
+        const csrf = await csrfToken();
+        if (!csrf) throw new SignOutFailure();
+        const response = await authenticatedFetch("/api/v1/auth/logout", {
+          method: "POST",
+          headers: { "X-PrufAI-CSRF": csrf },
         });
-      setError(cause instanceof Error ? cause.message : "Sign out failed.");
-      throw cause;
-    }
+        if (response.status !== 204) throw new SignOutFailure();
+        try {
+          await purgeCurrent();
+        } catch {
+          setSignOutNotice("offline_cleanup_failed");
+          setError(signOutNoticeMessage("offline_cleanup_failed", false));
+        } finally {
+          forget();
+          announce();
+        }
+      } catch {
+        const previous = current.current;
+        if (previous.user && previous.organisationId)
+          lockActiveCandidateAccount({
+            userId: previous.user.id,
+            organisationId: previous.organisationId,
+          });
+        setSignOutNotice("unconfirmed");
+        setError(signOutNoticeMessage("unconfirmed", false));
+        throw new SignOutFailure();
+      } finally {
+        setSigningOut(false);
+      }
+    })();
+    signOutPending.current = pending;
+    const finished = () => {
+      if (signOutPending.current === pending) signOutPending.current = null;
+    };
+    void pending.then(finished, finished);
+    return pending;
   }
   async function clearRecoveredSession() {
     try {
@@ -285,6 +308,8 @@ export function AuthProvider({
     permissions: membership?.permissions ?? [],
     demoMode,
     error,
+    signOutNotice,
+    signingOut,
     signIn,
     german,
     clearRecoveredSession,
@@ -309,6 +334,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     organisationId,
     demoMode,
     error,
+    signingOut,
     signOut,
     selectOrganisation,
   } = useAuth();
@@ -361,6 +387,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span>{user.display_name ?? user.email}</span>
           <button
             style={styles.linkButton}
+            disabled={signingOut}
             onClick={() => {
               void signOut()
                 .then(() => router.push(german ? "/anmelden" : "/login"))

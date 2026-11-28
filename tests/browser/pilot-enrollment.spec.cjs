@@ -2,6 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { randomUUID } = require("node:crypto");
 const { readFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
+const { accountSwitchFailures } = require("./account-switch-fixture.cjs");
 const {
   enrollmentStatus,
   fillSecret,
@@ -16,6 +17,15 @@ const {
 
 // One-time codes and passwords must stay out of failure artifacts and traces.
 test.use({ trace: "off", screenshot: "off", video: "off" });
+
+for (const german of [false, true]) {
+  test(`account switching uses private ${german ? "German" : "English"} failures and explicit recovery`, async ({
+    browser,
+    baseURL,
+  }) => {
+    await accountSwitchFailures(browser, baseURL, german);
+  });
+}
 
 async function captureFor(recipient, purpose, earlier) {
   const path = process.env.PRUFAI_E2E_ENROLLMENT_CAPTURE;

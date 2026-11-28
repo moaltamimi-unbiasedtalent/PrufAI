@@ -84,6 +84,18 @@ E03A remains **BLOCKED**; production readiness **NO**; pilot launch
 **NOT AUTHORIZED**. This is a synthetic technical correction awaiting independent
 acceptance, not a human support or UAT disposition.
 
+The R86-01 account-switch correction separately distinguishes **unconfirmed
+server sign-out** (remain signed in and explicitly retry before changing account)
+from **confirmed server sign-out with failed offline cleanup** (close the tab
+before sharing the device). Both routes use fixed localized notices, without
+transport/CSRF/storage diagnostics. A confirmed successful retry removes stale
+failure text; a failed offline cleanup retains the shared-device warning.
+Concurrent sign-out activations share the same pending operation. These synthetic
+regressions do not establish real-session revocation or human comprehension;
+the existing real enrollment/recovery journeys and H10 remain separate evidence.
+R86-01 remains OPEN pending fresh independent executable acceptance. No formal
+security disposition, E03A authorization or launch permission is granted.
+
 ## Disposable acceptance
 
 The hosted browser job supplies pinned pgvector, Redis and guarded MinIO.

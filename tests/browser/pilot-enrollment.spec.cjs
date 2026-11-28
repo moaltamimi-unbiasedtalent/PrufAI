@@ -89,6 +89,91 @@ async function accept(page, invite, organisation, password, expectedStatus) {
   expect((await response).status()).toBe(expectedStatus);
 }
 
+for (const german of [false, true]) {
+  test(`sign-in support handoff uses fixed ${german ? "German" : "English"} outcomes without automatic retries`, async ({
+    page,
+  }) => {
+    const route = german ? "/anmelden" : "/login";
+    const email = "synthetic-sign-in@example.test";
+    const password = "Synthetic sign-in only!";
+    const privateDetail = "synthetic-private-response-" + randomUUID();
+    const emailField = page.getByLabel(german ? "E-Mail-Adresse" : "Email", {
+      exact: true,
+    });
+    const passwordField = page.getByLabel(german ? "Passwort" : "Password", {
+      exact: true,
+    });
+    const submit = page.getByRole("button", {
+      name: german ? "Anmelden" : "Sign in to workspace",
+      exact: true,
+    });
+    const unavailable = german
+      ? "Die Anmeldung ist vorübergehend nicht verfügbar. Bitte versuchen Sie es später erneut. Wenn das Problem bestehen bleibt, wenden Sie sich an Ihre Einrichtung."
+      : "Sign-in is temporarily unavailable. Please try again later. If the problem persists, contact your institution.";
+    const credentials = german
+      ? "E-Mail-Adresse oder Passwort ist falsch, oder die Anmeldung ist vorübergehend begrenzt. Prüfen Sie Ihre Eingaben und versuchen Sie es später erneut."
+      : "Email or password is incorrect, or sign in is temporarily rate limited. Check your entries and try again later.";
+    let outcome;
+    let loginRequests = 0;
+    let profileRequests = 0;
+    await page.route("**/api/v1/auth/**", async (request) => {
+      const path = new URL(request.request().url()).pathname;
+      if (path === "/api/v1/auth/login") {
+        loginRequests += 1;
+        if (outcome === "network") await request.abort("connectionrefused");
+        else
+          await request.fulfill({
+            status: outcome,
+            contentType: "application/json",
+            body: JSON.stringify({ detail: privateDetail }),
+          });
+      } else {
+        if (path === "/api/v1/auth/me") profileRequests += 1;
+        await request.fulfill({ status: 401, body: "{}" });
+      }
+    });
+    await page.goto(route);
+    await expect(emailField).toBeEnabled();
+    await fillSecret(emailField, email);
+    await fillSecret(passwordField, password);
+    const alert = page.locator("form").getByRole("alert");
+    for (const status of [401, 503, 500, 502, "network"]) {
+      outcome = status;
+      const before = loginRequests;
+      await submit.click();
+      // Compare privately: a broken rendering must not echo response canaries
+      // or entered credentials in Playwright's public assertion diagnostics.
+      await expect
+        .poll(
+          async () =>
+            (await alert.textContent()) ===
+            (status === 401 ? credentials : unavailable),
+        )
+        .toBe(true);
+      await expect(alert).toBeFocused();
+      await expect(alert).toHaveAttribute("lang", german ? "de" : "en");
+      await expect(page.locator("main")).toHaveAttribute(
+        "lang",
+        german ? "de" : "en",
+      );
+      expect((await emailField.inputValue()) === email).toBe(true);
+      expect((await passwordField.inputValue()) === password).toBe(true);
+      expect((await alert.textContent()).includes(privateDetail)).toBe(false);
+      expect(loginRequests - before).toBe(1);
+      expect(profileRequests).toBe(0);
+      expect((await page.context().cookies()).length).toBe(0);
+      await expect(submit).toBeEnabled();
+      expect(new URL(page.url()).pathname === route).toBe(true);
+    }
+    await expect(
+      page.getByRole("link", { name: "Einladung annehmen" }),
+    ).toHaveAttribute("href", "/einladung");
+    await expect(
+      page.getByRole("link", { name: "Passwort vergessen" }),
+    ).toHaveAttribute("href", "/konto/wiederherstellen");
+  });
+}
+
 test("institution invitation and candidate recovery use real disposable authentication", async ({
   page,
   browser,
@@ -252,7 +337,9 @@ test("institution invitation and candidate recovery use real disposable authenti
       400,
     );
     await germanSignIn(page, email, originalPassword, 401);
-    await expect(alert).toContainText("Anmeldung ist fehlgeschlagen");
+    await expect(alert).toHaveText(
+      "E-Mail-Adresse oder Passwort ist falsch, oder die Anmeldung ist vorübergehend begrenzt. Prüfen Sie Ihre Eingaben und versuchen Sie es später erneut.",
+    );
     await germanSignIn(page, email, newPassword, 200);
   } finally {
     await other.close();
